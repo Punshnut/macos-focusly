@@ -13,6 +13,8 @@ Focusly is a lightweight macOS companion that softens your desktop, lets every d
 - Customisable global shortcut powered by Carbon hotkeys; capture any modifier combination directly from Preferences.
 - Preferences window built with SwiftUI that updates overlays in real time and keeps settings in sync with UserDefaults.
 - Login item integration through `SMAppService` so Focusly can light up automatically after you sign in.
+- Modern Swift patterns keep things tidy: `@MainActor` coordination, lightweight `Task` usage, and `ObservableObject` view models ensure responsive, thread-safe UI updates.
+- Feature-focused folders plus a dependency-injected environment make services swappable and ready for testing.
 
 ### Requirements
 - macOS 13 (Ventura) or newer
@@ -64,6 +66,8 @@ Focusly es un compañero ligero para macOS que suaviza tu escritorio, permite qu
 - Atajo global configurable usando hotkeys de Carbon; grábalo directamente desde Preferencias con cualquier combinación de modificadores.
 - Ventana de preferencias creada con SwiftUI que actualiza las superposiciones en tiempo real y sincroniza ajustes en `UserDefaults`.
 - Integración con `SMAppService` para iniciar Focusly automáticamente cuando inicies sesión.
+- Patrones modernos de Swift: coordinación `@MainActor`, uso sencillo de `Task` y view models `ObservableObject` para actualizaciones reactivas y seguras en la interfaz.
+- Carpetas orientadas a funcionalidades y un entorno inyectado mantienen las dependencias explícitas y listas para pruebas.
 
 ### Requisitos
 - macOS 13 (Ventura) o posterior

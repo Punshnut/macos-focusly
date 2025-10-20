@@ -79,23 +79,26 @@ final class StatusBarController: NSObject {
 
     private func configureStatusItem() {
         guard let button = statusItem.button else { return }
-        button.title = localized("Focus")
+        button.title = ""
         button.target = self
         button.action = #selector(handleClick(_:))
         button.appearance = NSAppearance(named: .vibrantLight)
         button.sendAction(on: [.leftMouseUp, .rightMouseUp])
+        button.imagePosition = .imageOnly
+        button.imageScaling = .scaleProportionallyDown
+        button.toolTip = localized("Focusly")
 
         mainMenu.autoenablesItems = false
         mainMenu.appearance = NSAppearance(named: .vibrantLight)
         quickMenu.autoenablesItems = false
         quickMenu.appearance = NSAppearance(named: .vibrantLight)
 
+        updateStatusItemIcon()
         rebuildMenus()
     }
 
     private func rebuildMenus() {
-        guard let button = statusItem.button else { return }
-        button.title = localized(state.enabled ? "Focus•" : "Focus")
+        updateStatusItemIcon()
 
         mainMenu.removeAllItems()
         mainMenu.addItem(makeVersionMenuItem())
@@ -327,4 +330,74 @@ final class StatusBarController: NSObject {
     private func localized(_ key: String) -> String {
         NSLocalizedString(key, tableName: nil, bundle: .module, value: key, comment: "")
     }
+
+    private func updateStatusItemIcon() {
+        guard let button = statusItem.button else { return }
+        button.image = StatusBarIconFactory.icon(isActive: state.enabled)
+        button.alternateImage = StatusBarIconFactory.icon(isActive: true)
+        button.contentTintColor = StatusBarIconFactory.tintColor(isActive: state.enabled)
+        button.image?.isTemplate = true
+    }
+}
+
+private enum StatusBarIconFactory {
+    private static let iconSize: CGFloat = 18
+    private static let canvasSize = NSSize(width: iconSize, height: iconSize)
+
+    static func icon(isActive: Bool) -> NSImage {
+        isActive ? activeIcon : inactiveIcon
+    }
+
+    static func tintColor(isActive: Bool) -> NSColor {
+        if isActive {
+            return NSColor.white
+        } else {
+            return NSColor.secondaryLabelColor
+        }
+    }
+
+    private static let activeIcon: NSImage = {
+        let image = NSImage(size: canvasSize, flipped: false) { rect in
+            let circleRect = rect.insetBy(dx: 2.5, dy: 2.5)
+            let circle = NSBezierPath(ovalIn: circleRect)
+            NSColor.white.setFill()
+            circle.fill()
+
+            let highlightInset = circleRect.width * 0.4
+            var highlightRect = circleRect
+            highlightRect.origin.x -= circleRect.width * 0.1
+            highlightRect.origin.y += circleRect.height * 0.15
+            highlightRect = highlightRect.insetBy(dx: highlightInset, dy: highlightInset)
+            if highlightRect.width > 0 && highlightRect.height > 0 {
+                let highlight = NSBezierPath(ovalIn: highlightRect)
+                NSColor.white.withAlphaComponent(0.45).setFill()
+                highlight.fill()
+            }
+
+            return true
+        }
+        image.isTemplate = true
+        return image
+    }()
+
+    private static let inactiveIcon: NSImage = {
+        let image = NSImage(size: canvasSize, flipped: false) { rect in
+            let outerRect = rect.insetBy(dx: 3, dy: 3)
+            let ring = NSBezierPath(ovalIn: outerRect)
+            ring.lineWidth = 1.8
+            NSColor.white.setStroke()
+            ring.stroke()
+
+            let softGlowRect = outerRect.insetBy(dx: 3.5, dy: 3.5)
+            if softGlowRect.width > 0 && softGlowRect.height > 0 {
+                let glow = NSBezierPath(ovalIn: softGlowRect)
+                NSColor.white.withAlphaComponent(0.35).setFill()
+                glow.fill()
+            }
+
+            return true
+        }
+        image.isTemplate = true
+        return image
+    }()
 }

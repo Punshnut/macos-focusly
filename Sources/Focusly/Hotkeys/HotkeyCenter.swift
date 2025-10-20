@@ -84,7 +84,10 @@ final class HotkeyCenter {
         var hotKeyID = EventHotKeyID()
         GetEventParameter(event, EventParamName(kEventParamDirectObject), EventParamType(typeEventHotKeyID), nil, MemoryLayout<EventHotKeyID>.size, nil, &hotKeyID)
         guard hotKeyID.id == 1 else { return }
-        onActivation?()
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            self.onActivation?()
+        }
     }
 }
 
