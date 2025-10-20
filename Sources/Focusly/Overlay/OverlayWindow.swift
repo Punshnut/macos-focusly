@@ -6,17 +6,35 @@ import QuartzCore
 final class OverlayWindow: NSPanel {
     private let effectView = NSVisualEffectView()
     private let tintView = NSView()
-    private let screenID: DisplayID
+    private var screenID: DisplayID = 0
 
-    init(screen: NSScreen, screenID: DisplayID) {
-        self.screenID = screenID
+    override init(
+        contentRect: NSRect,
+        styleMask: NSWindow.StyleMask,
+        backing: NSWindow.BackingStoreType,
+        defer flag: Bool
+    ) {
         super.init(
+            contentRect: contentRect,
+            styleMask: styleMask,
+            backing: backing,
+            defer: flag
+        )
+        configureWindow()
+    }
+
+    convenience init(screen: NSScreen, screenID: DisplayID) {
+        self.init(
             contentRect: screen.frame,
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
-            defer: false,
-            screen: screen
+            defer: false
         )
+        self.screenID = screenID
+        setFrame(screen.frame, display: false)
+    }
+
+    private func configureWindow() {
         let desktopLevel = Int(CGWindowLevelForKey(.desktopIconWindow))
         level = NSWindow.Level(rawValue: desktopLevel + 1)
         isOpaque = false
@@ -40,18 +58,20 @@ final class OverlayWindow: NSPanel {
         tintView.translatesAutoresizingMaskIntoConstraints = false
         tintView.layer?.cornerRadius = 0
 
-        contentView = NSView(frame: screen.frame)
-        contentView?.wantsLayer = true
-        contentView?.layer?.backgroundColor = NSColor.clear.cgColor
-        contentView?.layerUsesCoreImageFilters = true
-        contentView?.addSubview(effectView)
+        let rootView = NSView(frame: frame)
+        rootView.wantsLayer = true
+        rootView.layer?.backgroundColor = NSColor.clear.cgColor
+        rootView.layerUsesCoreImageFilters = true
+        contentView = rootView
+
+        rootView.addSubview(effectView)
         effectView.addSubview(tintView)
 
         NSLayoutConstraint.activate([
-            effectView.leadingAnchor.constraint(equalTo: contentView!.leadingAnchor),
-            effectView.trailingAnchor.constraint(equalTo: contentView!.trailingAnchor),
-            effectView.topAnchor.constraint(equalTo: contentView!.topAnchor),
-            effectView.bottomAnchor.constraint(equalTo: contentView!.bottomAnchor),
+            effectView.leadingAnchor.constraint(equalTo: rootView.leadingAnchor),
+            effectView.trailingAnchor.constraint(equalTo: rootView.trailingAnchor),
+            effectView.topAnchor.constraint(equalTo: rootView.topAnchor),
+            effectView.bottomAnchor.constraint(equalTo: rootView.bottomAnchor),
             tintView.leadingAnchor.constraint(equalTo: effectView.leadingAnchor),
             tintView.trailingAnchor.constraint(equalTo: effectView.trailingAnchor),
             tintView.topAnchor.constraint(equalTo: effectView.topAnchor),
@@ -89,6 +109,7 @@ final class OverlayWindow: NSPanel {
 
     func updateFrame(to screen: NSScreen) {
         setFrame(screen.frame, display: true)
+        contentView?.frame = screen.frame
     }
 
     func associatedDisplayID() -> DisplayID {
