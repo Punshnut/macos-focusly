@@ -1,0 +1,4 @@
+.build/** linguist-generated
+Package.swift linguist-language=Swift
+Sources/** linguist-detectable=true
+Tests/** linguist-detectable=true
