@@ -58,7 +58,6 @@ final class FocuslyAppCoordinator: NSObject {
     // MARK: - Lifecycle
 
     func start() {
-        NSApp.setActivationPolicy(.accessory)
         overlayService.setEnabled(overlaysEnabled)
         overlayService.refreshDisplays(animated: false)
         listenForDisplayChanges()
