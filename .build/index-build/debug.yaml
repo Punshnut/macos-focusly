@@ -1,0 +1,111 @@
+client:
+  name: basic
+  file-system: device-agnostic
+tools: {}
+targets:
+  "Focusly-arm64-apple-macosx26.0-debug.module": ["<Focusly-arm64-apple-macosx26.0-debug.module>"]
+  "FocuslyPackageTests-arm64-apple-macosx26.0-debug.module": ["<FocuslyPackageTests-arm64-apple-macosx26.0-debug.module>"]
+  "FocuslyTests-arm64-apple-macosx26.0-debug.module": ["<FocuslyTests-arm64-apple-macosx26.0-debug.module>"]
+  "PackageStructure": ["<PackageStructure>"]
+  "main": ["<Focusly-arm64-apple-macosx26.0-debug.module>"]
+  "test": ["<Focusly-arm64-apple-macosx26.0-debug.module>","<FocuslyTests-arm64-apple-macosx26.0-debug.module>"]
+default: "main"
+nodes:
+  "/Users/jan/Documents/vscode/macos-focusly/Sources/Focusly/":
+    is-directory-structure: true
+    content-exclusion-patterns: [".git",".build"]
+  "/Users/jan/Documents/vscode/macos-focusly/Tests/FocuslyTests/":
+    is-directory-structure: true
+    content-exclusion-patterns: [".git",".build"]
+commands:
+  "/Users/jan/Documents/vscode/macos-focusly/.build/index-build/arm64-apple-macosx/debug/Focusly.build/sources":
+    tool: write-auxiliary-file
+    inputs: ["<sources-file-list>","/Users/jan/Documents/vscode/macos-focusly/Sources/Focusly/App/FocuslyAppCoordinator.swift","/Users/jan/Documents/vscode/macos-focusly/Sources/Focusly/App/FocuslyBuildInfo.swift","/Users/jan/Documents/vscode/macos-focusly/Sources/Focusly/App/FocuslyEnvironment.swift","/Users/jan/Documents/vscode/macos-focusly/Sources/Focusly/App/FocuslyMain.swift","/Users/jan/Documents/vscode/macos-focusly/Sources/Focusly/Hotkeys/HotkeyCenter.swift","/Users/jan/Documents/vscode/macos-focusly/Sources/Focusly/Hotkeys/HotkeyShortcut.swift","/Users/jan/Documents/vscode/macos-focusly/Sources/Focusly/Menu/StatusBarController.swift","/Users/jan/Documents/vscode/macos-focusly/Sources/Focusly/Onboarding/OnboardingView.swift","/Users/jan/Documents/vscode/macos-focusly/Sources/Focusly/Onboarding/OnboardingViewModel.swift","/Users/jan/Documents/vscode/macos-focusly/Sources/Focusly/Onboarding/OnboardingWindowController.swift","/Users/jan/Documents/vscode/macos-focusly/Sources/Focusly/Overlay/OverlayService.swift","/Users/jan/Documents/vscode/macos-focusly/Sources/Focusly/Overlay/OverlayWindow.swift","/Users/jan/Documents/vscode/macos-focusly/Sources/Focusly/Preferences/PreferencesView.swift","/Users/jan/Documents/vscode/macos-focusly/Sources/Focusly/Preferences/PreferencesViewModel.swift","/Users/jan/Documents/vscode/macos-focusly/Sources/Focusly/Preferences/PreferencesWindowController.swift","/Users/jan/Documents/vscode/macos-focusly/Sources/Focusly/Profiles/FocusProfileModels.swift","/Users/jan/Documents/vscode/macos-focusly/Sources/Focusly/Profiles/PresetLibrary.swift","/Users/jan/Documents/vscode/macos-focusly/Sources/Focusly/Profiles/ProfileStore.swift","/Users/jan/Documents/vscode/macos-focusly/Sources/Focusly/Support/DisplayID.swift","/Users/jan/Documents/vscode/macos-focusly/Sources/Focusly/Support/LaunchAtLogin.swift","/Users/jan/Documents/vscode/macos-focusly/.build/index-build/arm64-apple-macosx/debug/Focusly.build/DerivedSources/resource_bundle_accessor.swift"]
+    outputs: ["/Users/jan/Documents/vscode/macos-focusly/.build/index-build/arm64-apple-macosx/debug/Focusly.build/sources"]
+    description: "Write auxiliary file /Users/jan/Documents/vscode/macos-focusly/.build/index-build/arm64-apple-macosx/debug/Focusly.build/sources"
+
+  "/Users/jan/Documents/vscode/macos-focusly/.build/index-build/arm64-apple-macosx/debug/FocuslyPackageTests.build/sources":
+    tool: write-auxiliary-file
+    inputs: ["<sources-file-list>","/Users/jan/Documents/vscode/macos-focusly/.build/index-build/arm64-apple-macosx/debug/FocuslyPackageTests.derived/runner.swift"]
+    outputs: ["/Users/jan/Documents/vscode/macos-focusly/.build/index-build/arm64-apple-macosx/debug/FocuslyPackageTests.build/sources"]
+    description: "Write auxiliary file /Users/jan/Documents/vscode/macos-focusly/.build/index-build/arm64-apple-macosx/debug/FocuslyPackageTests.build/sources"
+
+  "/Users/jan/Documents/vscode/macos-focusly/.build/index-build/arm64-apple-macosx/debug/FocuslyTests.build/sources":
+    tool: write-auxiliary-file
+    inputs: ["<sources-file-list>","/Users/jan/Documents/vscode/macos-focusly/Tests/FocuslyTests/ProfileStoreTests.swift"]
+    outputs: ["/Users/jan/Documents/vscode/macos-focusly/.build/index-build/arm64-apple-macosx/debug/FocuslyTests.build/sources"]
+    description: "Write auxiliary file /Users/jan/Documents/vscode/macos-focusly/.build/index-build/arm64-apple-macosx/debug/FocuslyTests.build/sources"
+
+  "/Users/jan/Documents/vscode/macos-focusly/.build/index-build/arm64-apple-macosx/debug/Focusly_Focusly.bundle/Info.plist":
+    tool: copy-tool
+    inputs: ["/Users/jan/Documents/vscode/macos-focusly/.build/index-build/arm64-apple-macosx/debug/Focusly.build/Info.plist"]
+    outputs: ["/Users/jan/Documents/vscode/macos-focusly/.build/index-build/arm64-apple-macosx/debug/Focusly_Focusly.bundle/Info.plist"]
+    description: "Copying /Users/jan/Documents/vscode/macos-focusly/.build/index-build/arm64-apple-macosx/debug/Focusly.build/Info.plist"
+
+  "/Users/jan/Documents/vscode/macos-focusly/.build/index-build/arm64-apple-macosx/debug/Focusly_Focusly.bundle/en.lproj/Localizable.strings":
+    tool: copy-tool
+    inputs: ["/Users/jan/Documents/vscode/macos-focusly/Sources/Focusly/Resources/en.lproj/Localizable.strings"]
+    outputs: ["/Users/jan/Documents/vscode/macos-focusly/.build/index-build/arm64-apple-macosx/debug/Focusly_Focusly.bundle/en.lproj/Localizable.strings"]
+    description: "Copying /Users/jan/Documents/vscode/macos-focusly/Sources/Focusly/Resources/en.lproj/Localizable.strings"
+
+  "/Users/jan/Documents/vscode/macos-focusly/.build/index-build/arm64-apple-macosx/debug/Focusly_Focusly.bundle/es.lproj/Localizable.strings":
+    tool: copy-tool
+    inputs: ["/Users/jan/Documents/vscode/macos-focusly/Sources/Focusly/Resources/es.lproj/Localizable.strings"]
+    outputs: ["/Users/jan/Documents/vscode/macos-focusly/.build/index-build/arm64-apple-macosx/debug/Focusly_Focusly.bundle/es.lproj/Localizable.strings"]
+    description: "Copying /Users/jan/Documents/vscode/macos-focusly/Sources/Focusly/Resources/es.lproj/Localizable.strings"
+
+  "/Users/jan/Documents/vscode/macos-focusly/.build/index-build/arm64-apple-macosx/debug/swift-version--58304C5D6DBC2206.txt":
+    tool: write-auxiliary-file
+    inputs: ["<swift-get-version>","/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc"]
+    outputs: ["/Users/jan/Documents/vscode/macos-focusly/.build/index-build/arm64-apple-macosx/debug/swift-version--58304C5D6DBC2206.txt"]
+    always-out-of-date: "true"
+    description: "Write auxiliary file /Users/jan/Documents/vscode/macos-focusly/.build/index-build/arm64-apple-macosx/debug/swift-version--58304C5D6DBC2206.txt"
+
+  "<Focusly-arm64-apple-macosx26.0-debug.module>":
+    tool: phony
+    inputs: ["/Users/jan/Documents/vscode/macos-focusly/.build/index-build/arm64-apple-macosx/debug/Modules/Focusly.swiftmodule"]
+    outputs: ["<Focusly-arm64-apple-macosx26.0-debug.module>"]
+
+  "<FocuslyPackageTests-arm64-apple-macosx26.0-debug.module>":
+    tool: phony
+    inputs: ["/Users/jan/Documents/vscode/macos-focusly/.build/index-build/arm64-apple-macosx/debug/Modules/FocuslyPackageTests.swiftmodule"]
+    outputs: ["<FocuslyPackageTests-arm64-apple-macosx26.0-debug.module>"]
+
+  "<FocuslyTests-arm64-apple-macosx26.0-debug.module>":
+    tool: phony
+    inputs: ["/Users/jan/Documents/vscode/macos-focusly/.build/index-build/arm64-apple-macosx/debug/Modules/FocuslyTests.swiftmodule"]
+    outputs: ["<FocuslyTests-arm64-apple-macosx26.0-debug.module>"]
+
+  "C.Focusly-arm64-apple-macosx26.0-debug.module":
+    tool: shell
+    inputs: ["/Users/jan/Documents/vscode/macos-focusly/Sources/Focusly/App/FocuslyAppCoordinator.swift","/Users/jan/Documents/vscode/macos-focusly/Sources/Focusly/App/FocuslyBuildInfo.swift","/Users/jan/Documents/vscode/macos-focusly/Sources/Focusly/App/FocuslyEnvironment.swift","/Users/jan/Documents/vscode/macos-focusly/Sources/Focusly/App/FocuslyMain.swift","/Users/jan/Documents/vscode/macos-focusly/Sources/Focusly/Hotkeys/HotkeyCenter.swift","/Users/jan/Documents/vscode/macos-focusly/Sources/Focusly/Hotkeys/HotkeyShortcut.swift","/Users/jan/Documents/vscode/macos-focusly/Sources/Focusly/Menu/StatusBarController.swift","/Users/jan/Documents/vscode/macos-focusly/Sources/Focusly/Onboarding/OnboardingView.swift","/Users/jan/Documents/vscode/macos-focusly/Sources/Focusly/Onboarding/OnboardingViewModel.swift","/Users/jan/Documents/vscode/macos-focusly/Sources/Focusly/Onboarding/OnboardingWindowController.swift","/Users/jan/Documents/vscode/macos-focusly/Sources/Focusly/Overlay/OverlayService.swift","/Users/jan/Documents/vscode/macos-focusly/Sources/Focusly/Overlay/OverlayWindow.swift","/Users/jan/Documents/vscode/macos-focusly/Sources/Focusly/Preferences/PreferencesView.swift","/Users/jan/Documents/vscode/macos-focusly/Sources/Focusly/Preferences/PreferencesViewModel.swift","/Users/jan/Documents/vscode/macos-focusly/Sources/Focusly/Preferences/PreferencesWindowController.swift","/Users/jan/Documents/vscode/macos-focusly/Sources/Focusly/Profiles/FocusProfileModels.swift","/Users/jan/Documents/vscode/macos-focusly/Sources/Focusly/Profiles/PresetLibrary.swift","/Users/jan/Documents/vscode/macos-focusly/Sources/Focusly/Profiles/ProfileStore.swift","/Users/jan/Documents/vscode/macos-focusly/Sources/Focusly/Support/DisplayID.swift","/Users/jan/Documents/vscode/macos-focusly/Sources/Focusly/Support/LaunchAtLogin.swift","/Users/jan/Documents/vscode/macos-focusly/.build/index-build/arm64-apple-macosx/debug/Focusly.build/DerivedSources/resource_bundle_accessor.swift","/Users/jan/Documents/vscode/macos-focusly/.build/index-build/arm64-apple-macosx/debug/swift-version--58304C5D6DBC2206.txt","<Focusly-arm64-apple-macosx26.0-debug.module-resources>","/Users/jan/Documents/vscode/macos-focusly/.build/index-build/arm64-apple-macosx/debug/Focusly.build/sources"]
+    outputs: ["/Users/jan/Documents/vscode/macos-focusly/.build/index-build/arm64-apple-macosx/debug/Modules/Focusly.swiftmodule"]
+    description: "Compiling Swift Module 'Focusly' (21 sources)"
+    args: ["/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc","-module-name","Focusly","-emit-dependencies","-emit-module","-emit-module-path","/Users/jan/Documents/vscode/macos-focusly/.build/index-build/arm64-apple-macosx/debug/Modules/Focusly.swiftmodule","-output-file-map","/Users/jan/Documents/vscode/macos-focusly/.build/index-build/arm64-apple-macosx/debug/Focusly.build/output-file-map.json","-incremental","@/Users/jan/Documents/vscode/macos-focusly/.build/index-build/arm64-apple-macosx/debug/Focusly.build/sources","-I","/Users/jan/Documents/vscode/macos-focusly/.build/index-build/arm64-apple-macosx/debug/Modules","-target","arm64-apple-macosx13.0","-incremental","-enable-batch-mode","-serialize-diagnostics","-Onone","-enable-testing","-j12","-DSWIFT_PACKAGE","-DDEBUG","-DSWIFT_MODULE_RESOURCE_BUNDLE_AVAILABLE","-module-cache-path","/Users/jan/Documents/vscode/macos-focusly/.build/index-build/arm64-apple-macosx/debug/ModuleCache","-parseable-output","-Xfrontend","-entry-point-function-name","-Xfrontend","Focusly_main","-swift-version","5","-parse-as-library","-Xfrontend","-experimental-lazy-typecheck","-Xfrontend","-experimental-skip-all-function-bodies","-Xfrontend","-experimental-allow-module-with-compiler-errors","-Xfrontend","-empty-abi-descriptor","-plugin-path","/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/host/plugins/testing","-sdk","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.0.sdk","-F","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/Frameworks","-F","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/PrivateFrameworks","-I","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib","-L","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib","-g","-Xcc","-isysroot","-Xcc","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.0.sdk","-Xcc","-F","-Xcc","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/Frameworks","-Xcc","-F","-Xcc","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/PrivateFrameworks","-Xcc","-fPIC","-Xcc","-g","-package-name","macos_focusly"]
+
+  "C.FocuslyPackageTests-arm64-apple-macosx26.0-debug.module":
+    tool: shell
+    inputs: ["/Users/jan/Documents/vscode/macos-focusly/.build/index-build/arm64-apple-macosx/debug/FocuslyPackageTests.derived/runner.swift","/Users/jan/Documents/vscode/macos-focusly/.build/index-build/arm64-apple-macosx/debug/swift-version--58304C5D6DBC2206.txt","/Users/jan/Documents/vscode/macos-focusly/.build/index-build/arm64-apple-macosx/debug/Modules/FocuslyTests.swiftmodule","/Users/jan/Documents/vscode/macos-focusly/.build/index-build/arm64-apple-macosx/debug/FocuslyPackageTests.build/sources"]
+    outputs: ["/Users/jan/Documents/vscode/macos-focusly/.build/index-build/arm64-apple-macosx/debug/Modules/FocuslyPackageTests.swiftmodule"]
+    description: "Compiling Swift Module 'FocuslyPackageTests' (1 sources)"
+    args: ["/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc","-module-name","FocuslyPackageTests","-emit-dependencies","-emit-module","-emit-module-path","/Users/jan/Documents/vscode/macos-focusly/.build/index-build/arm64-apple-macosx/debug/Modules/FocuslyPackageTests.swiftmodule","-output-file-map","/Users/jan/Documents/vscode/macos-focusly/.build/index-build/arm64-apple-macosx/debug/FocuslyPackageTests.build/output-file-map.json","-parse-as-library","-incremental","@/Users/jan/Documents/vscode/macos-focusly/.build/index-build/arm64-apple-macosx/debug/FocuslyPackageTests.build/sources","-I","/Users/jan/Documents/vscode/macos-focusly/.build/index-build/arm64-apple-macosx/debug/Modules","-target","arm64-apple-macosx13.0","-incremental","-enable-batch-mode","-serialize-diagnostics","-Onone","-enable-testing","-Xfrontend","-enable-cross-import-overlays","-j12","-DSWIFT_PACKAGE","-DDEBUG","-DSWIFT_MODULE_RESOURCE_BUNDLE_UNAVAILABLE","-module-cache-path","/Users/jan/Documents/vscode/macos-focusly/.build/index-build/arm64-apple-macosx/debug/ModuleCache","-parseable-output","-parse-as-library","-emit-objc-header","-emit-objc-header-path","/Users/jan/Documents/vscode/macos-focusly/.build/index-build/arm64-apple-macosx/debug/FocuslyPackageTests.build/include/FocuslyPackageTests-Swift.h","-Xfrontend","-experimental-lazy-typecheck","-Xfrontend","-experimental-skip-all-function-bodies","-Xfrontend","-experimental-allow-module-with-compiler-errors","-Xfrontend","-empty-abi-descriptor","-plugin-path","/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/host/plugins/testing","-sdk","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.0.sdk","-F","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/Frameworks","-F","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/PrivateFrameworks","-I","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib","-L","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib","-g","-Xcc","-isysroot","-Xcc","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.0.sdk","-Xcc","-F","-Xcc","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/Frameworks","-Xcc","-F","-Xcc","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/PrivateFrameworks","-Xcc","-fPIC","-Xcc","-g","-package-name","macos_focusly"]
+
+  "C.FocuslyTests-arm64-apple-macosx26.0-debug.module":
+    tool: shell
+    inputs: ["/Users/jan/Documents/vscode/macos-focusly/Tests/FocuslyTests/ProfileStoreTests.swift","/Users/jan/Documents/vscode/macos-focusly/.build/index-build/arm64-apple-macosx/debug/swift-version--58304C5D6DBC2206.txt","/Users/jan/Documents/vscode/macos-focusly/.build/index-build/arm64-apple-macosx/debug/Modules/Focusly.swiftmodule","/Users/jan/Documents/vscode/macos-focusly/.build/index-build/arm64-apple-macosx/debug/FocuslyTests.build/sources"]
+    outputs: ["/Users/jan/Documents/vscode/macos-focusly/.build/index-build/arm64-apple-macosx/debug/Modules/FocuslyTests.swiftmodule"]
+    description: "Compiling Swift Module 'FocuslyTests' (1 sources)"
+    args: ["/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc","-module-name","FocuslyTests","-emit-dependencies","-emit-module","-emit-module-path","/Users/jan/Documents/vscode/macos-focusly/.build/index-build/arm64-apple-macosx/debug/Modules/FocuslyTests.swiftmodule","-output-file-map","/Users/jan/Documents/vscode/macos-focusly/.build/index-build/arm64-apple-macosx/debug/FocuslyTests.build/output-file-map.json","-parse-as-library","-incremental","@/Users/jan/Documents/vscode/macos-focusly/.build/index-build/arm64-apple-macosx/debug/FocuslyTests.build/sources","-I","/Users/jan/Documents/vscode/macos-focusly/.build/index-build/arm64-apple-macosx/debug/Modules","-target","arm64-apple-macosx14.0","-incremental","-enable-batch-mode","-serialize-diagnostics","-Onone","-enable-testing","-Xfrontend","-enable-cross-import-overlays","-j12","-DSWIFT_PACKAGE","-DDEBUG","-DSWIFT_MODULE_RESOURCE_BUNDLE_UNAVAILABLE","-module-cache-path","/Users/jan/Documents/vscode/macos-focusly/.build/index-build/arm64-apple-macosx/debug/ModuleCache","-parseable-output","-parse-as-library","-swift-version","5","-Xfrontend","-experimental-lazy-typecheck","-Xfrontend","-experimental-skip-all-function-bodies","-Xfrontend","-experimental-allow-module-with-compiler-errors","-Xfrontend","-empty-abi-descriptor","-plugin-path","/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/host/plugins/testing","-sdk","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.0.sdk","-F","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/Frameworks","-F","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/PrivateFrameworks","-I","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib","-L","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib","-g","-Xcc","-isysroot","-Xcc","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.0.sdk","-Xcc","-F","-Xcc","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/Frameworks","-Xcc","-F","-Xcc","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/PrivateFrameworks","-Xcc","-fPIC","-Xcc","-g","-package-name","macos_focusly"]
+
+  "Focusly-arm64-apple-macosx26.0-debug.module-resources":
+    tool: phony
+    inputs: ["/Users/jan/Documents/vscode/macos-focusly/.build/index-build/arm64-apple-macosx/debug/Focusly_Focusly.bundle/en.lproj/Localizable.strings","/Users/jan/Documents/vscode/macos-focusly/.build/index-build/arm64-apple-macosx/debug/Focusly_Focusly.bundle/es.lproj/Localizable.strings","/Users/jan/Documents/vscode/macos-focusly/.build/index-build/arm64-apple-macosx/debug/Focusly_Focusly.bundle/Info.plist"]
+    outputs: ["<Focusly-arm64-apple-macosx26.0-debug.module-resources>"]
+
+  "PackageStructure":
+    tool: package-structure-tool
+    inputs: ["/Users/jan/Documents/vscode/macos-focusly/Sources/Focusly/","/Users/jan/Documents/vscode/macos-focusly/Tests/FocuslyTests/","/Users/jan/Documents/vscode/macos-focusly/Package.swift","/Users/jan/Documents/vscode/macos-focusly/Package.resolved"]
+    outputs: ["<PackageStructure>"]
+    description: "Planning build"
+    allow-missing-inputs: true
+
