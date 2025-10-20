@@ -183,10 +183,51 @@ final class StatusBarController: NSObject {
         toggleItem.state = state.enabled ? .on : .off
         quickMenu.addItem(toggleItem)
 
+        let presetsTitle = localized("Presets")
         let preferencesTitle = localized("Preferences…")
-        let prefsItem = NSMenuItem(title: preferencesTitle, action: #selector(openPreferences), keyEquivalent: "")
-        prefsItem.target = self
-        quickMenu.addItem(prefsItem)
+        let presetsItem = NSMenuItem(title: presetsTitle, action: nil, keyEquivalent: "")
+        let presetsMenu = NSMenu(title: presetsTitle)
+        for preset in state.presets {
+            let item = NSMenuItem(title: preset.name, action: #selector(selectPreset(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = preset.id
+            item.state = preset.id == state.activePresetID ? .on : .off
+            presetsMenu.addItem(item)
+        }
+        presetsMenu.addItem(.separator())
+        let customizeItem = NSMenuItem(title: preferencesTitle, action: #selector(openPreferences), keyEquivalent: "")
+        customizeItem.target = self
+        presetsMenu.addItem(customizeItem)
+        presetsItem.submenu = presetsMenu
+        quickMenu.addItem(presetsItem)
+
+        quickMenu.addItem(.separator())
+
+        let hotkeyTitle = localized(state.hotkeysEnabled ? "Disable Shortcut" : "Enable Shortcut")
+        let hotkeyItem = NSMenuItem(title: hotkeyTitle, action: #selector(toggleHotkeys), keyEquivalent: "")
+        hotkeyItem.target = self
+        hotkeyItem.state = state.hotkeysEnabled ? .on : .off
+        hotkeyItem.isEnabled = state.hasShortcut
+        quickMenu.addItem(hotkeyItem)
+
+        if state.launchAtLoginAvailable {
+            let loginKey = state.launchAtLoginEnabled ? "Launch at Login ✅" : "Launch at Login ⬜️"
+            let loginTitle = localized(loginKey)
+            let loginItem = NSMenuItem(title: loginTitle, action: #selector(toggleLaunchAtLogin), keyEquivalent: "")
+            loginItem.target = self
+            loginItem.state = state.launchAtLoginEnabled ? .on : .off
+            quickMenu.addItem(loginItem)
+        } else if let message = state.launchAtLoginMessage {
+            let loginItem = NSMenuItem(title: message, action: nil, keyEquivalent: "")
+            loginItem.isEnabled = false
+            quickMenu.addItem(loginItem)
+        }
+
+        quickMenu.addItem(.separator())
+
+        let settingsItem = NSMenuItem(title: localized("Settings…"), action: #selector(openPreferences), keyEquivalent: "")
+        settingsItem.target = self
+        quickMenu.addItem(settingsItem)
 
         let onboardingTitle = localized("Show Introduction…")
         let onboardingItem = NSMenuItem(title: onboardingTitle, action: #selector(showOnboarding), keyEquivalent: "")
@@ -252,6 +293,14 @@ final class StatusBarController: NSObject {
         switch event.type {
         case .rightMouseUp, .rightMouseDown:
             showQuickMenu(with: event)
+        case .leftMouseUp:
+            if event.modifierFlags.contains(.option) || event.modifierFlags.contains(.control) {
+                showMainMenu()
+            } else {
+                toggleOverlay()
+            }
+        case .leftMouseDown:
+            break
         default:
             showMainMenu()
         }
