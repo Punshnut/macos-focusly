@@ -500,9 +500,9 @@ enum StatusBarIconFactory {
                 bar.fill()
             }
 
-            drawBar(-spacing - barWidth, rect.height * 0.58)
-            drawBar(0, rect.height * 0.82)
-            drawBar(spacing + barWidth, rect.height * 0.46)
+            drawBar(offset: -spacing - barWidth, height: rect.height * 0.58)
+            drawBar(offset: 0, height: rect.height * 0.82)
+            drawBar(offset: spacing + barWidth, height: rect.height * 0.46)
             return true
         }
         image.isTemplate = true
