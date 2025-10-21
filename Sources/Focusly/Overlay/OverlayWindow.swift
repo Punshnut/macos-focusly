@@ -1,4 +1,5 @@
 import AppKit
+import CoreImage
 import QuartzCore
 
 @MainActor
@@ -155,7 +156,7 @@ final class OverlayWindow: NSPanel {
 }
 
 private final class OverlayBlurView: NSView {
-    private let blurFilter = CAFilter(name: "gaussianBlur")
+    private let blurFilter = CIFilter(name: "CIGaussianBlur")
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -192,18 +193,18 @@ private final class OverlayBlurView: NSView {
         guard let layer else { return }
 
         guard let blurFilter else {
-            layer.filters = nil
+            layer.backgroundFilters = nil
             return
         }
 
         let clampedRadius = max(0, radius)
-        blurFilter.setValue(clampedRadius, forKey: "inputRadius")
+        blurFilter.setValue(clampedRadius, forKey: kCIInputRadiusKey)
 
         CATransaction.begin()
         CATransaction.setDisableActions(!animated)
         CATransaction.setAnimationDuration(duration)
         CATransaction.setAnimationTimingFunction(CAMediaTimingFunction(name: .easeInEaseOut))
-        layer.filters = clampedRadius > 0 ? [blurFilter] : []
+        layer.backgroundFilters = clampedRadius > 0 ? [blurFilter] : []
         CATransaction.commit()
     }
 }
