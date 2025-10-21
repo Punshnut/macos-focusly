@@ -72,7 +72,7 @@ struct PreferencesView: View {
                 .font(.headline)
 
             ForEach(viewModel.displays) { display in
-                VStack(alignment: .leading, spacing: 10) {
+                VStack(alignment: .leading, spacing: 12) {
                     HStack {
                         Text(display.name)
                             .font(.subheadline)
@@ -83,32 +83,85 @@ struct PreferencesView: View {
                         } label: {
                             Text(String(localized: "Reset", bundle: .module))
                         }
+                        .controlSize(.small)
                     }
 
                     VStack(alignment: .leading, spacing: 6) {
-                        Text(String(localized: "Opacity", bundle: .module))
-                            .font(.caption)
-                            .foregroundColor(.secondary)
+                        HStack {
+                            Text(String(localized: "Opacity", bundle: .module))
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                            Spacer()
+                            Text(opacityLabel(for: display.opacity))
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                                .monospacedDigit()
+                        }
                         Slider(
                             value: Binding(
                                 get: { display.opacity },
                                 set: { viewModel.updateOpacity(for: display.id, value: $0) }
                             ),
-                            in: 0.35...1.0
+                            in: 0.35...1.0,
+                            step: 0.01
                         )
                     }
 
                     VStack(alignment: .leading, spacing: 6) {
-                        Text(String(localized: "Blur Radius", bundle: .module))
-                            .font(.caption)
-                            .foregroundColor(.secondary)
+                        HStack {
+                            Text(String(localized: "Blur Radius", bundle: .module))
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                            Spacer()
+                            Text(blurLabel(for: display.blurRadius))
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                                .monospacedDigit()
+                        }
                         Slider(
                             value: Binding(
                                 get: { display.blurRadius },
                                 set: { viewModel.updateBlur(for: display.id, value: $0) }
                             ),
-                            in: 10...80
+                            in: 10...80,
+                            step: 1
                         )
+                    }
+
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(String(localized: "Tint", bundle: .module))
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        ColorPicker(
+                            String(localized: "Overlay Tint", bundle: .module),
+                            selection: Binding(
+                                get: { Color(nsColor: display.tint) },
+                                set: { newColor in
+                                    if let cgColor = newColor.cgColor,
+                                       let nsColor = NSColor(cgColor: cgColor) {
+                                        viewModel.updateTint(for: display.id, value: nsColor)
+                                    } else {
+                                        viewModel.updateTint(for: display.id, value: display.tint)
+                                    }
+                                }
+                            ),
+                            supportsOpacity: true
+                        )
+                        .labelsHidden()
+                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            .fill(
+                                Color(nsColor: display.tint)
+                                    .opacity(display.opacity)
+                            )
+                            .frame(height: 18)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                    .stroke(Color.primary.opacity(0.08))
+                            )
+                            .accessibilityHidden(true)
+                        Text(String(localized: "Adjust the screen tint and transparency to fit your environment.", bundle: .module))
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
                     }
                 }
                 .padding(10)
@@ -183,5 +236,14 @@ struct PreferencesView: View {
         }
         .buttonStyle(.borderedProminent)
         .controlSize(.small)
+    }
+
+    private func opacityLabel(for value: Double) -> String {
+        let clamped = max(0, min(1, value))
+        return String(format: "%.0f%%", clamped * 100)
+    }
+
+    private func blurLabel(for value: Double) -> String {
+        String(format: "%.0f px", value)
     }
 }

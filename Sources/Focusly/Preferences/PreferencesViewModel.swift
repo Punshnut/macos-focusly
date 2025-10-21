@@ -1,11 +1,11 @@
 import AppKit
 import Combine
 
-    @MainActor
-    final class PreferencesViewModel: ObservableObject {
-        struct DisplaySettings: Identifiable {
-            let id: DisplayID
-            var name: String
+@MainActor
+final class PreferencesViewModel: ObservableObject {
+    struct DisplaySettings: Identifiable {
+        let id: DisplayID
+        var name: String
         var opacity: Double
         var blurRadius: Double
         var tint: NSColor
@@ -72,6 +72,12 @@ import Combine
     func updateBlur(for displayID: DisplayID, value: Double) {
         guard let index = displays.firstIndex(where: { $0.id == displayID }) else { return }
         displays[index].blurRadius = value
+        commit(display: displays[index])
+    }
+
+    func updateTint(for displayID: DisplayID, value: NSColor) {
+        guard let index = displays.firstIndex(where: { $0.id == displayID }) else { return }
+        displays[index].tint = value
         commit(display: displays[index])
     }
 
