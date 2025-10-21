@@ -9,7 +9,7 @@ Focusly is a lightweight macOS companion that softens your desktop, lets every d
 ### Highlights
 - Status bar control with primary and context menus, including quick toggles, presets, and launch-at-login management.
 - Per-display overlays rendered above desktop icons with smooth animations, configurable opacity, blur, and tint.
-- Preset library (“Focus”, “Glow”, “Warm”) that you can tweak without losing the defaults—overrides live per monitor.
+- Preset library (“Focus”, “Glow”, “Warm”) that you can tweak without losing the defaults - overrides live per monitor.
 - Customisable global shortcut powered by Carbon hotkeys; capture any modifier combination directly from Preferences.
 - Preferences window built with SwiftUI that updates overlays in real time and keeps settings in sync with UserDefaults.
 - Login item integration through `SMAppService` so Focusly can light up automatically after you sign in.
