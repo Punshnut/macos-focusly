@@ -12,8 +12,8 @@ final class PreferencesWindowController: NSWindowController {
         let view = PreferencesView(viewModel: viewModel)
         let hostingController = NSHostingController(rootView: view)
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 480, height: 520),
-            styleMask: [.titled, .closable, .miniaturizable],
+            contentRect: NSRect(x: 0, y: 0, width: 440, height: 540),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered,
             defer: false
         )
@@ -25,6 +25,7 @@ final class PreferencesWindowController: NSWindowController {
             comment: "Window title for the preferences window."
         )
         window.isReleasedWhenClosed = false
+        window.contentMinSize = NSSize(width: 420, height: 440)
         window.center()
         window.contentViewController = hostingController
         super.init(window: window)

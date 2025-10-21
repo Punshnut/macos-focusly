@@ -10,18 +10,23 @@ final class OverlayService {
         self.profileStore = profileStore
     }
 
-    func setEnabled(_ enabled: Bool) {
+    func setEnabled(_ enabled: Bool, animated: Bool) {
         guard self.enabled != enabled else { return }
         self.enabled = enabled
         if enabled {
-            refreshDisplays(animated: false)
-            overlays.values.forEach { $0.orderFrontRegardless() }
+            refreshDisplays(animated: false, applyStyles: false)
+            overlays.values.forEach { overlay in
+                overlay.prepareForPresentation()
+                overlay.orderFrontRegardless()
+                let style = profileStore.style(forDisplayID: overlay.associatedDisplayID())
+                overlay.apply(style: style, animated: animated)
+            }
         } else {
-            overlays.values.forEach { $0.orderOut(nil) }
+            overlays.values.forEach { $0.hide(animated: animated) }
         }
     }
 
-    func refreshDisplays(animated: Bool) {
+    func refreshDisplays(animated: Bool, applyStyles: Bool = true) {
         let screens = NSScreen.screens
         var seenIDs = Set<DisplayID>()
 
@@ -42,7 +47,7 @@ final class OverlayService {
                 }
             }
 
-            if let overlay = overlays[displayID], enabled {
+            if let overlay = overlays[displayID], enabled, applyStyles {
                 let style = profileStore.style(forDisplayID: displayID)
                 overlay.apply(style: style, animated: animated)
             }

@@ -7,6 +7,7 @@ final class FocuslyAppCoordinator: NSObject {
         static let hotkeysEnabled = "Focusly.HotkeysEnabled"
         static let shortcut = "Focusly.Shortcut"
         static let onboardingCompleted = "Focusly.OnboardingCompleted"
+        static let statusIconStyle = "Focusly.StatusIconStyle"
     }
 
     private let environment: FocuslyEnvironment
@@ -30,6 +31,9 @@ final class FocuslyAppCoordinator: NSObject {
     private var shortcut: HotkeyShortcut? {
         didSet { persistShortcut() }
     }
+    private var statusBarIconStyle: StatusBarIconStyle {
+        didSet { persistStatusIconStyle() }
+    }
 
     // MARK: - Initialization
 
@@ -44,6 +48,12 @@ final class FocuslyAppCoordinator: NSObject {
         overlaysEnabled = defaults.object(forKey: DefaultsKeys.overlaysEnabled) as? Bool ?? true
         hotkeysEnabled = defaults.object(forKey: DefaultsKeys.hotkeysEnabled) as? Bool ?? true
         shortcut = FocuslyAppCoordinator.loadShortcut(from: defaults)
+        if let storedStyle = defaults.string(forKey: DefaultsKeys.statusIconStyle),
+           let decoded = StatusBarIconStyle(rawValue: storedStyle) {
+            statusBarIconStyle = decoded
+        } else {
+            statusBarIconStyle = .dot
+        }
 
         super.init()
 
@@ -58,8 +68,7 @@ final class FocuslyAppCoordinator: NSObject {
     // MARK: - Lifecycle
 
     func start() {
-        overlayService.setEnabled(overlaysEnabled)
-        overlayService.refreshDisplays(animated: false)
+        overlayService.setEnabled(overlaysEnabled, animated: false)
         listenForDisplayChanges()
         syncStatusBar()
         presentOnboardingIfNeeded()
@@ -101,8 +110,7 @@ final class FocuslyAppCoordinator: NSObject {
 
     private func setOverlaysEnabled(_ enabled: Bool) {
         overlaysEnabled = enabled
-        overlayService.setEnabled(enabled)
-        overlayService.refreshDisplays(animated: true)
+        overlayService.setEnabled(enabled, animated: true)
         syncStatusBar()
     }
 
@@ -133,6 +141,10 @@ final class FocuslyAppCoordinator: NSObject {
         return try? JSONDecoder().decode(HotkeyShortcut.self, from: data)
     }
 
+    private func persistStatusIconStyle() {
+        environment.userDefaults.set(statusBarIconStyle.rawValue, forKey: DefaultsKeys.statusIconStyle)
+    }
+
     // MARK: - Status Bar
 
     private func syncStatusBar() {
@@ -144,7 +156,8 @@ final class FocuslyAppCoordinator: NSObject {
             launchAtLoginAvailable: environment.launchAtLogin.isAvailable,
             launchAtLoginMessage: environment.launchAtLogin.unavailableReason,
             activePresetID: profileStore.currentPreset().id,
-            presets: PresetLibrary.presets
+            presets: PresetLibrary.presets,
+            iconStyle: statusBarIconStyle
         )
         statusBar.update(state: state)
     }
@@ -160,6 +173,7 @@ final class FocuslyAppCoordinator: NSObject {
             preferencesViewModel?.launchAtLoginAvailable = environment.launchAtLogin.isAvailable
             preferencesViewModel?.launchAtLoginMessage = environment.launchAtLogin.unavailableReason
             preferencesViewModel?.applyShortcut(shortcut)
+            preferencesViewModel?.statusIconStyle = statusBarIconStyle
             syncPreferencesDisplays()
             return
         }
@@ -171,6 +185,8 @@ final class FocuslyAppCoordinator: NSObject {
             launchAtLoginAvailable: environment.launchAtLogin.isAvailable,
             launchAtLoginMessage: environment.launchAtLogin.unavailableReason,
             shortcut: shortcut,
+            statusIconStyle: statusBarIconStyle,
+            availableIconStyles: StatusBarIconStyle.allCases,
             callbacks: PreferencesViewModel.Callbacks(
                 onDisplayChange: { [weak self] displayID, style in
                     guard let self else { return }
@@ -219,6 +235,11 @@ final class FocuslyAppCoordinator: NSObject {
                 },
                 onRequestOnboarding: { [weak self] in
                     self?.presentOnboarding(force: true)
+                },
+                onUpdateStatusIconStyle: { [weak self] style in
+                    guard let self else { return }
+                    self.statusBarIconStyle = style
+                    self.syncStatusBar()
                 }
             )
         )

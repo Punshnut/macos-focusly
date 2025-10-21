@@ -1,5 +1,40 @@
 import AppKit
 
+enum StatusBarIconStyle: String, CaseIterable, Codable, Equatable, Hashable {
+    case dot
+    case halo
+    case pulse
+
+    var localizedName: String {
+        switch self {
+        case .dot:
+            return NSLocalizedString(
+                "Minimal Dot",
+                tableName: nil,
+                bundle: .module,
+                value: "Minimal Dot",
+                comment: "Status bar icon option representing a small dot."
+            )
+        case .halo:
+            return NSLocalizedString(
+                "Halo",
+                tableName: nil,
+                bundle: .module,
+                value: "Halo",
+                comment: "Status bar icon option representing a halo outline."
+            )
+        case .pulse:
+            return NSLocalizedString(
+                "Equalizer",
+                tableName: nil,
+                bundle: .module,
+                value: "Equalizer",
+                comment: "Status bar icon option representing stacked bars."
+            )
+        }
+    }
+}
+
 struct StatusBarState {
     var enabled: Bool
     var hotkeysEnabled: Bool
@@ -9,6 +44,7 @@ struct StatusBarState {
     var launchAtLoginMessage: String?
     var activePresetID: String
     var presets: [FocusPreset]
+    var iconStyle: StatusBarIconStyle
 }
 
 @MainActor
@@ -52,7 +88,8 @@ final class StatusBarController: NSObject {
         launchAtLoginAvailable: false,
         launchAtLoginMessage: nil,
         activePresetID: PresetLibrary.presets.first?.id ?? "focus",
-        presets: PresetLibrary.presets
+        presets: PresetLibrary.presets,
+        iconStyle: .dot
     )
 
     // MARK: - Initialization
@@ -333,19 +370,26 @@ final class StatusBarController: NSObject {
 
     private func updateStatusItemIcon() {
         guard let button = statusItem.button else { return }
-        button.image = StatusBarIconFactory.icon(isActive: state.enabled)
-        button.alternateImage = StatusBarIconFactory.icon(isActive: true)
+        button.image = StatusBarIconFactory.icon(style: state.iconStyle, isActive: state.enabled)
+        button.alternateImage = StatusBarIconFactory.icon(style: state.iconStyle, isActive: true)
         button.contentTintColor = StatusBarIconFactory.tintColor(isActive: state.enabled)
         button.image?.isTemplate = true
     }
 }
 
-private enum StatusBarIconFactory {
+enum StatusBarIconFactory {
     private static let iconSize: CGFloat = 18
     private static let canvasSize = NSSize(width: iconSize, height: iconSize)
 
-    static func icon(isActive: Bool) -> NSImage {
-        isActive ? activeIcon : inactiveIcon
+    static func icon(style: StatusBarIconStyle, isActive: Bool) -> NSImage {
+        switch style {
+        case .dot:
+            return isActive ? dotActive : dotInactive
+        case .halo:
+            return isActive ? haloActive : haloInactive
+        case .pulse:
+            return isActive ? pulseActive : pulseInactive
+        }
     }
 
     static func tintColor(isActive: Bool) -> NSColor {
@@ -356,7 +400,44 @@ private enum StatusBarIconFactory {
         }
     }
 
-    private static let activeIcon: NSImage = {
+    private static let dotActive: NSImage = {
+        let image = NSImage(size: canvasSize, flipped: false) { rect in
+            let diameter = rect.width * 0.42
+            let circleRect = NSRect(
+                x: rect.midX - diameter / 2,
+                y: rect.midY - diameter / 2,
+                width: diameter,
+                height: diameter
+            )
+            let circle = NSBezierPath(ovalIn: circleRect)
+            NSColor.white.setFill()
+            circle.fill()
+            return true
+        }
+        image.isTemplate = true
+        return image
+    }()
+
+    private static let dotInactive: NSImage = {
+        let image = NSImage(size: canvasSize, flipped: false) { rect in
+            let diameter = rect.width * 0.46
+            let circleRect = NSRect(
+                x: rect.midX - diameter / 2,
+                y: rect.midY - diameter / 2,
+                width: diameter,
+                height: diameter
+            )
+            let circle = NSBezierPath(ovalIn: circleRect)
+            circle.lineWidth = rect.width * 0.14
+            NSColor.white.setStroke()
+            circle.stroke()
+            return true
+        }
+        image.isTemplate = true
+        return image
+    }()
+
+    private static let haloActive: NSImage = {
         let image = NSImage(size: canvasSize, flipped: false) { rect in
             let circleRect = rect.insetBy(dx: 2.5, dy: 2.5)
             let circle = NSBezierPath(ovalIn: circleRect)
@@ -380,7 +461,7 @@ private enum StatusBarIconFactory {
         return image
     }()
 
-    private static let inactiveIcon: NSImage = {
+    private static let haloInactive: NSImage = {
         let image = NSImage(size: canvasSize, flipped: false) { rect in
             let outerRect = rect.insetBy(dx: 3, dy: 3)
             let ring = NSBezierPath(ovalIn: outerRect)
@@ -400,4 +481,54 @@ private enum StatusBarIconFactory {
         image.isTemplate = true
         return image
     }()
+
+    private static let pulseActive: NSImage = {
+        let image = NSImage(size: canvasSize, flipped: false) { rect in
+            let barWidth = rect.width * 0.18
+            let spacing = barWidth * 0.9
+            let cornerRadius = barWidth / 2
+
+            func drawBar(offset: CGFloat, height: CGFloat) {
+                let barRect = NSRect(
+                    x: rect.midX + offset - barWidth / 2,
+                    y: rect.midY - height / 2,
+                    width: barWidth,
+                    height: height
+                )
+                let bar = NSBezierPath(roundedRect: barRect, xRadius: cornerRadius, yRadius: cornerRadius)
+                NSColor.white.setFill()
+                bar.fill()
+            }
+
+            drawBar(-spacing - barWidth, rect.height * 0.58)
+            drawBar(0, rect.height * 0.82)
+            drawBar(spacing + barWidth, rect.height * 0.46)
+            return true
+        }
+        image.isTemplate = true
+        return image
+    }()
+
+    private static let pulseInactive: NSImage = {
+        let image = NSImage(size: canvasSize, flipped: false) { rect in
+            let barWidth = rect.width * 0.18
+            let cornerRadius = barWidth / 2
+            let barRect = NSRect(
+                x: rect.midX - barWidth / 2,
+                y: rect.midY - (rect.height * 0.6) / 2,
+                width: barWidth,
+                height: rect.height * 0.6
+            )
+            let bar = NSBezierPath(roundedRect: barRect, xRadius: cornerRadius, yRadius: cornerRadius)
+            NSColor.white.setFill()
+            bar.fill()
+            return true
+        }
+        image.isTemplate = true
+        return image
+    }()
+
+    static func previewIcon(for style: StatusBarIconStyle) -> NSImage {
+        icon(style: style, isActive: true)
+    }
 }

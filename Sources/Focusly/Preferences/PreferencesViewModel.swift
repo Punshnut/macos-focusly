@@ -1,11 +1,11 @@
 import AppKit
 import Combine
 
-@MainActor
-final class PreferencesViewModel: ObservableObject {
-    struct DisplaySettings: Identifiable {
-        let id: DisplayID
-        var name: String
+    @MainActor
+    final class PreferencesViewModel: ObservableObject {
+        struct DisplaySettings: Identifiable {
+            let id: DisplayID
+            var name: String
         var opacity: Double
         var blurRadius: Double
         var tint: NSColor
@@ -24,6 +24,7 @@ final class PreferencesViewModel: ObservableObject {
         var onToggleHotkeys: (Bool) -> Void
         var onToggleLaunchAtLogin: (Bool) -> Void
         var onRequestOnboarding: () -> Void
+        var onUpdateStatusIconStyle: (StatusBarIconStyle) -> Void
     }
 
     @Published var displays: [DisplaySettings]
@@ -33,9 +34,11 @@ final class PreferencesViewModel: ObservableObject {
     @Published var launchAtLoginMessage: String?
     @Published var capturingShortcut = false
     @Published private(set) var shortcutDescription: String
+    @Published var statusIconStyle: StatusBarIconStyle
 
     private var shortcut: HotkeyShortcut?
     private let callbacks: Callbacks
+    let availableIconStyles: [StatusBarIconStyle]
 
     init(
         displays: [DisplaySettings],
@@ -44,6 +47,8 @@ final class PreferencesViewModel: ObservableObject {
         launchAtLoginAvailable: Bool,
         launchAtLoginMessage: String?,
         shortcut: HotkeyShortcut?,
+        statusIconStyle: StatusBarIconStyle,
+        availableIconStyles: [StatusBarIconStyle],
         callbacks: Callbacks
     ) {
         self.displays = displays
@@ -54,6 +59,8 @@ final class PreferencesViewModel: ObservableObject {
         self.shortcut = shortcut
         self.callbacks = callbacks
         self.shortcutDescription = PreferencesViewModel.describeShortcut(shortcut)
+        self.statusIconStyle = statusIconStyle
+        self.availableIconStyles = availableIconStyles
     }
 
     func updateOpacity(for displayID: DisplayID, value: Double) {
@@ -98,6 +105,11 @@ final class PreferencesViewModel: ObservableObject {
         shortcut = nil
         shortcutDescription = "—"
         callbacks.onUpdateShortcut(nil)
+    }
+
+    func updateStatusIconStyle(_ style: StatusBarIconStyle) {
+        statusIconStyle = style
+        callbacks.onUpdateStatusIconStyle(style)
     }
 
     func showOnboarding() {
