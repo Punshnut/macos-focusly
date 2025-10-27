@@ -160,6 +160,8 @@ final class FocuslyAppCoordinator: NSObject {
             iconStyle: statusBarIconStyle
         )
         statusBar.update(state: state)
+        preferencesViewModel?.availablePresets = state.presets
+        preferencesViewModel?.selectedPresetID = state.activePresetID
     }
 
     // MARK: - Preferences Flow
@@ -174,6 +176,8 @@ final class FocuslyAppCoordinator: NSObject {
             preferencesViewModel?.launchAtLoginMessage = environment.launchAtLogin.unavailableReason
             preferencesViewModel?.applyShortcut(shortcut)
             preferencesViewModel?.statusIconStyle = statusBarIconStyle
+            preferencesViewModel?.availablePresets = PresetLibrary.presets
+            preferencesViewModel?.selectedPresetID = profileStore.currentPreset().id
             syncPreferencesDisplays()
             return
         }
@@ -187,6 +191,8 @@ final class FocuslyAppCoordinator: NSObject {
             shortcut: shortcut,
             statusIconStyle: statusBarIconStyle,
             availableIconStyles: StatusBarIconStyle.allCases,
+            availablePresets: PresetLibrary.presets,
+            selectedPresetID: profileStore.currentPreset().id,
             callbacks: PreferencesViewModel.Callbacks(
                 onDisplayChange: { [weak self] displayID, style in
                     guard let self else { return }
@@ -240,6 +246,13 @@ final class FocuslyAppCoordinator: NSObject {
                     guard let self else { return }
                     self.statusBarIconStyle = style
                     self.syncStatusBar()
+                },
+                onSelectPreset: { [weak self] preset in
+                    guard let self else { return }
+                    self.profileStore.selectPreset(preset)
+                    self.overlayService.refreshDisplays(animated: true)
+                    self.syncStatusBar()
+                    self.syncPreferencesDisplays()
                 }
             )
         )

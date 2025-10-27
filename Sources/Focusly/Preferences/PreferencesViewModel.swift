@@ -25,9 +25,12 @@ final class PreferencesViewModel: ObservableObject {
         var onToggleLaunchAtLogin: (Bool) -> Void
         var onRequestOnboarding: () -> Void
         var onUpdateStatusIconStyle: (StatusBarIconStyle) -> Void
+        var onSelectPreset: (FocusPreset) -> Void
     }
 
     @Published var displays: [DisplaySettings]
+    @Published var availablePresets: [FocusPreset]
+    @Published var selectedPresetID: String
     @Published var hotkeysEnabled: Bool
     @Published var launchAtLoginEnabled: Bool
     @Published var launchAtLoginAvailable: Bool
@@ -49,9 +52,13 @@ final class PreferencesViewModel: ObservableObject {
         shortcut: HotkeyShortcut?,
         statusIconStyle: StatusBarIconStyle,
         availableIconStyles: [StatusBarIconStyle],
+        availablePresets: [FocusPreset],
+        selectedPresetID: String,
         callbacks: Callbacks
     ) {
         self.displays = displays
+        self.availablePresets = availablePresets
+        self.selectedPresetID = selectedPresetID
         self.hotkeysEnabled = hotkeysEnabled
         self.launchAtLoginEnabled = launchAtLoginEnabled
         self.launchAtLoginAvailable = launchAtLoginAvailable
@@ -83,6 +90,23 @@ final class PreferencesViewModel: ObservableObject {
 
     func resetDisplay(_ displayID: DisplayID) {
         callbacks.onDisplayReset(displayID)
+    }
+
+    func selectPreset(id: String) {
+        guard selectedPresetID != id else { return }
+        selectedPresetID = id
+        guard let preset = preset(for: id) else { return }
+        callbacks.onSelectPreset(preset)
+    }
+
+    func syncDisplaySettings(from displayID: DisplayID) {
+        guard let source = displays.first(where: { $0.id == displayID }) else { return }
+        for index in displays.indices where displays[index].id != displayID {
+            displays[index].opacity = source.opacity
+            displays[index].blurRadius = source.blurRadius
+            displays[index].tint = source.tint
+            commit(display: displays[index])
+        }
     }
 
     func setHotkeysEnabled(_ enabled: Bool) {
@@ -158,6 +182,17 @@ final class PreferencesViewModel: ObservableObject {
             components.append(String(format: "%02X", shortcut.keyCode))
         }
         return components.joined(separator: " ")
+    }
+
+    private func preset(for id: String) -> FocusPreset? {
+        if let match = availablePresets.first(where: { $0.id == id }) {
+            return match
+        }
+        if let fallback = availablePresets.first {
+            selectedPresetID = fallback.id
+            return fallback
+        }
+        return nil
     }
 }
 

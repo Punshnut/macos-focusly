@@ -154,11 +154,7 @@ final class StatusBarController: NSObject {
         let presetsItem = NSMenuItem(title: presetsTitle, action: nil, keyEquivalent: "")
         let presetsMenu = NSMenu(title: presetsTitle)
         for preset in state.presets {
-            let item = NSMenuItem(title: preset.name, action: #selector(selectPreset(_:)), keyEquivalent: "")
-            item.target = self
-            item.representedObject = preset.id
-            item.state = preset.id == state.activePresetID ? .on : .off
-            presetsMenu.addItem(item)
+            presetsMenu.addItem(makePresetMenuItem(for: preset))
         }
         presetsMenu.addItem(.separator())
 
@@ -241,11 +237,17 @@ final class StatusBarController: NSObject {
             toggleItem.state = state.enabled ? .on : .off
             quickMenu.addItem(toggleItem)
 
-        // Compact presets entry for the quick menu — open preferences to manage presets.
-        let presetsQuickTitle = localized("Presets…")
-        let presetsQuickItem = NSMenuItem(title: presetsQuickTitle, action: #selector(openPreferences), keyEquivalent: "")
-        presetsQuickItem.target = self
-        quickMenu.addItem(presetsQuickItem)
+        quickMenu.addItem(.separator())
+
+        let presetsTitle = localized("Presets")
+        let presetsHeader = NSMenuItem(title: presetsTitle, action: nil, keyEquivalent: "")
+        presetsHeader.isEnabled = false
+        presetsHeader.attributedTitle = compactAttributedTitle(presetsTitle)
+        quickMenu.addItem(presetsHeader)
+
+        for preset in state.presets {
+            quickMenu.addItem(makePresetMenuItem(for: preset, compact: true))
+        }
 
         quickMenu.addItem(.separator())
 
@@ -316,6 +318,17 @@ final class StatusBarController: NSObject {
         } else {
             return makeVersionMenuItem()
         }
+    }
+
+    private func makePresetMenuItem(for preset: FocusPreset, compact: Bool = false) -> NSMenuItem {
+        let item = NSMenuItem(title: preset.name, action: #selector(selectPreset(_:)), keyEquivalent: "")
+        item.target = self
+        item.representedObject = preset.id
+        item.state = preset.id == state.activePresetID ? .on : .off
+        if compact {
+            item.attributedTitle = compactAttributedTitle(preset.name)
+        }
+        return item
     }
 
     // MARK: - Actions
