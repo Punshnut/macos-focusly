@@ -42,3 +42,5 @@
 "Record a custom keyboard shortcut to flip overlays on and off instantly. The default status bar menu also gives you quick access to all controls." = "Graba un atajo de teclado personalizado para activar o desactivar las superposiciones al instante. El menú de la barra de estado también te da acceso rápido a todos los controles.";
 "Warm" = "Cálido";
 "Space" = "Espacio";
+"Nametag: %@" = "Nombre: %@";
+"Credits: %@" = "Créditos: %@";

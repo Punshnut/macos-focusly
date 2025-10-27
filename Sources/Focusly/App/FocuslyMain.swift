@@ -42,7 +42,9 @@ final class FocuslyMain: NSObject, NSApplicationDelegate {
             value: "About %@",
             comment: "Title for the default About item in the app menu."
         ), appName)
-        appMenu.addItem(withTitle: aboutTitle, action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
+        let aboutItem = NSMenuItem(title: aboutTitle, action: #selector(showAboutPanel(_:)), keyEquivalent: "")
+        aboutItem.target = self
+        appMenu.addItem(aboutItem)
         appMenu.addItem(NSMenuItem.separator())
 
         let quitTitle = String(format: NSLocalizedString(
@@ -60,5 +62,51 @@ final class FocuslyMain: NSObject, NSApplicationDelegate {
         mainMenu.setSubmenu(appMenu, for: appMenuItem)
 
         NSApp.mainMenu = mainMenu
+    }
+
+    @objc private func showAboutPanel(_ sender: Any?) {
+        let appName = Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String ?? "Focusly"
+        let nametag = String(format: NSLocalizedString(
+            "Nametag: %@",
+            tableName: nil,
+            bundle: .main,
+            value: "Nametag: %@",
+            comment: "Label showing the creator's nametag in the About panel."
+        ), "Punshnut")
+        let creditsLine = String(format: NSLocalizedString(
+            "Credits: %@",
+            tableName: nil,
+            bundle: .main,
+            value: "Credits: %@",
+            comment: "Label showing the credits in the About panel."
+        ), "Punshnut")
+
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.alignment = .center
+        let credits = NSAttributedString(
+            string: [nametag, creditsLine].joined(separator: "\n"),
+            attributes: [
+                .font: NSFont.systemFont(ofSize: 13),
+                .foregroundColor: NSColor.labelColor,
+                .paragraphStyle: paragraph
+            ]
+        )
+
+        // Placeholder icon until a dedicated About PNG is available.
+        let placeholderSize = NSSize(width: 160, height: 160)
+        let placeholderIcon = NSImage(size: placeholderSize, flipped: false) { rect in
+            NSColor.windowBackgroundColor.setFill()
+            rect.fill()
+            return true
+        }
+
+        let options: [NSApplication.AboutPanelOptionKey: Any] = [
+            .applicationName: appName,
+            .credits: credits,
+            .applicationIcon: placeholderIcon,
+            .version: FocuslyBuildInfo.marketingVersion
+        ]
+
+        NSApp.orderFrontStandardAboutPanel(options: options)
     }
 }

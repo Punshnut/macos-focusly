@@ -510,50 +510,9 @@ enum StatusBarIconFactory {
         return image
     }()
 
-    private static let haloActive: NSImage = {
-        let image = NSImage(size: canvasSize, flipped: false) { rect in
-            let circleRect = rect.insetBy(dx: 2.5, dy: 2.5)
-            let circle = NSBezierPath(ovalIn: circleRect)
-            NSColor.white.setFill()
-            circle.fill()
+    private static let haloActive: NSImage = makeHaloIcon(isActive: true, size: iconSize, template: true)
 
-            let highlightInset = circleRect.width * 0.4
-            var highlightRect = circleRect
-            highlightRect.origin.x -= circleRect.width * 0.1
-            highlightRect.origin.y += circleRect.height * 0.15
-            highlightRect = highlightRect.insetBy(dx: highlightInset, dy: highlightInset)
-            if highlightRect.width > 0 && highlightRect.height > 0 {
-                let highlight = NSBezierPath(ovalIn: highlightRect)
-                NSColor.white.withAlphaComponent(0.45).setFill()
-                highlight.fill()
-            }
-
-            return true
-        }
-        image.isTemplate = true
-        return image
-    }()
-
-    private static let haloInactive: NSImage = {
-        let image = NSImage(size: canvasSize, flipped: false) { rect in
-            let outerRect = rect.insetBy(dx: 3, dy: 3)
-            let ring = NSBezierPath(ovalIn: outerRect)
-            ring.lineWidth = 1.8
-            NSColor.white.setStroke()
-            ring.stroke()
-
-            let softGlowRect = outerRect.insetBy(dx: 3.5, dy: 3.5)
-            if softGlowRect.width > 0 && softGlowRect.height > 0 {
-                let glow = NSBezierPath(ovalIn: softGlowRect)
-                NSColor.white.withAlphaComponent(0.35).setFill()
-                glow.fill()
-            }
-
-            return true
-        }
-        image.isTemplate = true
-        return image
-    }()
+    private static let haloInactive: NSImage = makeHaloIcon(isActive: false, size: iconSize, template: true)
 
     private static let pulseActive: NSImage = {
         let image = NSImage(size: canvasSize, flipped: false) { rect in
@@ -600,4 +559,48 @@ enum StatusBarIconFactory {
         image.isTemplate = true
         return image
     }()
+    private static func makeHaloIcon(isActive: Bool, size: CGFloat, template: Bool) -> NSImage {
+        let canvasSize = NSSize(width: size, height: size)
+        let image = NSImage(size: canvasSize, flipped: false) { rect in
+            let minDimension = min(rect.width, rect.height)
+
+            if isActive {
+                let circleInset = minDimension * 0.14
+                let circleRect = rect.insetBy(dx: circleInset, dy: circleInset)
+                let circle = NSBezierPath(ovalIn: circleRect)
+                NSColor.white.setFill()
+                circle.fill()
+
+                let highlightInset = circleRect.width * 0.4
+                var highlightRect = circleRect
+                highlightRect.origin.x -= circleRect.width * 0.1
+                highlightRect.origin.y += circleRect.height * 0.15
+                highlightRect = highlightRect.insetBy(dx: highlightInset, dy: highlightInset)
+                if highlightRect.width > 0 && highlightRect.height > 0 {
+                    let highlight = NSBezierPath(ovalIn: highlightRect)
+                    NSColor.white.withAlphaComponent(0.45).setFill()
+                    highlight.fill()
+                }
+            } else {
+                let outerInset = minDimension * 0.17
+                let outerRect = rect.insetBy(dx: outerInset, dy: outerInset)
+                let ring = NSBezierPath(ovalIn: outerRect)
+                ring.lineWidth = minDimension * 0.1
+                NSColor.white.setStroke()
+                ring.stroke()
+
+                let glowInset = minDimension * 0.19
+                let softGlowRect = outerRect.insetBy(dx: glowInset, dy: glowInset)
+                if softGlowRect.width > 0 && softGlowRect.height > 0 {
+                    let glow = NSBezierPath(ovalIn: softGlowRect)
+                    NSColor.white.withAlphaComponent(0.35).setFill()
+                    glow.fill()
+                }
+            }
+
+            return true
+        }
+        image.isTemplate = template
+        return image
+    }
 }
