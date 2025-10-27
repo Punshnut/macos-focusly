@@ -386,6 +386,13 @@ extension FocuslyAppCoordinator: StatusBarControllerDelegate {
         syncPreferencesDisplays()
     }
 
+    func statusBar(_ controller: StatusBarController, didSelectIconStyle style: StatusBarIconStyle) {
+        guard statusBarIconStyle != style else { return }
+        statusBarIconStyle = style
+        preferencesViewModel?.statusIconStyle = style
+        syncStatusBar()
+    }
+
     func statusBarDidRequestPreferences(_ controller: StatusBarController) {
         presentPreferences()
     }

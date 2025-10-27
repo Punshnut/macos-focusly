@@ -50,9 +50,7 @@ struct PreferencesView: View {
             ) {
                 ForEach(viewModel.availableIconStyles, id: \.self) { style in
                     HStack(spacing: 8) {
-                        Image(nsImage: StatusBarIconFactory.previewIcon(for: style))
-                            .renderingMode(.template)
-                            .foregroundStyle(.primary)
+                        StatusBarIconStyleMenuPreview(style: style)
                         Text(style.localizedName)
                     }
                     .tag(style)
@@ -245,5 +243,25 @@ struct PreferencesView: View {
 
     private func blurLabel(for value: Double) -> String {
         String(format: "%.0f px", value)
+    }
+}
+
+private struct StatusBarIconStyleMenuPreview: View {
+    let style: StatusBarIconStyle
+
+    var body: some View {
+        HStack(spacing: 6) {
+            previewIcon(isActive: false)
+            previewIcon(isActive: true)
+        }
+        .accessibilityHidden(true)
+    }
+
+    private func previewIcon(isActive: Bool) -> some View {
+        Image(nsImage: StatusBarIconFactory.icon(style: style, isActive: isActive))
+            .renderingMode(.template)
+            .foregroundStyle(isActive ? Color.primary : Color.secondary)
+            .frame(width: 18, height: 18)
+            .padding(.vertical, 4)
     }
 }

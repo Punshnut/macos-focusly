@@ -51,6 +51,7 @@ struct StatusBarState {
 protocol StatusBarControllerDelegate: AnyObject {
     func statusBarDidToggleEnabled(_ controller: StatusBarController)
     func statusBar(_ controller: StatusBarController, selectedPreset preset: FocusPreset)
+    func statusBar(_ controller: StatusBarController, didSelectIconStyle style: StatusBarIconStyle)
     func statusBarDidRequestPreferences(_ controller: StatusBarController)
     func statusBarDidToggleHotkeys(_ controller: StatusBarController)
     func statusBarDidToggleLaunchAtLogin(_ controller: StatusBarController)
@@ -190,6 +191,22 @@ final class StatusBarController: NSObject {
             mainMenu.addItem(loginItem)
         }
 
+        let iconMenuTitle = localized("Status Bar Icon")
+        let iconMenuItem = NSMenuItem(title: iconMenuTitle, action: nil, keyEquivalent: "")
+        let iconMenu = NSMenu(title: iconMenuTitle)
+        for style in StatusBarIconStyle.allCases {
+            let title = style.localizedName
+            let item = NSMenuItem(title: title, action: #selector(selectIconStyle(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = style.rawValue
+            item.state = style == state.iconStyle ? .on : .off
+            item.image = StatusBarIconFactory.icon(style: style, isActive: state.enabled)
+            iconMenu.addItem(item)
+        }
+        iconMenuItem.submenu = iconMenu
+        mainMenu.addItem(.separator())
+        mainMenu.addItem(iconMenuItem)
+
         mainMenu.addItem(.separator())
 
         let prefsItem = NSMenuItem(title: preferencesTitle, action: #selector(openPreferences), keyEquivalent: ",")
@@ -213,33 +230,22 @@ final class StatusBarController: NSObject {
     }
 
     private func rebuildQuickMenu() {
-        quickMenu.removeAllItems()
-        quickMenu.addItem(makeVersionMenuItem())
-        quickMenu.addItem(.separator())
+            quickMenu.removeAllItems()
+            // Use a compact version header for the quick/context menu so it doesn't force a wide menu.
+            quickMenu.addItem(makeVersionMenuItem(compact: true))
+            quickMenu.addItem(.separator())
 
-        let toggleTitle = localized(state.enabled ? "Disable Overlays" : "Enable Overlays")
-        let toggleItem = NSMenuItem(title: toggleTitle, action: #selector(toggleOverlay), keyEquivalent: "")
-        toggleItem.target = self
-        toggleItem.state = state.enabled ? .on : .off
-        quickMenu.addItem(toggleItem)
+            let toggleTitle = localized(state.enabled ? "Disable Overlays" : "Enable Overlays")
+            let toggleItem = NSMenuItem(title: toggleTitle, action: #selector(toggleOverlay), keyEquivalent: "")
+            toggleItem.target = self
+            toggleItem.state = state.enabled ? .on : .off
+            quickMenu.addItem(toggleItem)
 
-        let presetsTitle = localized("Presets")
-        let preferencesTitle = localized("Preferences…")
-        let presetsItem = NSMenuItem(title: presetsTitle, action: nil, keyEquivalent: "")
-        let presetsMenu = NSMenu(title: presetsTitle)
-        for preset in state.presets {
-            let item = NSMenuItem(title: preset.name, action: #selector(selectPreset(_:)), keyEquivalent: "")
-            item.target = self
-            item.representedObject = preset.id
-            item.state = preset.id == state.activePresetID ? .on : .off
-            presetsMenu.addItem(item)
-        }
-        presetsMenu.addItem(.separator())
-        let customizeItem = NSMenuItem(title: preferencesTitle, action: #selector(openPreferences), keyEquivalent: "")
-        customizeItem.target = self
-        presetsMenu.addItem(customizeItem)
-        presetsItem.submenu = presetsMenu
-        quickMenu.addItem(presetsItem)
+        // Compact presets entry for the quick menu — open preferences to manage presets.
+        let presetsQuickTitle = localized("Presets…")
+        let presetsQuickItem = NSMenuItem(title: presetsQuickTitle, action: #selector(openPreferences), keyEquivalent: "")
+        presetsQuickItem.target = self
+        quickMenu.addItem(presetsQuickItem)
 
         quickMenu.addItem(.separator())
 
@@ -258,10 +264,12 @@ final class StatusBarController: NSObject {
             loginItem.state = state.launchAtLoginEnabled ? .on : .off
             quickMenu.addItem(loginItem)
         } else if let message = state.launchAtLoginMessage {
-            let loginItem = NSMenuItem(title: message, action: nil, keyEquivalent: "")
-            loginItem.isEnabled = false
-            quickMenu.addItem(loginItem)
-        }
+            // Use a short, 5-word variant for the quick/context menu to avoid excessive width.
+            let shortMessage = abbreviatedFiveWords(message)
+             let loginItem = NSMenuItem(title: shortMessage, action: nil, keyEquivalent: "")
+             loginItem.isEnabled = false
+             quickMenu.addItem(loginItem)
+         }
 
         quickMenu.addItem(.separator())
 
@@ -281,6 +289,14 @@ final class StatusBarController: NSObject {
         let quitItem = NSMenuItem(title: quitTitle, action: #selector(quitApp), keyEquivalent: "")
         quitItem.target = self
         quickMenu.addItem(quitItem)
+
+        // Apply compact styling (smaller font + truncation) to all quick menu items to limit width.
+        for item in quickMenu.items {
+            // Leave separators and items with custom views alone.
+            if item.isSeparatorItem || item.view != nil { continue }
+            // Preserve existing state/key equivalents while replacing the visible title with an attributed, truncated one.
+            item.attributedTitle = compactAttributedTitle(item.title)
+        }
     }
 
     private func makeVersionMenuItem() -> NSMenuItem {
@@ -288,6 +304,18 @@ final class StatusBarController: NSObject {
         let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
         item.isEnabled = false
         return item
+    }
+
+    // Compact variant used for the quick/context menu to avoid excessive width.
+    private func makeVersionMenuItem(compact: Bool) -> NSMenuItem {
+        if compact {
+            let item = NSMenuItem(title: "Focusly", action: nil, keyEquivalent: "")
+            item.isEnabled = false
+            item.attributedTitle = compactAttributedTitle(item.title)
+            return item
+        } else {
+            return makeVersionMenuItem()
+        }
     }
 
     // MARK: - Actions
@@ -300,6 +328,16 @@ final class StatusBarController: NSObject {
         guard let id = item.representedObject as? String else { return }
         let preset = PresetLibrary.preset(withID: id)
         delegate?.statusBar(self, selectedPreset: preset)
+    }
+
+    @objc private func selectIconStyle(_ item: NSMenuItem) {
+        guard
+            let raw = item.representedObject as? String,
+            let style = StatusBarIconStyle(rawValue: raw)
+        else {
+            return
+        }
+        delegate?.statusBar(self, didSelectIconStyle: style)
     }
 
     @objc private func toggleHotkeys() {
@@ -368,6 +406,28 @@ final class StatusBarController: NSObject {
         NSLocalizedString(key, tableName: nil, bundle: .module, value: key, comment: "")
     }
 
+    // Return a compact attributed title (smaller menu font + truncation) used for quick/context menu items.
+    private func compactAttributedTitle(_ title: String) -> NSAttributedString {
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.lineBreakMode = .byTruncatingTail
+
+        // Slightly smaller than the default menu font to reduce width.
+        let font = NSFont.menuFont(ofSize: 13)
+        let attrs: [NSAttributedString.Key: Any] = [
+            .font: font,
+            .foregroundColor: NSColor.labelColor,
+            .paragraphStyle: paragraph
+        ]
+        return NSAttributedString(string: title, attributes: attrs)
+    }
+
+    // Produce a short version of a message by keeping at most the first five words and adding an ellipsis if truncated.
+    private func abbreviatedFiveWords(_ message: String) -> String {
+        let words = message.split { $0.isWhitespace || $0.isNewline }.map(String.init)
+        guard words.count > 5 else { return message }
+        return words.prefix(5).joined(separator: " ") + "…"
+    }
+    
     private func updateStatusItemIcon() {
         guard let button = statusItem.button else { return }
         button.image = StatusBarIconFactory.icon(style: state.iconStyle, isActive: state.enabled)
@@ -527,8 +587,4 @@ enum StatusBarIconFactory {
         image.isTemplate = true
         return image
     }()
-
-    static func previewIcon(for style: StatusBarIconStyle) -> NSImage {
-        icon(style: style, isActive: true)
-    }
 }
