@@ -24,11 +24,18 @@ final class ProfileStoreTests: XCTestCase {
 
         var store: ProfileStore? = ProfileStore(defaults: defaults)
         let displayID: UInt32 = 9
-        let override = FocusOverlayStyle(opacity: 0.61, blurRadius: 42, tint: .ember, animationDuration: 0.27)
+        let override = FocusOverlayStyle(
+            opacity: 0.61,
+            blurRadius: 42,
+            tint: .ember,
+            animationDuration: 0.27,
+            colorTreatment: .monochrome
+        )
         store?.updateStyle(override, forDisplayID: displayID)
         store = nil
 
         let newStore = ProfileStore(defaults: defaults)
         XCTAssertEqual(newStore.style(forDisplayID: displayID).opacity, 0.61, accuracy: 0.001)
+        XCTAssertEqual(newStore.style(forDisplayID: displayID).colorTreatment, .monochrome)
     }
 }

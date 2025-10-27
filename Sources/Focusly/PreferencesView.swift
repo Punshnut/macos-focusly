@@ -207,7 +207,7 @@ struct PreferencesView: View {
             VStack(alignment: .leading, spacing: 14) {
                 VStack(alignment: .leading, spacing: 6) {
                     HStack {
-                        Text(String(localized: "Opacity", bundle: .module))
+                        Text(String(localized: "Color Filter", bundle: .module))
                             .font(.caption)
                             .foregroundColor(.secondary)
                         Spacer()

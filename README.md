@@ -9,7 +9,8 @@ Focusly is a lightweight macOS companion that softens your desktop, lets every d
 ### Highlights
 - Status bar control with primary and context menus, including quick toggles, presets, and launch-at-login management.
 - Per-display overlays rendered above desktop icons with smooth animations, configurable opacity, blur, and tint.
-- Preset library (“Blur (Focus)”, “Warm”, “Colorful”, “Monochrome”) that you can tweak without losing the defaults - overrides live per monitor.
+- Four built-in ambience filters — Blur (Focus), Warm, Colorful, Monochrome — each tweakable per monitor without losing the defaults.
+- Three status bar icon styles (Dot, Halo, Equalizer) so you can match Focusly to the rest of your menu bar.
 - Customisable global shortcut powered by Carbon hotkeys; capture any modifier combination directly from Preferences.
 - Preferences window built with SwiftUI that updates overlays in real time and keeps settings in sync with UserDefaults.
 - Login item integration through `SMAppService` so Focusly can light up automatically after you sign in.
@@ -30,6 +31,8 @@ Open the generated workspace in Xcode 15 or newer, select the `focusly` scheme, 
 ```bash
 swift build
 ```
+
+Prefer a ready-to-run build? Download the Focusly.app Alpha from the GitHub releases or grab the bundled `Focusly.app` in this repository's root.
 
 ### Packaging
 The project ships with a Swift Package Manager manifest only. You can reuse the `_old/scripts/package_app.sh` flow as a starting point, or create a fresh bundle with:
@@ -62,7 +65,8 @@ Focusly es un compañero ligero para macOS que suaviza tu escritorio, permite qu
 ### Destacados
 - Control en la barra de estado con menús principal y contextual, atajos rápidos, presets y manejo de inicio automático.
 - Superposiciones por pantalla situadas sobre los iconos del escritorio, con animaciones fluidas y ajustes de opacidad, desenfoque y tinte.
-- Biblioteca de presets (“Blur (Focus)”, “Cálido”, “Colorido”, “Monocromo”) que puedes personalizar por monitor sin perder la configuración original.
+- Cuatro filtros integrados — Blur (Focus), Cálido, Colorido, Monocromo — personalizables por monitor sin perder el ajuste original.
+- Tres estilos para el icono de la barra de menús (Punto, Halo, Ecualizador) para que Focusly combine con tu menú.
 - Atajo global configurable usando hotkeys de Carbon; grábalo directamente desde Preferencias con cualquier combinación de modificadores.
 - Ventana de preferencias creada con SwiftUI que actualiza las superposiciones en tiempo real y sincroniza ajustes en `UserDefaults`.
 - Integración con `SMAppService` para iniciar Focusly automáticamente cuando inicies sesión.
@@ -83,6 +87,8 @@ Abre el workspace generado en Xcode 15 o posterior, selecciona el esquema `focus
 ```bash
 swift build
 ```
+
+¿Prefieres una compilación lista para usar? Descarga el Focusly.app Alpha desde los lanzamientos de GitHub o utiliza el `Focusly.app` incluido en la raíz del repositorio.
 
 ### Empaquetado
 El proyecto utiliza únicamente Swift Package Manager. Puedes reutilizar `_old/scripts/package_app.sh` como referencia o crear un nuevo paquete con:

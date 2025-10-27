@@ -13,6 +13,7 @@ final class FocuslyAppCoordinator: NSObject {
     private let environment: FocuslyEnvironment
     private let profileStore: ProfileStore
     private let overlayService: OverlayService
+    private let overlayController: OverlayController
     private let statusBar: StatusBarController
     private let hotkeyCenter: HotkeyCenter
     private var onboardingController: OnboardingWindowController? // Retain the welcome flow while it is onscreen.
@@ -37,10 +38,11 @@ final class FocuslyAppCoordinator: NSObject {
 
     // MARK: - Initialization
 
-    init(environment: FocuslyEnvironment) {
+    init(environment: FocuslyEnvironment, overlayController: OverlayController) {
         self.environment = environment
         self.profileStore = ProfileStore(defaults: environment.userDefaults)
         self.overlayService = OverlayService(profileStore: profileStore)
+        self.overlayController = overlayController
         self.statusBar = StatusBarController()
         self.hotkeyCenter = HotkeyCenter()
 
@@ -68,6 +70,7 @@ final class FocuslyAppCoordinator: NSObject {
     // MARK: - Lifecycle
 
     func start() {
+        syncOverlayControllerRunningState()
         overlayService.setEnabled(overlaysEnabled, animated: false)
         listenForDisplayChanges()
         syncStatusBar()
@@ -110,8 +113,18 @@ final class FocuslyAppCoordinator: NSObject {
 
     private func setOverlaysEnabled(_ enabled: Bool) {
         overlaysEnabled = enabled
+        syncOverlayControllerRunningState()
         overlayService.setEnabled(enabled, animated: true)
         syncStatusBar()
+    }
+
+    private func syncOverlayControllerRunningState() {
+        if overlaysEnabled {
+            overlayController.start()
+            overlayController.setClickThrough(true)
+        } else {
+            overlayController.stop()
+        }
     }
 
     // MARK: - Persistence
@@ -287,7 +300,8 @@ final class FocuslyAppCoordinator: NSObject {
                 name: name,
                 opacity: style.opacity,
                 blurRadius: style.blurRadius,
-                tint: tintColor
+                tint: tintColor,
+                colorTreatment: style.colorTreatment
             )
         }
         return displays.sorted { $0.name < $1.name }
@@ -316,54 +330,54 @@ final class FocuslyAppCoordinator: NSObject {
             OnboardingViewModel.Step(
                 id: 0,
                 title: NSLocalizedString(
-                    "Stay in the zone",
+                    "1. Switch overlays on",
                     tableName: nil,
                     bundle: .module,
-                    value: "Stay in the zone",
+                    value: "1. Switch overlays on",
                     comment: "Onboarding title for the first step."
                 ),
                 message: NSLocalizedString(
-                    "Focusly dims your screens with a soft overlay so you can concentrate on the work that matters. Enable or disable overlays anytime from the menu bar.",
+                    "Click the Focusly status bar icon and toggle overlays for the displays you want to soften.",
                     tableName: nil,
                     bundle: .module,
-                    value: "Focusly dims your screens with a soft overlay so you can concentrate on the work that matters. Enable or disable overlays anytime from the menu bar.",
-                    comment: "Onboarding message describing overlays and the status menu."
+                    value: "Click the Focusly status bar icon and toggle overlays for the displays you want to soften.",
+                    comment: "Onboarding message describing how to enable overlays from the status menu."
                 ),
                 systemImageName: "moon.fill"
             ),
             OnboardingViewModel.Step(
                 id: 1,
                 title: NSLocalizedString(
-                    "Tailor each display",
+                    "2. Pick a filter",
                     tableName: nil,
                     bundle: .module,
-                    value: "Tailor each display",
-                    comment: "Onboarding title highlighting per-display customization."
+                    value: "2. Pick a filter",
+                    comment: "Onboarding title highlighting filter selection."
                 ),
                 message: NSLocalizedString(
-                    "Adjust blur, opacity, and color per display in Preferences. Create the ambiance that keeps you productive across different workspaces.",
+                    "Open Preferences to choose blur, opacity, and one of the Blur (Focus), Warm, Colorful, or Monochrome presets per display.",
                     tableName: nil,
                     bundle: .module,
-                    value: "Adjust blur, opacity, and color per display in Preferences. Create the ambiance that keeps you productive across different workspaces.",
-                    comment: "Onboarding message about customizing each display."
+                    value: "Open Preferences to choose blur, opacity, and one of the Blur (Focus), Warm, Colorful, or Monochrome presets per display.",
+                    comment: "Onboarding message about picking presets and per-display tuning."
                 ),
-                systemImageName: "display.2"
+                systemImageName: "paintpalette"
             ),
             OnboardingViewModel.Step(
                 id: 2,
                 title: NSLocalizedString(
-                    "Toggle with a shortcut",
+                    "3. Set your controls",
                     tableName: nil,
                     bundle: .module,
-                    value: "Toggle with a shortcut",
-                    comment: "Onboarding title about keyboard shortcuts."
+                    value: "3. Set your controls",
+                    comment: "Onboarding title about shortcuts and automation."
                 ),
                 message: NSLocalizedString(
-                    "Record a custom keyboard shortcut to flip overlays on and off instantly. The default status bar menu also gives you quick access to all controls.",
+                    "Assign a global shortcut and enable Launch at Login in Preferences so Focusly is ready whenever you are.",
                     tableName: nil,
                     bundle: .module,
-                    value: "Record a custom keyboard shortcut to flip overlays on and off instantly. The default status bar menu also gives you quick access to all controls.",
-                    comment: "Onboarding message describing how to use shortcuts and the menu."
+                    value: "Assign a global shortcut and enable Launch at Login in Preferences so Focusly is ready whenever you are.",
+                    comment: "Onboarding message describing shortcut and automation options."
                 ),
                 systemImageName: "keyboard"
             )

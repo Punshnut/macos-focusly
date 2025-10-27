@@ -10,6 +10,7 @@ final class OverlayService {
         self.profileStore = profileStore
     }
 
+    /// Turns overlay windows on or off and primes them with the latest style when becoming active.
     func setEnabled(_ enabled: Bool, animated: Bool) {
         guard self.enabled != enabled else { return }
         self.enabled = enabled
@@ -26,6 +27,7 @@ final class OverlayService {
         }
     }
 
+    /// Reconciles overlay windows with the currently connected displays and updates their frames and styles.
     func refreshDisplays(animated: Bool, applyStyles: Bool = true) {
         let screens = NSScreen.screens
         var seenIDs = Set<DisplayID>()
@@ -40,7 +42,7 @@ final class OverlayService {
             if let overlay = overlays[displayID] {
                 overlay.updateFrame(to: screen)
             } else {
-                let overlay = OverlayWindow(screen: screen, screenID: displayID)
+                let overlay = OverlayWindow(screen: screen, displayID: displayID)
                 overlays[displayID] = overlay
                 if enabled {
                     overlay.orderFrontRegardless()

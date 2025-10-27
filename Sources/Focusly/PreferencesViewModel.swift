@@ -9,6 +9,7 @@ final class PreferencesViewModel: ObservableObject {
         var opacity: Double
         var blurRadius: Double
         var tint: NSColor
+        var colorTreatment: FocusOverlayColorTreatment
 
         var tintPreview: NSColor {
             tint
@@ -105,6 +106,7 @@ final class PreferencesViewModel: ObservableObject {
             displays[index].opacity = source.opacity
             displays[index].blurRadius = source.blurRadius
             displays[index].tint = source.tint
+            displays[index].colorTreatment = source.colorTreatment
             commit(display: displays[index])
         }
     }
@@ -163,7 +165,8 @@ final class PreferencesViewModel: ObservableObject {
             opacity: display.opacity,
             blurRadius: display.blurRadius,
             tint: tint,
-            animationDuration: 0.3
+            animationDuration: 0.3,
+            colorTreatment: display.colorTreatment
         )
         callbacks.onDisplayChange(display.id, style)
     }

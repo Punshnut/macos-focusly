@@ -1,7 +1,7 @@
 "Focusly Preferences" = "Preferencias de Focusly";
 "Displays" = "Pantallas";
 "Reset" = "Restablecer";
-"Opacity" = "Opacidad";
+"Color Filter" = "Filtro de color";
 "Blur Radius" = "Radio de desenfoque";
 "Enable Focus Toggle Shortcut" = "Activar atajo para alternar Focusly";
 "Shortcut" = "Atajo";
@@ -34,12 +34,12 @@
 "Launch at Login ⬜️" = "Abrir al iniciar sesión ⬜️";
 "Show Introduction…" = "Mostrar introducción…";
 "Quit Focusly" = "Salir de Focusly";
-"Stay in the zone" = "Mantente en el flujo";
-"Focusly dims your screens with a soft overlay so you can concentrate on the work that matters. Enable or disable overlays anytime from the menu bar." = "Focusly atenúa tus pantallas con una suave superposición para que te concentres en lo que importa. Activa o desactiva las superposiciones en cualquier momento desde la barra de menús.";
-"Tailor each display" = "Personaliza cada pantalla";
-"Adjust blur, opacity, and color per display in Preferences. Create the ambiance that keeps you productive across different workspaces." = "Ajusta el desenfoque, la opacidad y el color por pantalla en Preferencias. Crea el ambiente que te mantiene productivo en distintos espacios de trabajo.";
-"Toggle with a shortcut" = "Alterna con un atajo";
-"Record a custom keyboard shortcut to flip overlays on and off instantly. The default status bar menu also gives you quick access to all controls." = "Graba un atajo de teclado personalizado para activar o desactivar las superposiciones al instante. El menú de la barra de estado también te da acceso rápido a todos los controles.";
+"1. Switch overlays on" = "1. Activa las superposiciones";
+"Click the Focusly status bar icon and toggle overlays for the displays you want to soften." = "Haz clic en el icono de Focusly en la barra de menús y alterna las superposiciones de las pantallas que quieras suavizar.";
+"2. Pick a filter" = "2. Elige un filtro";
+"Open Preferences to choose blur, opacity, and one of the Blur (Focus), Warm, Colorful, or Monochrome presets per display." = "Abre Preferencias para ajustar el desenfoque, la opacidad y elegir entre los presets Blur (Focus), Cálido, Colorido o Monocromo por pantalla.";
+"3. Set your controls" = "3. Configura tus controles";
+"Assign a global shortcut and enable Launch at Login in Preferences so Focusly is ready whenever you are." = "Asigna un atajo global y activa Iniciar al abrir sesión en Preferencias para que Focusly esté listo cuando lo necesites.";
 "Warm" = "Cálido";
 "Space" = "Espacio";
 "Nametag: %@" = "Nombre: %@";

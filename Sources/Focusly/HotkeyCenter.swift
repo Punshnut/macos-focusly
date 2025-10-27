@@ -59,6 +59,7 @@ final class HotkeyCenter {
         unregister()
         guard enabled, let shortcut else { return }
 
+        // Register the single global hotkey each time modifiers or enabled state changes.
         let hotKeyID = EventHotKeyID(signature: fourCharCode("FCS1"), id: 1)
         let status = RegisterEventHotKey(
             UInt32(shortcut.keyCode),
