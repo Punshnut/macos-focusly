@@ -26,6 +26,7 @@ final class OverlayWindow: NSPanel {
     }()
     private var currentStyle: FocusOverlayStyle?
     private var currentMaskRectInContent: NSRect?
+    private var currentMaskCornerRadius: CGFloat = 0
     private var staticExcludedRects: [NSRect] = []
     private(set) var displayID: DisplayID
     private weak var assignedScreen: NSScreen?
@@ -93,19 +94,22 @@ final class OverlayWindow: NSPanel {
         blurView.material = material
     }
 
-    func applyMask(excluding rectInContentView: NSRect?) {
+    func applyMask(excluding rectInContentView: NSRect?, cornerRadius: CGFloat = 0) {
         guard let contentView else { return }
 
         if let rect = rectInContentView {
             let bounds = contentView.bounds
             if shouldIgnoreMask(rect: rect, in: bounds) {
                 currentMaskRectInContent = nil
+                currentMaskCornerRadius = 0
                 clearMasks()
                 return
             }
             currentMaskRectInContent = rect
+            currentMaskCornerRadius = max(0, cornerRadius)
         } else {
             currentMaskRectInContent = nil
+            currentMaskCornerRadius = 0
             clearMasks()
             return
         }
@@ -287,19 +291,31 @@ final class OverlayWindow: NSPanel {
         }
 
         let bounds = contentView.bounds
-        var exclusions = staticExcludedRects
-        if let dynamic = currentMaskRectInContent {
-            exclusions.append(dynamic)
-        }
-
-        guard !exclusions.isEmpty else {
+        let hasDynamicMask = currentMaskRectInContent != nil
+        guard hasDynamicMask || !staticExcludedRects.isEmpty else {
             clearMasks()
             return
         }
 
         let path = CGMutablePath()
         path.addRect(bounds)
-        exclusions.forEach { path.addRect($0) }
+
+        staticExcludedRects.forEach { path.addRect($0) }
+
+        if let dynamic = currentMaskRectInContent {
+            let resolvedRadius = min(currentMaskCornerRadius, min(dynamic.width, dynamic.height) / 2)
+            if resolvedRadius > 0 {
+                let rounded = CGPath(
+                    roundedRect: dynamic,
+                    cornerWidth: resolvedRadius,
+                    cornerHeight: resolvedRadius,
+                    transform: nil
+                )
+                path.addPath(rounded)
+            } else {
+                path.addRect(dynamic)
+            }
+        }
 
         tintMaskLayer.path = path
         tintMaskLayer.fillRule = .evenOdd
@@ -316,6 +332,7 @@ final class OverlayWindow: NSPanel {
         tintView.layer?.mask = nil
         blurView.layer?.mask = nil
         blurMaskLayer.path = nil
+        currentMaskCornerRadius = 0
     }
 
     private func shouldIgnoreMask(rect: NSRect, in bounds: NSRect) -> Bool {

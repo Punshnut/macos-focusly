@@ -7,17 +7,19 @@ import AppKit
 @MainActor
 final class OverlayController {
     private let pollInterval: TimeInterval = 0.2
-    private let activeWindowFrameProvider: (Set<Int>) -> NSRect?
+    private let activeWindowSnapshotProvider: (Set<Int>) -> ActiveWindowSnapshot?
 
     private var overlays: [DisplayID: OverlayWindow] = [:]
     private var screensByID: [DisplayID: NSScreen] = [:]
     private var pollTimer: Timer?
     private var clickThroughEnabled = true
     private var isRunning = false
-    private var lastActiveWindowFrame: NSRect?
+    private var lastActiveWindowSnapshot: ActiveWindowSnapshot?
 
-    init(activeWindowFrameProvider: @escaping (Set<Int>) -> NSRect? = resolveActiveWindowFrame) {
-        self.activeWindowFrameProvider = activeWindowFrameProvider
+    init(
+        activeWindowSnapshotProvider: @escaping (Set<Int>) -> ActiveWindowSnapshot? = resolveActiveWindowSnapshot
+    ) {
+        self.activeWindowSnapshotProvider = activeWindowSnapshotProvider
     }
 
     func start() {
@@ -26,14 +28,14 @@ final class OverlayController {
         rebuildScreensLookup()
         startPolling()
         applyCurrentHole()
-        pollActiveWindowFrame()
+        pollActiveWindowSnapshot()
     }
 
     func stop() {
         guard isRunning else { return }
         isRunning = false
         stopPolling()
-        lastActiveWindowFrame = nil
+        lastActiveWindowSnapshot = nil
         overlays.values.forEach { $0.applyMask(excluding: nil) }
     }
 
@@ -59,13 +61,15 @@ final class OverlayController {
         }
     }
 
-    func updateHole(forActiveWindowFrame frame: NSRect?) {
-        lastActiveWindowFrame = frame
+    func updateHole(with snapshot: ActiveWindowSnapshot?) {
+        lastActiveWindowSnapshot = snapshot
 
-        guard let frame else {
+        guard let snapshot else {
             overlays.values.forEach { $0.applyMask(excluding: nil) }
             return
         }
+
+        let frame = snapshot.frame
 
         guard let targetDisplayID = screenIdentifier(for: frame) else {
             overlays.values.forEach { $0.applyMask(excluding: nil) }
@@ -82,7 +86,10 @@ final class OverlayController {
                 let windowRect = window.convertFromScreen(frame)
                 let rectInContent = contentView.convert(windowRect, from: nil)
                 let normalizedRect = rectInContent.intersection(contentView.bounds)
-                window.applyMask(excluding: normalizedRect.isNull ? nil : normalizedRect)
+                window.applyMask(
+                    excluding: normalizedRect.isNull ? nil : normalizedRect,
+                    cornerRadius: snapshot.cornerRadius
+                )
             } else {
                 window.applyMask(excluding: nil)
             }
@@ -100,17 +107,17 @@ final class OverlayController {
     }
 
     private func applyCurrentHole() {
-        updateHole(forActiveWindowFrame: lastActiveWindowFrame)
+        updateHole(with: lastActiveWindowSnapshot)
     }
 
-    private func pollActiveWindowFrame() {
-        let frame = activeWindowFrameProvider(currentOverlayWindowNumbers())
-        if let last = lastActiveWindowFrame, let frame {
-            guard !NSEqualRects(last, frame) else { return }
-        } else if lastActiveWindowFrame == nil, frame == nil {
+    private func pollActiveWindowSnapshot() {
+        let snapshot = activeWindowSnapshotProvider(currentOverlayWindowNumbers())
+        if let last = lastActiveWindowSnapshot, let snapshot {
+            guard last != snapshot else { return }
+        } else if lastActiveWindowSnapshot == nil, snapshot == nil {
             return
         }
-        updateHole(forActiveWindowFrame: frame)
+        updateHole(with: snapshot)
     }
 
     private func currentOverlayWindowNumbers() -> Set<Int> {
@@ -122,7 +129,7 @@ final class OverlayController {
     }
 
     @objc private func handlePollTimer(_ timer: Timer) {
-        pollActiveWindowFrame()
+        pollActiveWindowSnapshot()
     }
 
     private func rebuildScreensLookup() {

@@ -24,6 +24,13 @@ public struct AXWindowInfo: Hashable {
     public let isFocused: Bool
 }
 
+public struct ActiveWindowSnapshot: Equatable {
+    public let frame: NSRect
+    public let cornerRadius: CGFloat
+}
+
+private let windowCornerRadiusAttribute: CFString = "AXWindowCornerRadius" as CFString
+
 private func axPoint(_ value: CFTypeRef?) -> CGPoint? {
     guard let raw = value, CFGetTypeID(raw) == AXValueGetTypeID() else { return nil }
     let axValue = raw as! AXValue
@@ -43,21 +50,21 @@ private func axSize(_ value: CFTypeRef?) -> CGSize? {
 
 /// Active (frontmost) window frame, or nil.
 func axActiveWindowFrame() -> NSRect? {
-    guard isAccessibilityAccessGranted() else { return nil }
+    axActiveWindowSnapshot()?.frame
+}
 
-    guard let app = NSWorkspace.shared.frontmostApplication else { return nil }
-    let axApp = AXUIElementCreateApplication(app.processIdentifier)
-    var winRef: CFTypeRef?
-    guard AXUIElementCopyAttributeValue(axApp, kAXFocusedWindowAttribute as CFString, &winRef) == .success,
-          let rawWin = winRef, CFGetTypeID(rawWin) == AXUIElementGetTypeID() else { return nil }
-    let win = rawWin as! AXUIElement
+func axActiveWindowSnapshot() -> ActiveWindowSnapshot? {
+    guard let window = axFocusedWindowElement(), let frame = axFrame(for: window) else {
+        return nil
+    }
 
-    var posRef: CFTypeRef?; var sizeRef: CFTypeRef?
-    AXUIElementCopyAttributeValue(win, kAXPositionAttribute as CFString, &posRef)
-    AXUIElementCopyAttributeValue(win, kAXSizeAttribute as CFString, &sizeRef)
-    guard let p = axPoint(posRef), let s = axSize(sizeRef) else { return nil }
+    let cornerRadius = axWindowCornerRadius(for: window) ?? 0
+    return ActiveWindowSnapshot(frame: frame, cornerRadius: max(0, cornerRadius))
+}
 
-    return NSRect(x: p.x, y: p.y, width: s.width, height: s.height)
+func axActiveWindowCornerRadius() -> CGFloat? {
+    guard let window = axFocusedWindowElement() else { return nil }
+    return axWindowCornerRadius(for: window)
 }
 
 /// Enumerate windows for all GUI apps (best-effort; requires AX permission).
@@ -114,4 +121,37 @@ func axEnumerateAllWindows(limitPerApp: Int = 200) -> [AXWindowInfo] {
         }
     }
     return all
+}
+
+private func axFocusedWindowElement() -> AXUIElement? {
+    guard isAccessibilityAccessGranted() else { return nil }
+    guard let app = NSWorkspace.shared.frontmostApplication else { return nil }
+    let axApp = AXUIElementCreateApplication(app.processIdentifier)
+    var winRef: CFTypeRef?
+    guard AXUIElementCopyAttributeValue(axApp, kAXFocusedWindowAttribute as CFString, &winRef) == .success,
+          let rawWin = winRef,
+          CFGetTypeID(rawWin) == AXUIElementGetTypeID() else {
+        return nil
+    }
+    return unsafeBitCast(rawWin, to: AXUIElement.self)
+}
+
+private func axFrame(for window: AXUIElement) -> NSRect? {
+    var posRef: CFTypeRef?
+    var sizeRef: CFTypeRef?
+    AXUIElementCopyAttributeValue(window, kAXPositionAttribute as CFString, &posRef)
+    AXUIElementCopyAttributeValue(window, kAXSizeAttribute as CFString, &sizeRef)
+    guard let p = axPoint(posRef), let s = axSize(sizeRef) else { return nil }
+    return NSRect(x: p.x, y: p.y, width: s.width, height: s.height)
+}
+
+private func axWindowCornerRadius(for window: AXUIElement) -> CGFloat? {
+    var radiusRef: CFTypeRef?
+    guard AXUIElementCopyAttributeValue(window, windowCornerRadiusAttribute, &radiusRef) == .success else {
+        return nil
+    }
+    if let number = radiusRef as? NSNumber {
+        return CGFloat(number.doubleValue)
+    }
+    return nil
 }

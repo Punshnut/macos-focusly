@@ -1,14 +1,30 @@
 import AppKit
 import CoreGraphics
 
+/// Resolves the currently focused window snapshot using the most permissive APIs available.
+/// Falls back to accessibility lookups when Core Graphics metadata is not available
+/// (e.g. when an app has no on-screen windows).
+func resolveActiveWindowSnapshot(excluding windowNumbers: Set<Int> = []) -> ActiveWindowSnapshot? {
+    if let frame = cgActiveWindowFrame(excluding: windowNumbers) {
+        let radius = axActiveWindowCornerRadius() ?? fallbackCornerRadius(for: frame)
+        return ActiveWindowSnapshot(frame: frame, cornerRadius: clampCornerRadius(radius, to: frame))
+    }
+
+    guard let snapshot = axActiveWindowSnapshot() else {
+        return nil
+    }
+
+    return ActiveWindowSnapshot(
+        frame: snapshot.frame,
+        cornerRadius: clampCornerRadius(snapshot.cornerRadius, to: snapshot.frame)
+    )
+}
+
 /// Resolves the currently focused window frame using the most permissive APIs available.
 /// Falls back to accessibility lookups when Core Graphics metadata is not available
 /// (e.g. when an app has no on-screen windows).
 func resolveActiveWindowFrame(excluding windowNumbers: Set<Int> = []) -> NSRect? {
-    if let frame = cgActiveWindowFrame(excluding: windowNumbers) {
-        return frame
-    }
-    return axActiveWindowFrame()
+    resolveActiveWindowSnapshot(excluding: windowNumbers)?.frame
 }
 
 /// CoreGraphics-only variant to avoid touching the Accessibility APIs.
@@ -114,4 +130,17 @@ private func screenMatching(_ rect: CGRect) -> NSScreen? {
     }
 
     return bestMatch?.screen ?? NSScreen.screens.first
+}
+
+private func clampCornerRadius(_ radius: CGFloat, to frame: NSRect) -> CGFloat {
+    guard radius > 0 else { return 0 }
+    let maxRadius = min(frame.width, frame.height) / 2
+    return min(radius, maxRadius)
+}
+
+private func fallbackCornerRadius(for frame: NSRect) -> CGFloat {
+    if ProcessInfo.processInfo.operatingSystemVersion.majorVersion >= 15 {
+        return 26
+    }
+    return 0
 }
