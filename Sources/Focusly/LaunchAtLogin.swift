@@ -1,6 +1,7 @@
 import Foundation
 import ServiceManagement
 
+@MainActor
 protocol LaunchAtLoginManaging {
     var isAvailable: Bool { get }
     var unavailableReason: String? { get }
@@ -10,22 +11,17 @@ protocol LaunchAtLoginManaging {
 }
 
 enum LaunchAtLoginError: LocalizedError {
-    case unavailable(reason: String?)
+    case unavailable(reason: String)
 
     var errorDescription: String? {
         switch self {
         case .unavailable(let reason):
-            return reason ?? NSLocalizedString(
-                "Launch at Login is unavailable in the current build.",
-                tableName: nil,
-                bundle: .module,
-                value: "Launch at Login is unavailable in the current build.",
-                comment: "Fallback message when login items cannot be managed."
-            )
+            return reason
         }
     }
 }
 
+@MainActor
 final class LaunchAtLoginManager: LaunchAtLoginManaging {
     private enum Availability {
         case available
@@ -34,8 +30,10 @@ final class LaunchAtLoginManager: LaunchAtLoginManaging {
 
     private let availability: Availability
     private let service: SMAppService?
+    private let localization: LocalizationService
 
-    init(bundle: Bundle = .main) {
+    init(bundle: Bundle = .main, localization: LocalizationService? = nil) {
+        self.localization = localization ?? LocalizationService.shared
         if LaunchAtLoginManager.isRunningFromAppBundle(bundle) {
             availability = .available
             service = SMAppService.mainApp
@@ -51,13 +49,7 @@ final class LaunchAtLoginManager: LaunchAtLoginManaging {
 
     var unavailableReason: String? {
         guard !isAvailable else { return nil }
-        return NSLocalizedString(
-            "Launch at Login requires Focusly to run from a signed app bundle. Build and run the app bundle instead of the command-line target to enable this option.",
-            tableName: nil,
-            bundle: .module,
-            value: "Launch at Login requires Focusly to run from a signed app bundle. Build and run the app bundle instead of the command-line target to enable this option.",
-            comment: "Explains why launch at login is unavailable when the app is running unsigned in Xcode."
-        )
+        return unavailableMessage()
     }
 
     func isEnabled() -> Bool {
@@ -67,7 +59,7 @@ final class LaunchAtLoginManager: LaunchAtLoginManaging {
 
     func setEnabled(_ enabled: Bool) throws {
         guard let service, isAvailable else {
-            throw LaunchAtLoginError.unavailable(reason: unavailableReason)
+            throw LaunchAtLoginError.unavailable(reason: unavailableMessage())
         }
 
         switch (enabled, service.status) {
@@ -85,5 +77,12 @@ final class LaunchAtLoginManager: LaunchAtLoginManaging {
             return false
         }
         return packageType == "APPL"
+    }
+
+    private func unavailableMessage() -> String {
+        localization.localized(
+            "Launch at Login requires Focusly to run from a signed app bundle. Build and run the app bundle instead of the command-line target to enable this option.",
+            fallback: "Launch at Login requires Focusly to run from a signed app bundle. Build and run the app bundle instead of the command-line target to enable this option."
+        )
     }
 }

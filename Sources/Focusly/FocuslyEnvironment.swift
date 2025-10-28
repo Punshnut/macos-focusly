@@ -6,6 +6,7 @@ struct FocuslyEnvironment {
     let workspace: NSWorkspace
     let launchAtLogin: LaunchAtLoginManaging
 
+    @MainActor
     static let `default` = FocuslyEnvironment(
         userDefaults: .standard,
         notificationCenter: .default,

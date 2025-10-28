@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 
 private let applicationAppearanceNotificationName = Notification.Name("NSApplicationDidChangeEffectiveAppearanceNotification")
 
@@ -7,31 +8,23 @@ enum StatusBarIconStyle: String, CaseIterable, Codable, Equatable, Hashable {
     case halo
     case pulse
 
-    var localizedName: String {
+    @MainActor var localizedName: String {
+        let localization = LocalizationService.shared
         switch self {
         case .dot:
-            return NSLocalizedString(
+            return localization.localized(
                 "Minimal Dot",
-                tableName: nil,
-                bundle: .module,
-                value: "Minimal Dot",
-                comment: "Status bar icon option representing a small dot."
+                fallback: "Minimal Dot"
             )
         case .halo:
-            return NSLocalizedString(
+            return localization.localized(
                 "Halo",
-                tableName: nil,
-                bundle: .module,
-                value: "Halo",
-                comment: "Status bar icon option representing a halo outline."
+                fallback: "Halo"
             )
         case .pulse:
-            return NSLocalizedString(
+            return localization.localized(
                 "Equalizer",
-                tableName: nil,
-                bundle: .module,
-                value: "Equalizer",
-                comment: "Status bar icon option representing stacked bars."
+                fallback: "Equalizer"
             )
         }
     }
@@ -64,25 +57,11 @@ protocol StatusBarControllerDelegate: AnyObject {
 @MainActor
 final class StatusBarController: NSObject {
     private let statusItem: NSStatusItem
-    private let mainMenu = NSMenu(
-        title: NSLocalizedString(
-            "Focusly",
-            tableName: nil,
-            bundle: .module,
-            value: "Focusly",
-            comment: "App name shown in the status bar menu."
-        )
-    )
-    private let quickMenu = NSMenu(
-        title: NSLocalizedString(
-            "Quick Actions",
-            tableName: nil,
-            bundle: .module,
-            value: "Quick Actions",
-            comment: "Title for the quick actions context menu."
-        )
-    )
+    private let mainMenu: NSMenu
+    private let quickMenu: NSMenu
     private weak var delegate: StatusBarControllerDelegate?
+    private let localization: LocalizationService
+    private var localizationCancellable: AnyCancellable?
     private var state = StatusBarState(
         enabled: false,
         hotkeysEnabled: false,
@@ -97,8 +76,12 @@ final class StatusBarController: NSObject {
 
     // MARK: - Initialization
 
-    init(delegate: StatusBarControllerDelegate? = nil) {
+    init(delegate: StatusBarControllerDelegate? = nil, localization: LocalizationService? = nil) {
+        let localization = localization ?? LocalizationService.shared
+        self.localization = localization
         self.statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        self.mainMenu = NSMenu(title: localization.localized("Focusly", fallback: "Focusly"))
+        self.quickMenu = NSMenu(title: localization.localized("Quick Actions", fallback: "Quick Actions"))
         self.delegate = delegate
         super.init()
         NotificationCenter.default.addObserver(
@@ -113,7 +96,18 @@ final class StatusBarController: NSObject {
             name: NSNotification.Name("AppleInterfaceThemeChangedNotification"),
             object: nil
         )
+        mainMenu.autoenablesItems = false
+        mainMenu.appearance = NSAppearance(named: .vibrantLight)
+        quickMenu.autoenablesItems = false
+        quickMenu.appearance = NSAppearance(named: .vibrantLight)
         configureStatusItem()
+
+        localizationCancellable = localization.$overrideIdentifier
+            .removeDuplicates()
+            .sink { [weak self] _ in
+                self?.updateMenuTitles()
+                self?.rebuildMenus()
+            }
     }
 
     deinit {
@@ -143,16 +137,13 @@ final class StatusBarController: NSObject {
         button.imagePosition = .imageOnly
         button.imageScaling = .scaleProportionallyDown
         button.toolTip = localized("Focusly")
-
-        mainMenu.autoenablesItems = false
-        mainMenu.appearance = NSAppearance(named: .vibrantLight)
-        quickMenu.autoenablesItems = false
-        quickMenu.appearance = NSAppearance(named: .vibrantLight)
-
+        updateMenuTitles()
         rebuildMenus()
     }
 
     private func rebuildMenus() {
+        updateMenuTitles()
+        statusItem.button?.toolTip = localized("Focusly")
         let tone = resolvedStatusBarIconTone()
         updateStatusItemIcon(tone: tone)
 
@@ -438,8 +429,13 @@ final class StatusBarController: NSObject {
 
     // MARK: - Localization
 
+    private func updateMenuTitles() {
+        mainMenu.title = localized("Focusly")
+        quickMenu.title = localized("Quick Actions")
+    }
+
     private func localized(_ key: String) -> String {
-        NSLocalizedString(key, tableName: nil, bundle: .module, value: key, comment: "")
+        localization.localized(key, fallback: key)
     }
 
     // Return a compact attributed title (smaller menu font + truncation) used for quick/context menu items.

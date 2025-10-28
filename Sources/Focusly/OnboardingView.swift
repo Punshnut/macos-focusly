@@ -3,6 +3,7 @@ import SwiftUI
 /// Lightweight SwiftUI shell for the onboarding steps with minimal chrome.
 struct OnboardingView: View {
     @ObservedObject var viewModel: OnboardingViewModel
+    @EnvironmentObject private var localization: LocalizationService
 
     var body: some View {
         VStack(alignment: .leading, spacing: 24) {
@@ -68,6 +69,6 @@ struct OnboardingView: View {
     }
 
     private func localized(_ key: String) -> String {
-        NSLocalizedString(key, tableName: nil, bundle: .module, value: key, comment: "")
+        localization.localized(key, fallback: key)
     }
 }

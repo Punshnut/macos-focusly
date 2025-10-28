@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 
 @MainActor
 final class FocuslyAppCoordinator: NSObject {
@@ -8,6 +9,7 @@ final class FocuslyAppCoordinator: NSObject {
         static let shortcut = "Focusly.Shortcut"
         static let onboardingCompleted = "Focusly.OnboardingCompleted"
         static let statusIconStyle = "Focusly.StatusIconStyle"
+        static let languageOverride = "Focusly.LanguageOverride"
     }
 
     private let environment: FocuslyEnvironment
@@ -18,6 +20,8 @@ final class FocuslyAppCoordinator: NSObject {
     private let statusBar: StatusBarController
     private let hotkeyCenter: HotkeyCenter
     private var onboardingController: OnboardingWindowController? // Retain the welcome flow while it is onscreen.
+    private let localization: LocalizationService
+    private var localizationCancellable: AnyCancellable?
 
     private var preferencesController: PreferencesWindowController?
     private var preferencesViewModel: PreferencesViewModel?
@@ -45,7 +49,8 @@ final class FocuslyAppCoordinator: NSObject {
         self.profileStore = ProfileStore(defaults: environment.userDefaults)
         self.overlayService = OverlayService(profileStore: profileStore, appSettings: appSettings)
         self.overlayController = overlayController
-        self.statusBar = StatusBarController()
+        self.localization = LocalizationService.shared
+        self.statusBar = StatusBarController(localization: localization)
         self.hotkeyCenter = HotkeyCenter()
 
         let defaults = environment.userDefaults
@@ -60,6 +65,9 @@ final class FocuslyAppCoordinator: NSObject {
         }
 
         appSettings.filtersEnabled = overlaysEnabled
+        if let storedLanguage = defaults.string(forKey: DefaultsKeys.languageOverride) {
+            localization.overrideIdentifier = storedLanguage
+        }
 
         super.init()
 
@@ -70,6 +78,13 @@ final class FocuslyAppCoordinator: NSObject {
         }
         hotkeyCenter.updateShortcut(shortcut)
         hotkeyCenter.setEnabled(hotkeysEnabled && shortcut != nil)
+
+        localizationCancellable = localization.$overrideIdentifier
+            .sink { [weak self] value in
+                guard let self else { return }
+                self.persistLanguageOverride(value)
+                self.syncLocalization()
+            }
     }
 
     // MARK: - Lifecycle
@@ -164,6 +179,34 @@ final class FocuslyAppCoordinator: NSObject {
         environment.userDefaults.set(statusBarIconStyle.rawValue, forKey: DefaultsKeys.statusIconStyle)
     }
 
+    private func persistLanguageOverride(_ identifier: String?) {
+        if let identifier {
+            environment.userDefaults.set(identifier, forKey: DefaultsKeys.languageOverride)
+        } else {
+            environment.userDefaults.removeObject(forKey: DefaultsKeys.languageOverride)
+        }
+    }
+
+    private func syncLocalization() {
+        syncStatusBar()
+        syncPreferencesLanguageOptions()
+        refreshOnboardingLocalizationIfNeeded()
+    }
+
+    private func syncPreferencesLanguageOptions() {
+        guard let viewModel = preferencesViewModel else { return }
+        viewModel.updateLanguageOptions(
+            localization.languageOptions,
+            selectedID: localization.selectedLanguageID
+        )
+    }
+
+    private func refreshOnboardingLocalizationIfNeeded() {
+        guard let controller = onboardingController else { return }
+        controller.updateLocalization(localization: localization)
+        controller.updateSteps(makeOnboardingSteps())
+    }
+
     // MARK: - Status Bar
 
     private func syncStatusBar() {
@@ -197,6 +240,11 @@ final class FocuslyAppCoordinator: NSObject {
             preferencesViewModel?.statusIconStyle = statusBarIconStyle
             preferencesViewModel?.availablePresets = PresetLibrary.presets
             preferencesViewModel?.selectedPresetID = profileStore.currentPreset().id
+            preferencesViewModel?.updateLanguageOptions(
+                localization.languageOptions,
+                selectedID: localization.selectedLanguageID
+            )
+            controller.updateLocalization(localization: localization)
             syncPreferencesDisplays()
             return
         }
@@ -212,6 +260,8 @@ final class FocuslyAppCoordinator: NSObject {
             availableIconStyles: StatusBarIconStyle.allCases,
             availablePresets: PresetLibrary.presets,
             selectedPresetID: profileStore.currentPreset().id,
+            languageOptions: localization.languageOptions,
+            selectedLanguageID: localization.selectedLanguageID,
             callbacks: PreferencesViewModel.Callbacks(
                 onDisplayChange: { [weak self] displayID, style in
                     guard let self else { return }
@@ -272,11 +322,14 @@ final class FocuslyAppCoordinator: NSObject {
                     self.overlayService.refreshDisplays(animated: true)
                     self.syncStatusBar()
                     self.syncPreferencesDisplays()
+                },
+                onSelectLanguage: { [weak self] identifier in
+                    self?.localization.selectLanguage(id: identifier)
                 }
             )
         )
 
-        let controller = PreferencesWindowController(viewModel: viewModel)
+        let controller = PreferencesWindowController(viewModel: viewModel, localization: localization)
         preferencesViewModel = viewModel
         preferencesController = controller
         controller.window?.delegate = self
@@ -327,66 +380,12 @@ final class FocuslyAppCoordinator: NSObject {
         guard force || !completed else { return }
 
         if let controller = onboardingController {
+            controller.updateLocalization(localization: localization)
             controller.present()
             return
         }
 
-        let steps = [
-            OnboardingViewModel.Step(
-                id: 0,
-                title: NSLocalizedString(
-                    "1. Switch overlays on",
-                    tableName: nil,
-                    bundle: .module,
-                    value: "1. Switch overlays on",
-                    comment: "Onboarding title for the first step."
-                ),
-                message: NSLocalizedString(
-                    "Click the Focusly status bar icon and toggle overlays for the displays you want to soften.",
-                    tableName: nil,
-                    bundle: .module,
-                    value: "Click the Focusly status bar icon and toggle overlays for the displays you want to soften.",
-                    comment: "Onboarding message describing how to enable overlays from the status menu."
-                ),
-                systemImageName: "moon.fill"
-            ),
-            OnboardingViewModel.Step(
-                id: 1,
-                title: NSLocalizedString(
-                    "2. Pick a filter",
-                    tableName: nil,
-                    bundle: .module,
-                    value: "2. Pick a filter",
-                    comment: "Onboarding title highlighting filter selection."
-                ),
-                message: NSLocalizedString(
-                    "Open Preferences to choose opacity, tint, and one of the Focus, Warm, Colorful, or Monochrome presets per display.",
-                    tableName: nil,
-                    bundle: .module,
-                    value: "Open Preferences to choose opacity, tint, and one of the Focus, Warm, Colorful, or Monochrome presets per display.",
-                    comment: "Onboarding message about picking presets and per-display tuning."
-                ),
-                systemImageName: "paintpalette"
-            ),
-            OnboardingViewModel.Step(
-                id: 2,
-                title: NSLocalizedString(
-                    "3. Set your controls",
-                    tableName: nil,
-                    bundle: .module,
-                    value: "3. Set your controls",
-                    comment: "Onboarding title about shortcuts and automation."
-                ),
-                message: NSLocalizedString(
-                    "Assign a global shortcut and enable Launch at Login in Preferences so Focusly is ready whenever you are.",
-                    tableName: nil,
-                    bundle: .module,
-                    value: "Assign a global shortcut and enable Launch at Login in Preferences so Focusly is ready whenever you are.",
-                    comment: "Onboarding message describing shortcut and automation options."
-                ),
-                systemImageName: "keyboard"
-            )
-        ]
+        let steps = makeOnboardingSteps()
 
         let viewModel = OnboardingViewModel(steps: steps) { [weak self] completed in
             guard let self else { return }
@@ -397,10 +396,51 @@ final class FocuslyAppCoordinator: NSObject {
             self.onboardingController = nil
         }
 
-        let controller = OnboardingWindowController(viewModel: viewModel)
+        let controller = OnboardingWindowController(viewModel: viewModel, localization: localization)
         onboardingController = controller
         controller.window?.delegate = self
         controller.present()
+    }
+
+    private func makeOnboardingSteps() -> [OnboardingViewModel.Step] {
+        [
+            OnboardingViewModel.Step(
+                id: 0,
+                title: localization.localized(
+                    "1. Switch overlays on",
+                    fallback: "1. Switch overlays on"
+                ),
+                message: localization.localized(
+                    "Click the Focusly status bar icon and toggle overlays for the displays you want to soften.",
+                    fallback: "Click the Focusly status bar icon and toggle overlays for the displays you want to soften."
+                ),
+                systemImageName: "moon.fill"
+            ),
+            OnboardingViewModel.Step(
+                id: 1,
+                title: localization.localized(
+                    "2. Pick a filter",
+                    fallback: "2. Pick a filter"
+                ),
+                message: localization.localized(
+                    "Open Preferences to choose opacity, tint, and one of the Focus, Warm, Colorful, or Monochrome presets per display.",
+                    fallback: "Open Preferences to choose opacity, tint, and one of the Focus, Warm, Colorful, or Monochrome presets per display."
+                ),
+                systemImageName: "paintpalette"
+            ),
+            OnboardingViewModel.Step(
+                id: 2,
+                title: localization.localized(
+                    "3. Set your controls",
+                    fallback: "3. Set your controls"
+                ),
+                message: localization.localized(
+                    "Assign a global shortcut and enable Launch at Login in Preferences so Focusly is ready whenever you are.",
+                    fallback: "Assign a global shortcut and enable Launch at Login in Preferences so Focusly is ready whenever you are."
+                ),
+                systemImageName: "keyboard"
+            )
+        ]
     }
 }
 

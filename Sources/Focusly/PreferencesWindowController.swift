@@ -5,13 +5,16 @@ import SwiftUI
 @MainActor
 final class PreferencesWindowController: NSWindowController {
     private let viewModel: PreferencesViewModel
+    private let localization: LocalizationService
     private var eventMonitor: Any?
     private var captureCompletion: ((HotkeyShortcut?) -> Void)?
     private var cancellables: Set<AnyCancellable> = []
+    private var localizationCancellable: AnyCancellable?
 
-    init(viewModel: PreferencesViewModel) {
+    init(viewModel: PreferencesViewModel, localization: LocalizationService) {
         self.viewModel = viewModel
-        let view = PreferencesView(viewModel: viewModel)
+        self.localization = localization
+        let view = PreferencesView(viewModel: viewModel).environmentObject(localization)
         let hostingController = NSHostingController(rootView: view)
         let layout = PreferencesWindowController.layout(for: viewModel.displays.count)
         let window = NSWindow(
@@ -20,12 +23,9 @@ final class PreferencesWindowController: NSWindowController {
             backing: .buffered,
             defer: false
         )
-        window.title = NSLocalizedString(
+        window.title = localization.localized(
             "Focusly Preferences",
-            tableName: nil,
-            bundle: .module,
-            value: "Focusly Preferences",
-            comment: "Window title for the preferences window."
+            fallback: "Focusly Preferences"
         )
         window.isReleasedWhenClosed = false
         window.contentMinSize = layout.minimumSize
@@ -40,6 +40,12 @@ final class PreferencesWindowController: NSWindowController {
                 self?.updateWindowSize(for: count)
             }
             .store(in: &cancellables)
+
+        localizationCancellable = localization.$overrideIdentifier
+            .removeDuplicates()
+            .sink { [weak self] _ in
+                self?.updateWindowTitle()
+            }
     }
 
     @available(*, unavailable)
@@ -56,6 +62,11 @@ final class PreferencesWindowController: NSWindowController {
         guard let window else { return }
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+    }
+
+    func updateLocalization(localization: LocalizationService) {
+        guard localization === self.localization else { return }
+        updateWindowTitle()
     }
 
     func beginShortcutCapture(completion: @escaping (HotkeyShortcut?) -> Void) {
@@ -111,6 +122,14 @@ final class PreferencesWindowController: NSWindowController {
             window.setContentSize(layout.initialSize)
             window.center()
         }
+    }
+
+    private func updateWindowTitle() {
+        guard let window else { return }
+        window.title = localization.localized(
+            "Focusly Preferences",
+            fallback: "Focusly Preferences"
+        )
     }
 
     private static func layout(for displayCount: Int) -> (initialSize: NSSize, minimumSize: NSSize) {

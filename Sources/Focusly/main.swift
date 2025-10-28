@@ -1,8 +1,10 @@
 import AppKit
+import Combine
 
 final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var coordinator: FocuslyAppCoordinator?
     private var overlayController: OverlayController?
+    private var localizationCancellable: AnyCancellable?
 
     private let windowTracker = WindowTracker()
     private var trackerObserver: NSObjectProtocol?
@@ -19,6 +21,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         if shouldShowDebugWindow {
             presentDebugWindow()
         }
+
+        let localization = LocalizationService.shared
+
+        localizationCancellable = localization.$overrideIdentifier
+            .removeDuplicates()
+            .sink { [weak self] _ in
+                self?.configureMainMenu()
+            }
     }
 
     @MainActor
@@ -89,11 +99,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             object: nil,
             queue: .main
         ) { [weak self] note in
-            guard
-                let snap = note.object as? WindowTracker.Snapshot,
-                let self
-            else { return }
-            self.renderDebug(snap: snap)
+            guard let snap = note.object as? WindowTracker.Snapshot else { return }
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.renderDebug(snap: snap)
+            }
         }
         windowTracker.start()
     }
@@ -110,6 +120,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         debugWindow = nil
     }
 
+    @MainActor
     private func renderDebug(snap: WindowTracker.Snapshot) {
         guard let window = debugWindow else { return }
         if let frame = snap.activeFrame {
@@ -130,32 +141,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     // MARK: - Menu
 
+    @MainActor
     private func configureMainMenu() {
+        let localization = LocalizationService.shared
         let mainMenu = NSMenu()
         let appMenuItem = NSMenuItem()
         let appMenu = NSMenu()
 
         let appName = Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String ?? "Focusly"
 
-        let aboutTitle = String(format: NSLocalizedString(
+        let aboutTemplate = localization.localized(
             "About %@",
-            tableName: nil,
-            bundle: .main,
-            value: "About %@",
-            comment: "Title for the default About item in the app menu."
-        ), appName)
+            fallback: "About %@"
+        )
+        let aboutTitle = String(format: aboutTemplate, locale: localization.locale, appName)
         let aboutItem = NSMenuItem(title: aboutTitle, action: #selector(showAboutPanel(_:)), keyEquivalent: "")
         aboutItem.target = self
         appMenu.addItem(aboutItem)
         appMenu.addItem(NSMenuItem.separator())
 
-        let quitTitle = String(format: NSLocalizedString(
+        let quitTemplate = localization.localized(
             "Quit %@",
-            tableName: nil,
-            bundle: .main,
-            value: "Quit %@",
-            comment: "Title for the default Quit item in the app menu."
-        ), appName)
+            fallback: "Quit %@"
+        )
+        let quitTitle = String(format: quitTemplate, locale: localization.locale, appName)
         let quitItem = NSMenuItem(title: quitTitle, action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         quitItem.target = nil
         appMenu.addItem(quitItem)
@@ -166,28 +175,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         NSApp.mainMenu = mainMenu
     }
 
+    @MainActor
     @objc private func showAboutPanel(_ sender: Any?) {
+        let localization = LocalizationService.shared
         let appName = Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String ?? "Focusly"
-        let creditsHeader = NSLocalizedString(
+        let creditsHeader = localization.localized(
             "Credits",
-            tableName: nil,
-            bundle: .main,
-            value: "Credits",
-            comment: "Heading for the credits in the About panel."
+            fallback: "Credits"
         )
-        let nameLine = NSLocalizedString(
+        let nameLine = localization.localized(
             "Jan Feuerbacher",
-            tableName: nil,
-            bundle: .main,
-            value: "Jan Feuerbacher",
-            comment: "Creator's name in the About panel."
+            fallback: "Jan Feuerbacher"
         )
-        let nametagLine = NSLocalizedString(
+        let nametagLine = localization.localized(
             "Punshnut",
-            tableName: nil,
-            bundle: .main,
-            value: "Punshnut",
-            comment: "Creator's nametag in the About panel."
+            fallback: "Punshnut"
         )
 
         let paragraph = NSMutableParagraphStyle()

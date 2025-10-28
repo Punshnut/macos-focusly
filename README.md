@@ -8,6 +8,15 @@ Focusly is a lightweight macOS companion that softens your desktop, adapts ambie
 
 > Current build: Prerelease Alpha 0.1
 
+### Localizations
+- English
+- Spanish (Español)
+- Chinese (中文, Zhongwen)
+- Ukrainian (Українська, Ukraine)
+- Russian (Русский, Ruskye)
+
+Localized setup guides live in `Documentation/en`, `Documentation/es`, `Documentation/zh-Hans`, `Documentation/uk`, and `Documentation/ru`.
+
 ### Highlights
 - Status bar control with primary and context menus, including quick toggles, presets, and launch-at-login management.
 - Per-display overlays rendered above desktop icons with smooth animations, configurable opacity, blur, and tint.
@@ -21,20 +30,23 @@ Focusly is a lightweight macOS companion that softens your desktop, adapts ambie
 
 ### Requirements
 - macOS 13 (Ventura) or newer
-- Xcode 15 / Swift 5.9 or newer
+- Optional for source builds: Xcode 15 / Swift 5.9 or newer
 
 ### Quick Start
+1. Download the latest `Focusly.app` Alpha from the GitHub Releases page (or use the bundled `Focusly.app` in this repo).
+2. Drag `Focusly.app` to `/Applications` (or run it from your preferred folder) and launch it.
+3. On the first launch, macOS may warn you about the unsigned build; approve it via **System Settings → Privacy & Security** if needed.
+
+Want to build from source instead?
 ```bash
 git clone https://github.com/your-user/macos-focusly.git
 cd macos-focusly
 open Package.swift
 ```
-Open the generated workspace in Xcode 15 or newer, select the `focusly` scheme, and press `⌘R` to launch the Prerelease Alpha 0.1 build. To build from the command line:
+Open the generated workspace in Xcode 15 or newer, select the `focusly` scheme, and press `⌘R`. To build without Xcode:
 ```bash
 swift build
 ```
-
-Prefer a ready-to-run build? Download the Focusly.app Alpha from the GitHub releases or grab the bundled `Focusly.app` in this repository's root.
 
 ### Packaging
 The project ships with a Swift Package Manager manifest only. You can reuse the `_old/scripts/package_app.sh` flow as a starting point, or create a fresh bundle with:
@@ -76,6 +88,15 @@ Focusly es un compañero ligero para macOS que suaviza tu escritorio, permite qu
 
 > Compilación actual: Prerelease Alpha 0.1
 
+### Localizaciones
+- Inglés
+- Español
+- Chinese (中文, Zhongwen)
+- Ukrainian (Українська, Ukraine)
+- Russian (Русский, Ruskye)
+
+Las guías localizadas están disponibles en `Documentation/en`, `Documentation/es`, `Documentation/zh-Hans`, `Documentation/uk` y `Documentation/ru`.
+
 ### Destacados
 - Control en la barra de estado con menús principal y contextual, atajos rápidos, presets y manejo de inicio automático.
 - Superposiciones por pantalla situadas sobre los iconos del escritorio, con animaciones fluidas y ajustes de opacidad, desenfoque y tinte.
@@ -89,20 +110,23 @@ Focusly es un compañero ligero para macOS que suaviza tu escritorio, permite qu
 
 ### Requisitos
 - macOS 13 (Ventura) o posterior
-- Xcode 15 / Swift 5.9 o posterior
+- Opcional si compilas desde el código: Xcode 15 / Swift 5.9 o posterior
 
 ### Inicio rápido
+1. Descarga la versión Alpha más reciente de `Focusly.app` desde los lanzamientos de GitHub (o usa la versión incluida en la raíz de este repositorio).
+2. Arrastra `Focusly.app` a `/Applications` (o ejecútala desde tu carpeta preferida) y ábrela.
+3. En el primer inicio, macOS puede avisarte que la app no está firmada; apruébala desde **Ajustes del Sistema → Privacidad y seguridad** si es necesario.
+
+¿Quieres compilar desde el código?
 ```bash
 git clone https://github.com/your-user/macos-focusly.git
 cd macos-focusly
 open Package.swift
 ```
-Abre el workspace generado en Xcode 15 o posterior, selecciona el esquema `focusly` y pulsa `⌘R` para iniciar la compilación Prerelease Alpha 0.1. Para compilar desde la línea de comandos:
+Abre el workspace generado en Xcode 15 o posterior, selecciona el esquema `focusly` y pulsa `⌘R`. Para compilar sin Xcode:
 ```bash
 swift build
 ```
-
-¿Prefieres una compilación lista para usar? Descarga el Focusly.app Alpha desde los lanzamientos de GitHub o utiliza el `Focusly.app` incluido en la raíz del repositorio.
 
 ### Empaquetado
 El proyecto utiliza únicamente Swift Package Manager. Puedes reutilizar `_old/scripts/package_app.sh` como referencia o crear un nuevo paquete con:

@@ -59,4 +59,15 @@ final class OnboardingViewModel: ObservableObject {
     func cancel() {
         completion(false)
     }
+
+    func updateSteps(_ newSteps: [Step]) {
+        let existingID: Int? = currentIndex < steps.count ? steps[currentIndex].id : nil
+        steps = newSteps
+        if let existingID,
+           let index = newSteps.firstIndex(where: { $0.id == existingID }) {
+            currentIndex = index
+        } else {
+            currentIndex = max(min(currentIndex, newSteps.count - 1), 0)
+        }
+    }
 }

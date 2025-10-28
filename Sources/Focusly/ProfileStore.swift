@@ -1,5 +1,6 @@
 import Foundation
 
+@MainActor
 final class ProfileStore {
     struct State: Codable, Equatable {
         var selectedPresetID: String

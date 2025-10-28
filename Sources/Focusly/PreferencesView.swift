@@ -3,12 +3,13 @@ import SwiftUI
 
 struct PreferencesView: View {
     @ObservedObject var viewModel: PreferencesViewModel
+    @EnvironmentObject private var localization: LocalizationService
     @State private var selectedDisplayID: DisplayID?
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
-                Text(String(localized: "Focusly Preferences", bundle: .module))
+                Text(localized("Focusly Preferences"))
                     .font(.title2)
                     .fontWeight(.semibold)
 
@@ -29,6 +30,10 @@ struct PreferencesView: View {
                 Divider()
 
                 onboardingSection
+
+                Divider()
+
+                languageSection
             }
             .padding(.vertical, 24)
             .padding(.horizontal, 20)
@@ -44,11 +49,11 @@ struct PreferencesView: View {
 
     private var appearanceSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text(String(localized: "Appearance", bundle: .module))
+            Text(localized("Appearance"))
                 .font(.headline)
 
             Picker(
-                String(localized: "Overlay Preset", bundle: .module),
+                localized("Overlay Preset"),
                 selection: Binding(
                     get: { viewModel.selectedPresetID },
                     set: { viewModel.selectPreset(id: $0) }
@@ -60,12 +65,12 @@ struct PreferencesView: View {
             }
             .pickerStyle(.segmented)
 
-            Text(String(localized: "Switch between saved overlay looks instantly.", bundle: .module))
+            Text(localized("Switch between saved overlay looks instantly."))
                 .font(.caption)
                 .foregroundColor(.secondary)
 
             Picker(
-                String(localized: "Status Bar Icon", bundle: .module),
+                localized("Status Bar Icon"),
                 selection: Binding(
                     get: { viewModel.statusIconStyle },
                     set: { viewModel.updateStatusIconStyle($0) }
@@ -81,7 +86,7 @@ struct PreferencesView: View {
             }
             .pickerStyle(.menu)
 
-            Text(String(localized: "Choose how Focusly appears in the menu bar.", bundle: .module))
+            Text(localized("Choose how Focusly appears in the menu bar."))
                 .font(.caption)
                 .foregroundColor(.secondary)
         }
@@ -90,21 +95,21 @@ struct PreferencesView: View {
     private var displaysSection: some View {
         VStack(alignment: .leading, spacing: 16) {
             VStack(alignment: .leading, spacing: 4) {
-                Text(String(localized: "Displays", bundle: .module))
+                Text(localized("Displays"))
                     .font(.headline)
                 if viewModel.displays.count > 1 {
-                    Text(String(localized: "Pick a screen to fine-tune or copy its look to every monitor.", bundle: .module))
+                    Text(localized("Pick a screen to fine-tune or copy its look to every monitor."))
                         .font(.caption)
                         .foregroundColor(.secondary)
                 } else {
-                    Text(String(localized: "Dial in how Focusly feels on this display.", bundle: .module))
+                    Text(localized("Dial in how Focusly feels on this display."))
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
             }
 
             if viewModel.displays.isEmpty {
-                Text(String(localized: "No displays detected. Connect a monitor to adjust overlay styling.", bundle: .module))
+                Text(localized("No displays detected. Connect a monitor to adjust overlay styling."))
                     .font(.subheadline)
                     .foregroundColor(.secondary)
                     .frame(maxWidth: .infinity, alignment: .center)
@@ -166,22 +171,22 @@ struct PreferencesView: View {
                     Text(display.name)
                         .font(.title3)
                         .fontWeight(.semibold)
-                    Text(String(localized: "Adjust how the overlay looks on this screen.", bundle: .module))
+                    Text(localized("Adjust how the overlay looks on this screen."))
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
                 Spacer(minLength: 12)
                 Menu {
-                    Button(String(localized: "Reset This Display", bundle: .module)) {
+                    Button(localized("Reset This Display")) {
                         viewModel.resetDisplay(display.id)
                     }
                     if viewModel.displays.count > 1 {
-                        Button(String(localized: "Copy settings to other displays", bundle: .module)) {
+                        Button(localized("Copy settings to other displays")) {
                             viewModel.syncDisplaySettings(from: display.id)
                         }
                     }
                 } label: {
-                    Label(String(localized: "Options", bundle: .module), systemImage: "ellipsis.circle")
+                    Label(localized("Options"), systemImage: "ellipsis.circle")
                         .labelStyle(.iconOnly)
                         .imageScale(.large)
                         .padding(6)
@@ -196,12 +201,12 @@ struct PreferencesView: View {
                     RoundedRectangle(cornerRadius: 12, style: .continuous)
                         .stroke(Color.primary.opacity(0.08), lineWidth: 1)
                 )
-                .accessibilityLabel(Text(String(localized: "Overlay preview", bundle: .module)))
+                .accessibilityLabel(Text(localized("Overlay preview")))
 
             VStack(alignment: .leading, spacing: 14) {
                 VStack(alignment: .leading, spacing: 6) {
                     HStack {
-                        Text(String(localized: "Color Filter", bundle: .module))
+                        Text(localized("Color Filter"))
                             .font(.caption)
                             .foregroundColor(.secondary)
                         Spacer()
@@ -214,11 +219,11 @@ struct PreferencesView: View {
                 }
 
                 VStack(alignment: .leading, spacing: 8) {
-                    Text(String(localized: "Tint", bundle: .module))
+                    Text(localized("Tint"))
                         .font(.caption)
                         .foregroundColor(.secondary)
                     ColorPicker(
-                        String(localized: "Overlay Tint", bundle: .module),
+                        localized("Overlay Tint"),
                         selection: tintBinding,
                         supportsOpacity: true
                     )
@@ -231,7 +236,7 @@ struct PreferencesView: View {
                                 .stroke(Color.primary.opacity(0.08))
                         )
                         .accessibilityHidden(true)
-                    Text(String(localized: "Adjust the tint and transparency until it matches your space.", bundle: .module))
+                    Text(localized("Adjust the tint and transparency until it matches your space."))
                         .font(.caption2)
                         .foregroundColor(.secondary)
                 }
@@ -263,13 +268,13 @@ struct PreferencesView: View {
                 get: { viewModel.hotkeysEnabled },
                 set: { viewModel.setHotkeysEnabled($0) }
             )) {
-                Text(String(localized: "Enable Focus Toggle Shortcut", bundle: .module))
+                Text(localized("Enable Focus Toggle Shortcut"))
             }
             .toggleStyle(.switch)
 
             VStack(alignment: .leading, spacing: 6) {
                 HStack {
-                    Text(String(localized: "Shortcut", bundle: .module))
+                    Text(localized("Shortcut"))
                         .foregroundColor(.secondary)
                     Text(viewModel.shortcutDescription)
                         .font(.body)
@@ -277,18 +282,18 @@ struct PreferencesView: View {
                     Button {
                         viewModel.beginShortcutCapture()
                     } label: {
-                        Text(String(localized: "Record", bundle: .module))
+                        Text(localized("Record"))
                     }
                     .disabled(viewModel.capturingShortcut)
                     Button {
                         viewModel.clearShortcut()
                     } label: {
-                        Text(String(localized: "Clear", bundle: .module))
+                        Text(localized("Clear"))
                     }
                 }
 
                 if viewModel.capturingShortcut {
-                    Text(String(localized: "Press a key combination…", bundle: .module))
+                    Text(localized("Press a key combination…"))
                         .font(.caption)
                         .foregroundColor(.accentColor)
                 }
@@ -302,7 +307,7 @@ struct PreferencesView: View {
                 get: { viewModel.launchAtLoginEnabled },
                 set: { viewModel.setLaunchAtLoginEnabled($0) }
             )) {
-                Text(String(localized: "Launch Focusly at login", bundle: .module))
+                Text(localized("Launch Focusly at login"))
             }
             .toggleStyle(.switch)
             .disabled(!viewModel.launchAtLoginAvailable)
@@ -319,15 +324,43 @@ struct PreferencesView: View {
         Button {
             viewModel.showOnboarding()
         } label: {
-            Text(String(localized: "Revisit Introduction…", bundle: .module))
+            Text(localized("Revisit Introduction…"))
         }
         .buttonStyle(.borderedProminent)
         .controlSize(.small)
     }
 
+    private var languageSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(localized("App Language"))
+                .font(.headline)
+
+            Picker(
+                localized("App Language"),
+                selection: Binding(
+                    get: { viewModel.selectedLanguageID },
+                    set: { viewModel.setLanguage(id: $0) }
+                )
+            ) {
+                ForEach(viewModel.languageOptions) { option in
+                    Text(option.displayName).tag(option.id)
+                }
+            }
+            .pickerStyle(.menu)
+
+            Text(localized("Choose which language Focusly uses. Switch instantly to test translations."))
+                .font(.caption)
+                .foregroundColor(.secondary)
+        }
+    }
+
     private func opacityLabel(for value: Double) -> String {
         let clamped = max(0, min(1, value))
         return String(format: "%.0f%%", clamped * 100)
+    }
+
+    private func localized(_ key: String) -> String {
+        localization.localized(key, fallback: key)
     }
 
 }

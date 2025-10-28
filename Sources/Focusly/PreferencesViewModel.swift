@@ -26,6 +26,7 @@ final class PreferencesViewModel: ObservableObject {
         var onRequestOnboarding: () -> Void
         var onUpdateStatusIconStyle: (StatusBarIconStyle) -> Void
         var onSelectPreset: (FocusPreset) -> Void
+        var onSelectLanguage: (String) -> Void
     }
 
     @Published var displays: [DisplaySettings]
@@ -38,6 +39,8 @@ final class PreferencesViewModel: ObservableObject {
     @Published var capturingShortcut = false
     @Published private(set) var shortcutDescription: String
     @Published var statusIconStyle: StatusBarIconStyle
+    @Published var languageOptions: [LocalizationService.LanguageOption]
+    @Published var selectedLanguageID: String
 
     private var shortcut: HotkeyShortcut?
     private let callbacks: Callbacks
@@ -54,6 +57,8 @@ final class PreferencesViewModel: ObservableObject {
         availableIconStyles: [StatusBarIconStyle],
         availablePresets: [FocusPreset],
         selectedPresetID: String,
+        languageOptions: [LocalizationService.LanguageOption],
+        selectedLanguageID: String,
         callbacks: Callbacks
     ) {
         self.displays = displays
@@ -68,6 +73,14 @@ final class PreferencesViewModel: ObservableObject {
         self.shortcutDescription = PreferencesViewModel.describeShortcut(shortcut)
         self.statusIconStyle = statusIconStyle
         self.availableIconStyles = availableIconStyles
+        self.languageOptions = languageOptions
+        if languageOptions.contains(where: { $0.id == selectedLanguageID }) {
+            self.selectedLanguageID = selectedLanguageID
+        } else if let first = languageOptions.first {
+            self.selectedLanguageID = first.id
+        } else {
+            self.selectedLanguageID = LocalizationService.LanguageOption.systemID
+        }
     }
 
     func updateOpacity(for displayID: DisplayID, value: Double) {
@@ -134,6 +147,23 @@ final class PreferencesViewModel: ObservableObject {
     func updateStatusIconStyle(_ style: StatusBarIconStyle) {
         statusIconStyle = style
         callbacks.onUpdateStatusIconStyle(style)
+    }
+
+    func setLanguage(id: String) {
+        guard selectedLanguageID != id else { return }
+        selectedLanguageID = id
+        callbacks.onSelectLanguage(id)
+    }
+
+    func updateLanguageOptions(_ options: [LocalizationService.LanguageOption], selectedID: String) {
+        languageOptions = options
+        if options.contains(where: { $0.id == selectedID }) {
+            selectedLanguageID = selectedID
+        } else if let first = options.first {
+            selectedLanguageID = first.id
+        } else {
+            selectedLanguageID = LocalizationService.LanguageOption.systemID
+        }
     }
 
     func showOnboarding() {
