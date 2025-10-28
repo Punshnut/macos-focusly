@@ -1,5 +1,7 @@
 import AppKit
 
+private let applicationAppearanceNotificationName = Notification.Name("NSApplicationDidChangeEffectiveAppearanceNotification")
+
 enum StatusBarIconStyle: String, CaseIterable, Codable, Equatable, Hashable {
     case dot
     case halo
@@ -99,7 +101,24 @@ final class StatusBarController: NSObject {
         self.statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         self.delegate = delegate
         super.init()
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleAppearanceChange),
+            name: applicationAppearanceNotificationName,
+            object: nil
+        )
+        DistributedNotificationCenter.default().addObserver(
+            self,
+            selector: #selector(handleAppearanceChange),
+            name: NSNotification.Name("AppleInterfaceThemeChangedNotification"),
+            object: nil
+        )
         configureStatusItem()
+    }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self, name: applicationAppearanceNotificationName, object: nil)
+        DistributedNotificationCenter.default().removeObserver(self, name: NSNotification.Name("AppleInterfaceThemeChangedNotification"), object: nil)
     }
 
     // MARK: - Public API
@@ -120,7 +139,6 @@ final class StatusBarController: NSObject {
         button.title = ""
         button.target = self
         button.action = #selector(handleClick(_:))
-        button.appearance = NSAppearance(named: .vibrantLight)
         button.sendAction(on: [.leftMouseUp, .rightMouseUp])
         button.imagePosition = .imageOnly
         button.imageScaling = .scaleProportionallyDown
@@ -131,12 +149,12 @@ final class StatusBarController: NSObject {
         quickMenu.autoenablesItems = false
         quickMenu.appearance = NSAppearance(named: .vibrantLight)
 
-        updateStatusItemIcon()
         rebuildMenus()
     }
 
     private func rebuildMenus() {
-        updateStatusItemIcon()
+        let tone = resolvedStatusBarIconTone()
+        updateStatusItemIcon(tone: tone)
 
         mainMenu.removeAllItems()
         mainMenu.addItem(makeVersionMenuItem())
@@ -196,7 +214,12 @@ final class StatusBarController: NSObject {
             item.target = self
             item.representedObject = style.rawValue
             item.state = style == state.iconStyle ? .on : .off
-            item.image = StatusBarIconFactory.icon(style: style, isActive: state.enabled)
+            item.image = StatusBarIconFactory.icon(
+                style: style,
+                isActive: state.enabled,
+                tone: tone,
+                template: false
+            )
             iconMenu.addItem(item)
         }
         iconMenuItem.submenu = iconMenu
@@ -226,16 +249,16 @@ final class StatusBarController: NSObject {
     }
 
     private func rebuildQuickMenu() {
-            quickMenu.removeAllItems()
-            // Use a compact version header for the quick/context menu so it doesn't force a wide menu.
-            quickMenu.addItem(makeVersionMenuItem(compact: true))
-            quickMenu.addItem(.separator())
+        quickMenu.removeAllItems()
+        // Use a compact version header for the quick/context menu so it doesn't force a wide menu.
+        quickMenu.addItem(makeVersionMenuItem(compact: true))
+        quickMenu.addItem(.separator())
 
-            let toggleTitle = localized(state.enabled ? "Disable Overlays" : "Enable Overlays")
-            let toggleItem = NSMenuItem(title: toggleTitle, action: #selector(toggleOverlay), keyEquivalent: "")
-            toggleItem.target = self
-            toggleItem.state = state.enabled ? .on : .off
-            quickMenu.addItem(toggleItem)
+        let toggleTitle = localized(state.enabled ? "Disable Overlays" : "Enable Overlays")
+        let toggleItem = NSMenuItem(title: toggleTitle, action: #selector(toggleOverlay), keyEquivalent: "")
+        toggleItem.target = self
+        toggleItem.state = state.enabled ? .on : .off
+        quickMenu.addItem(toggleItem)
 
         quickMenu.addItem(.separator())
 
@@ -268,10 +291,10 @@ final class StatusBarController: NSObject {
         } else if let message = state.launchAtLoginMessage {
             // Use a short, 5-word variant for the quick/context menu to avoid excessive width.
             let shortMessage = abbreviatedFiveWords(message)
-             let loginItem = NSMenuItem(title: shortMessage, action: nil, keyEquivalent: "")
-             loginItem.isEnabled = false
-             quickMenu.addItem(loginItem)
-         }
+            let loginItem = NSMenuItem(title: shortMessage, action: nil, keyEquivalent: "")
+            loginItem.isEnabled = false
+            quickMenu.addItem(loginItem)
+        }
 
         quickMenu.addItem(.separator())
 
@@ -441,41 +464,121 @@ final class StatusBarController: NSObject {
         return words.prefix(5).joined(separator: " ") + "…"
     }
     
-    private func updateStatusItemIcon() {
+    private func updateStatusItemIcon(tone providedTone: StatusBarIconTone? = nil) {
         guard let button = statusItem.button else { return }
-        button.image = StatusBarIconFactory.icon(style: state.iconStyle, isActive: state.enabled)
-        button.alternateImage = StatusBarIconFactory.icon(style: state.iconStyle, isActive: true)
-        button.contentTintColor = StatusBarIconFactory.tintColor(isActive: state.enabled)
-        button.image?.isTemplate = true
+        let tone = providedTone ?? resolvedStatusBarIconTone()
+        button.image = StatusBarIconFactory.icon(style: state.iconStyle, isActive: state.enabled, tone: tone)
+        button.alternateImage = StatusBarIconFactory.icon(style: state.iconStyle, isActive: true, tone: tone)
     }
+
+    private func resolvedStatusBarIconTone() -> StatusBarIconTone {
+        let appearanceSources: [NSAppearance?] = [
+            statusItem.button?.window?.effectiveAppearance,
+            statusItem.button?.effectiveAppearance,
+            NSApp.effectiveAppearance
+        ]
+
+        for appearance in appearanceSources {
+            guard let appearance else { continue }
+            if let tone = StatusBarController.derivedTone(from: appearance) {
+                return tone
+            }
+        }
+
+        return .light
+    }
+}
+
+private extension StatusBarController {
+    static func derivedTone(from appearance: NSAppearance) -> StatusBarIconTone? {
+        var resolvedColor = NSColor.labelColor
+        appearance.performAsCurrentDrawingAppearance {
+            resolvedColor = NSColor.labelColor
+        }
+
+        let converted = resolvedColor.usingColorSpace(NSColorSpace.extendedSRGB)
+            ?? resolvedColor.usingColorSpace(NSColorSpace.deviceRGB)
+            ?? resolvedColor.usingColorSpace(NSColorSpace.genericRGB)
+
+        guard let color = converted else { return nil }
+
+        var red: CGFloat = 0
+        var green: CGFloat = 0
+        var blue: CGFloat = 0
+        var alpha: CGFloat = 0
+        color.getRed(&red, green: &green, blue: &blue, alpha: &alpha)
+
+        let brightness = (0.299 * red) + (0.587 * green) + (0.114 * blue)
+        return brightness >= 0.5 ? .light : .dark
+    }
+}
+
+@objc private extension StatusBarController {
+    func handleAppearanceChange() {
+        rebuildMenus()
+    }
+}
+enum StatusBarIconTone: Hashable {
+    case light
+    case dark
 }
 
 enum StatusBarIconFactory {
     private static let iconSize: CGFloat = 18
     private static let canvasSize = NSSize(width: iconSize, height: iconSize)
+    private static var cache: [CacheKey: NSImage] = [:]
 
     static func icon(style: StatusBarIconStyle, isActive: Bool) -> NSImage {
+        icon(style: style, isActive: isActive, tone: .light, template: true)
+    }
+
+    static func icon(
+        style: StatusBarIconStyle,
+        isActive: Bool,
+        tone: StatusBarIconTone,
+        template: Bool = true
+    ) -> NSImage {
+        let key = CacheKey(style: style, isActive: isActive, tone: tone, template: template)
+        if let image = cache[key] {
+            return image
+        }
+
+        let palette = palette(for: tone)
+        let image: NSImage
+
         switch style {
         case .dot:
-            return isActive ? dotActive : dotInactive
+            image = drawDotIcon(isActive: isActive, palette: palette, template: template)
         case .halo:
-            return isActive ? haloActive : haloInactive
+            image = drawHaloIcon(isActive: isActive, palette: palette, template: template)
         case .pulse:
-            return isActive ? pulseActive : pulseInactive
+            image = drawPulseIcon(isActive: isActive, palette: palette, template: template)
+        }
+
+        cache[key] = image
+        return image
+    }
+
+    private static func palette(for tone: StatusBarIconTone) -> IconPalette {
+        switch tone {
+        case .light:
+            return IconPalette(
+                primary: .white,
+                highlight: NSColor.white.withAlphaComponent(0.45),
+                glow: NSColor.white.withAlphaComponent(0.35)
+            )
+        case .dark:
+            return IconPalette(
+                primary: .black,
+                highlight: NSColor.white.withAlphaComponent(0.25),
+                glow: NSColor.black.withAlphaComponent(0.2)
+            )
         }
     }
 
-    static func tintColor(isActive: Bool) -> NSColor {
-        if isActive {
-            return NSColor.white
-        } else {
-            return NSColor.secondaryLabelColor
-        }
-    }
-
-    private static let dotActive: NSImage = {
+    private static func drawDotIcon(isActive: Bool, palette: IconPalette, template: Bool) -> NSImage {
         let image = NSImage(size: canvasSize, flipped: false) { rect in
-            let diameter = rect.width * 0.42
+            let diameter = rect.width * (isActive ? 0.42 : 0.46)
             let circleRect = NSRect(
                 x: rect.midX - diameter / 2,
                 y: rect.midY - diameter / 2,
@@ -483,41 +586,23 @@ enum StatusBarIconFactory {
                 height: diameter
             )
             let circle = NSBezierPath(ovalIn: circleRect)
-            NSColor.white.setFill()
-            circle.fill()
+            if isActive {
+                palette.primary.setFill()
+                circle.fill()
+            } else {
+                circle.lineWidth = rect.width * 0.14
+                palette.primary.setStroke()
+                circle.stroke()
+            }
             return true
         }
-        image.isTemplate = true
+        image.isTemplate = template
         return image
-    }()
+    }
 
-    private static let dotInactive: NSImage = {
-        let image = NSImage(size: canvasSize, flipped: false) { rect in
-            let diameter = rect.width * 0.46
-            let circleRect = NSRect(
-                x: rect.midX - diameter / 2,
-                y: rect.midY - diameter / 2,
-                width: diameter,
-                height: diameter
-            )
-            let circle = NSBezierPath(ovalIn: circleRect)
-            circle.lineWidth = rect.width * 0.14
-            NSColor.white.setStroke()
-            circle.stroke()
-            return true
-        }
-        image.isTemplate = true
-        return image
-    }()
-
-    private static let haloActive: NSImage = makeHaloIcon(isActive: true, size: iconSize, template: true)
-
-    private static let haloInactive: NSImage = makeHaloIcon(isActive: false, size: iconSize, template: true)
-
-    private static let pulseActive: NSImage = {
+    private static func drawPulseIcon(isActive: Bool, palette: IconPalette, template: Bool) -> NSImage {
         let image = NSImage(size: canvasSize, flipped: false) { rect in
             let barWidth = rect.width * 0.18
-            let spacing = barWidth * 0.9
             let cornerRadius = barWidth / 2
 
             func drawBar(offset: CGFloat, height: CGFloat) {
@@ -528,39 +613,25 @@ enum StatusBarIconFactory {
                     height: height
                 )
                 let bar = NSBezierPath(roundedRect: barRect, xRadius: cornerRadius, yRadius: cornerRadius)
-                NSColor.white.setFill()
+                palette.primary.setFill()
                 bar.fill()
             }
 
-            drawBar(offset: -spacing - barWidth, height: rect.height * 0.58)
-            drawBar(offset: 0, height: rect.height * 0.82)
-            drawBar(offset: spacing + barWidth, height: rect.height * 0.46)
+            if isActive {
+                let spacing = barWidth * 0.9
+                drawBar(offset: -spacing - barWidth, height: rect.height * 0.58)
+                drawBar(offset: 0, height: rect.height * 0.82)
+                drawBar(offset: spacing + barWidth, height: rect.height * 0.46)
+            } else {
+                drawBar(offset: 0, height: rect.height * 0.6)
+            }
             return true
         }
-        image.isTemplate = true
+        image.isTemplate = template
         return image
-    }()
+    }
 
-    private static let pulseInactive: NSImage = {
-        let image = NSImage(size: canvasSize, flipped: false) { rect in
-            let barWidth = rect.width * 0.18
-            let cornerRadius = barWidth / 2
-            let barRect = NSRect(
-                x: rect.midX - barWidth / 2,
-                y: rect.midY - (rect.height * 0.6) / 2,
-                width: barWidth,
-                height: rect.height * 0.6
-            )
-            let bar = NSBezierPath(roundedRect: barRect, xRadius: cornerRadius, yRadius: cornerRadius)
-            NSColor.white.setFill()
-            bar.fill()
-            return true
-        }
-        image.isTemplate = true
-        return image
-    }()
-    private static func makeHaloIcon(isActive: Bool, size: CGFloat, template: Bool) -> NSImage {
-        let canvasSize = NSSize(width: size, height: size)
+    private static func drawHaloIcon(isActive: Bool, palette: IconPalette, template: Bool) -> NSImage {
         let image = NSImage(size: canvasSize, flipped: false) { rect in
             let minDimension = min(rect.width, rect.height)
 
@@ -568,7 +639,7 @@ enum StatusBarIconFactory {
                 let circleInset = minDimension * 0.14
                 let circleRect = rect.insetBy(dx: circleInset, dy: circleInset)
                 let circle = NSBezierPath(ovalIn: circleRect)
-                NSColor.white.setFill()
+                palette.primary.setFill()
                 circle.fill()
 
                 let highlightInset = circleRect.width * 0.4
@@ -578,7 +649,7 @@ enum StatusBarIconFactory {
                 highlightRect = highlightRect.insetBy(dx: highlightInset, dy: highlightInset)
                 if highlightRect.width > 0 && highlightRect.height > 0 {
                     let highlight = NSBezierPath(ovalIn: highlightRect)
-                    NSColor.white.withAlphaComponent(0.45).setFill()
+                    palette.highlight.setFill()
                     highlight.fill()
                 }
             } else {
@@ -586,14 +657,14 @@ enum StatusBarIconFactory {
                 let outerRect = rect.insetBy(dx: outerInset, dy: outerInset)
                 let ring = NSBezierPath(ovalIn: outerRect)
                 ring.lineWidth = minDimension * 0.1
-                NSColor.white.setStroke()
+                palette.primary.setStroke()
                 ring.stroke()
 
                 let glowInset = minDimension * 0.19
                 let softGlowRect = outerRect.insetBy(dx: glowInset, dy: glowInset)
                 if softGlowRect.width > 0 && softGlowRect.height > 0 {
                     let glow = NSBezierPath(ovalIn: softGlowRect)
-                    NSColor.white.withAlphaComponent(0.35).setFill()
+                    palette.glow.setFill()
                     glow.fill()
                 }
             }
@@ -602,5 +673,18 @@ enum StatusBarIconFactory {
         }
         image.isTemplate = template
         return image
+    }
+
+    private struct CacheKey: Hashable {
+        let style: StatusBarIconStyle
+        let isActive: Bool
+        let tone: StatusBarIconTone
+        let template: Bool
+    }
+
+    private struct IconPalette {
+        let primary: NSColor
+        let highlight: NSColor
+        let glow: NSColor
     }
 }
