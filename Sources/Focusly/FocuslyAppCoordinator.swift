@@ -45,6 +45,7 @@ final class FocuslyAppCoordinator: NSObject {
         self.overlayController = overlayController
         self.statusBar = StatusBarController()
         self.hotkeyCenter = HotkeyCenter()
+        self.overlayService.delegate = overlayController
 
         let defaults = environment.userDefaults
         overlaysEnabled = defaults.object(forKey: DefaultsKeys.overlaysEnabled) as? Bool ?? true

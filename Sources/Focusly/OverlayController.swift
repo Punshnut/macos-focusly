@@ -7,28 +7,25 @@ import AppKit
 @MainActor
 final class OverlayController {
     private let pollInterval: TimeInterval = 0.2
-    private let activeWindowFrameProvider: () -> NSRect?
+    private let activeWindowFrameProvider: (Set<Int>) -> NSRect?
 
     private var overlays: [DisplayID: OverlayWindow] = [:]
     private var screensByID: [DisplayID: NSScreen] = [:]
     private var pollTimer: Timer?
-    private var tintColor: NSColor = .systemIndigo
-    private var tintAlpha: CGFloat = 0.08
-    private var material: NSVisualEffectView.Material = .hudWindow
     private var clickThroughEnabled = true
     private var isRunning = false
     private var lastActiveWindowFrame: NSRect?
 
-    init(activeWindowFrameProvider: @escaping () -> NSRect? = axActiveWindowFrame) {
+    init(activeWindowFrameProvider: @escaping (Set<Int>) -> NSRect? = resolveActiveWindowFrame) {
         self.activeWindowFrameProvider = activeWindowFrameProvider
     }
 
     func start() {
         guard !isRunning else { return }
         isRunning = true
-        refreshScreens()
-        bringOverlaysToFront()
+        rebuildScreensLookup()
         startPolling()
+        applyCurrentHole()
         pollActiveWindowFrame()
     }
 
@@ -37,26 +34,7 @@ final class OverlayController {
         isRunning = false
         stopPolling()
         lastActiveWindowFrame = nil
-        overlays.values.forEach { window in
-            window.applyMask(excluding: nil)
-            window.orderOut(nil)
-        }
-    }
-
-    func setTintColor(_ color: NSColor, alpha: CGFloat) {
-        tintColor = color
-        tintAlpha = alpha
-        overlays.values.forEach { $0.setTintColor(color, alpha: alpha) }
-    }
-
-    func setTintAlpha(_ alpha: CGFloat) {
-        tintAlpha = alpha
-        overlays.values.forEach { $0.setTintAlpha(alpha) }
-    }
-
-    func setMaterial(_ material: NSVisualEffectView.Material) {
-        self.material = material
-        overlays.values.forEach { $0.setMaterial(material) }
+        overlays.values.forEach { $0.applyMask(excluding: nil) }
     }
 
     func setClickThrough(_ enabled: Bool) {
@@ -64,39 +42,21 @@ final class OverlayController {
         overlays.values.forEach { $0.setClickThrough(enabled) }
     }
 
-    func refreshScreens() {
-        var seenIDs = Set<DisplayID>()
+    func updateOverlays(_ newOverlays: [DisplayID: OverlayWindow]) {
+        let previous = overlays
+        overlays = newOverlays
+        rebuildScreensLookup()
 
-        for screen in NSScreen.screens {
-            guard let displayID = Self.displayID(for: screen) else { continue }
-            seenIDs.insert(displayID)
-            screensByID[displayID] = screen
-
-            if let window = overlays[displayID] {
-                window.setAssignedScreen(screen)
-                window.updateToScreenFrame()
-            } else {
-                let window = OverlayWindow(screen: screen, displayID: displayID)
-                window.setTintColor(tintColor, alpha: tintAlpha)
-                window.setMaterial(material)
-                window.setClickThrough(clickThroughEnabled)
-                overlays[displayID] = window
-                if isRunning {
-                    window.orderFrontRegardless()
-                }
-            }
-
-            overlays[displayID]?.setCaptureView(nil)
+        let removedIDs = Set(previous.keys).subtracting(newOverlays.keys)
+        for id in removedIDs {
+            previous[id]?.applyMask(excluding: nil)
         }
 
-        let staleIDs = overlays.keys.filter { !seenIDs.contains($0) }
-        for displayID in staleIDs {
-            overlays[displayID]?.orderOut(nil)
-            overlays.removeValue(forKey: displayID)
-            screensByID.removeValue(forKey: displayID)
-        }
+        overlays.values.forEach { $0.setClickThrough(clickThroughEnabled) }
 
-        applyCurrentHole()
+        if isRunning {
+            applyCurrentHole()
+        }
     }
 
     func updateHole(forActiveWindowFrame frame: NSRect?) {
@@ -129,10 +89,6 @@ final class OverlayController {
         }
     }
 
-    private func bringOverlaysToFront() {
-        overlays.values.forEach { $0.orderFrontRegardless() }
-    }
-
     private func startPolling() {
         pollTimer = Timer.scheduledTimer(timeInterval: pollInterval, target: self, selector: #selector(handlePollTimer(_:)), userInfo: nil, repeats: true)
         RunLoop.main.add(pollTimer!, forMode: .common)
@@ -148,7 +104,7 @@ final class OverlayController {
     }
 
     private func pollActiveWindowFrame() {
-        let frame = activeWindowFrameProvider()
+        let frame = activeWindowFrameProvider(currentOverlayWindowNumbers())
         if let last = lastActiveWindowFrame, let frame {
             guard !NSEqualRects(last, frame) else { return }
         } else if lastActiveWindowFrame == nil, frame == nil {
@@ -157,8 +113,27 @@ final class OverlayController {
         updateHole(forActiveWindowFrame: frame)
     }
 
+    private func currentOverlayWindowNumbers() -> Set<Int> {
+        Set(
+            overlays.values
+                .map { $0.windowNumber }
+                .filter { $0 != 0 }
+        )
+    }
+
     @objc private func handlePollTimer(_ timer: Timer) {
         pollActiveWindowFrame()
+    }
+
+    private func rebuildScreensLookup() {
+        var mapping: [DisplayID: NSScreen] = [:]
+        let knownDisplays = Set(overlays.keys)
+        for screen in NSScreen.screens {
+            guard let displayID = Self.displayID(for: screen) else { continue }
+            guard knownDisplays.contains(displayID) else { continue }
+            mapping[displayID] = screen
+        }
+        screensByID = mapping
     }
 
     private func screenIdentifier(for frame: NSRect) -> DisplayID? {
@@ -186,5 +161,10 @@ final class OverlayController {
         }
         return DisplayID(truncating: number)
     }
+}
 
+extension OverlayController: OverlayServiceDelegate {
+    func overlayService(_ service: OverlayService, didUpdateOverlays overlays: [DisplayID: OverlayWindow]) {
+        updateOverlays(overlays)
+    }
 }

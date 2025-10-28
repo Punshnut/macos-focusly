@@ -166,31 +166,46 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     @objc private func showAboutPanel(_ sender: Any?) {
         let appName = Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String ?? "Focusly"
-        let nametag = String(format: NSLocalizedString(
-            "Nametag: %@",
+        let creditsHeader = NSLocalizedString(
+            "Credits",
             tableName: nil,
             bundle: .main,
-            value: "Nametag: %@",
-            comment: "Label showing the creator's nametag in the About panel."
-        ), "Punshnut")
-        let creditsLine = String(format: NSLocalizedString(
-            "Credits: %@",
+            value: "Credits",
+            comment: "Heading for the credits in the About panel."
+        )
+        let nameLine = NSLocalizedString(
+            "Jan Feuerbacher",
             tableName: nil,
             bundle: .main,
-            value: "Credits: %@",
-            comment: "Label showing the credits in the About panel."
-        ), "Punshnut")
+            value: "Jan Feuerbacher",
+            comment: "Creator's name in the About panel."
+        )
+        let nametagLine = NSLocalizedString(
+            "Punshnut",
+            tableName: nil,
+            bundle: .main,
+            value: "Punshnut",
+            comment: "Creator's nametag in the About panel."
+        )
 
         let paragraph = NSMutableParagraphStyle()
         paragraph.alignment = .center
-        let credits = NSAttributedString(
-            string: [nametag, creditsLine].joined(separator: "\n"),
-            attributes: [
-                .font: NSFont.systemFont(ofSize: 13),
-                .foregroundColor: NSColor.labelColor,
-                .paragraphStyle: paragraph
-            ]
+        let headerAttributes: [NSAttributedString.Key: Any] = [
+            .font: NSFont.boldSystemFont(ofSize: 13),
+            .foregroundColor: NSColor.labelColor,
+            .paragraphStyle: paragraph
+        ]
+        let bodyAttributes: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: 13),
+            .foregroundColor: NSColor.labelColor,
+            .paragraphStyle: paragraph
+        ]
+        let credits = NSMutableAttributedString(
+            string: creditsHeader + "\n",
+            attributes: headerAttributes
         )
+        let bodyText = [nameLine, nametagLine].joined(separator: "\n")
+        credits.append(NSAttributedString(string: bodyText, attributes: bodyAttributes))
 
         // Placeholder icon until a dedicated About PNG is available.
         let placeholderSize = NSSize(width: 160, height: 160)

@@ -1,10 +1,16 @@
 import AppKit
 
 @MainActor
+protocol OverlayServiceDelegate: AnyObject {
+    func overlayService(_ service: OverlayService, didUpdateOverlays overlays: [DisplayID: OverlayWindow])
+}
+
+@MainActor
 final class OverlayService {
     private let profileStore: ProfileStore
     private var overlays: [DisplayID: OverlayWindow] = [:]
     private var enabled = false
+    weak var delegate: OverlayServiceDelegate?
 
     init(profileStore: ProfileStore) {
         self.profileStore = profileStore
@@ -25,6 +31,7 @@ final class OverlayService {
         } else {
             overlays.values.forEach { $0.hide(animated: animated) }
         }
+        delegate?.overlayService(self, didUpdateOverlays: overlays)
     }
 
     /// Reconciles overlay windows with the currently connected displays and updates their frames and styles.
@@ -62,6 +69,8 @@ final class OverlayService {
             overlays[key]?.orderOut(nil)
             overlays.removeValue(forKey: key)
         }
+
+        delegate?.overlayService(self, didUpdateOverlays: overlays)
     }
 
     func updateStyle(for displayID: DisplayID, animated: Bool) {

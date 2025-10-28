@@ -29,7 +29,7 @@ final class WindowTracker {
     }
 
     private func tick() {
-        let active = axActiveWindowFrame()
+        let active = resolveActiveWindowFrame()
         let all = axEnumerateAllWindows()
         let snap = Snapshot(timestamp: Date(), activeFrame: active, allWindows: all)
         NotificationCenter.default.post(name: Self.didUpdate, object: snap)

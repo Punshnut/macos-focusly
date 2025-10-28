@@ -31,6 +31,8 @@ final class OverlayWindow: NSPanel {
     private var currentMaskRectInContent: NSRect?
     private var captureView: NSView?
     private var currentBlurRadius: Double = 0
+    private var blurRenderer: DisplayBlurRenderer?
+    private var captureIsAvailable = false
     private(set) var displayID: DisplayID
     private weak var assignedScreen: NSScreen?
 
@@ -119,8 +121,8 @@ final class OverlayWindow: NSPanel {
         captureView = view
 
         guard let captureView else {
-            captureContainer.isHidden = true
-            blurView.isHidden = false
+            captureContainer.isHidden = !captureIsAvailable
+            blurView.isHidden = captureIsAvailable ? true : false
             applyBlurToCaptureView(radius: currentBlurRadius)
             return
         }
@@ -136,6 +138,7 @@ final class OverlayWindow: NSPanel {
 
         captureContainer.isHidden = false
         blurView.isHidden = true
+        captureIsAvailable = true
         applyBlurToCaptureView(radius: currentBlurRadius)
     }
 
@@ -153,6 +156,14 @@ final class OverlayWindow: NSPanel {
 
     func associatedDisplayID() -> DisplayID {
         displayID
+    }
+
+    override func orderFrontRegardless() {
+        super.orderFrontRegardless()
+        DispatchQueue.main.async { [weak self] in
+            self?.updateBlurRendererWindowID()
+            self?.startBlurCaptureIfNeeded()
+        }
     }
 
     private func configureWindow() {
@@ -209,6 +220,7 @@ final class OverlayWindow: NSPanel {
     }
 
     func prepareForPresentation() {
+        blurRenderer?.stop()
         alphaValue = 0
         tintView.layer?.removeAllAnimations()
         blurView.layer?.removeAllAnimations()
@@ -217,6 +229,7 @@ final class OverlayWindow: NSPanel {
 
     func hide(animated: Bool) {
         let duration = currentStyle?.animationDuration ?? 0.25
+        blurRenderer?.stop()
         guard animated else {
             alphaValue = 0
             orderOut(nil)
@@ -239,6 +252,7 @@ final class OverlayWindow: NSPanel {
         let targetOpacity = CGFloat(style.opacity)
         let targetColor = style.tint.makeColor()
         blurView.setColorTreatment(style.colorTreatment)
+        blurRenderer?.setColorTreatment(style.colorTreatment)
 
         let applyValues = {
             self.alphaValue = targetOpacity
@@ -273,6 +287,7 @@ final class OverlayWindow: NSPanel {
     override func setFrame(_ frameRect: NSRect, display flag: Bool) {
         super.setFrame(frameRect, display: flag)
         updateMaskLayer()
+        blurRenderer?.updateScreenFrame(currentScreenFrame())
     }
 
     private func updateMaskLayer() {
@@ -295,48 +310,89 @@ final class OverlayWindow: NSPanel {
         contentLayer.mask = maskLayer
     }
 
+    private func startBlurCaptureIfNeeded() {
+        configureBlurRendererIfPossible()
+        blurRenderer?.setBlurRadius(currentBlurRadius)
+        blurRenderer?.setColorTreatment(currentStyle?.colorTreatment ?? .preserveColor)
+        blurRenderer?.start()
+    }
+
+    private func configureBlurRendererIfPossible() {
+        if let renderer = blurRenderer {
+            renderer.updateScreenFrame(currentScreenFrame())
+            if let windowID = currentOverlayWindowID() {
+                renderer.updateOverlayWindowID(windowID)
+            }
+            return
+        }
+
+        guard
+            let layer = captureContainer.layer,
+            let windowID = currentOverlayWindowID()
+        else {
+            return
+        }
+
+        let renderer = DisplayBlurRenderer(
+            displayID: displayID,
+            screenFrame: currentScreenFrame(),
+            overlayWindowID: windowID,
+            targetLayer: layer
+        ) { [weak self] available in
+            self?.handleBlurAvailabilityChange(isAvailable: available)
+        }
+        renderer.setBlurRadius(currentBlurRadius)
+        renderer.setColorTreatment(currentStyle?.colorTreatment ?? .preserveColor)
+        blurRenderer = renderer
+    }
+
+    private func updateBlurRendererWindowID() {
+        configureBlurRendererIfPossible()
+        if let windowID = currentOverlayWindowID() {
+            blurRenderer?.updateOverlayWindowID(windowID)
+        }
+    }
+
+    private func currentOverlayWindowID() -> CGWindowID? {
+        let number = windowNumber
+        guard number != 0 else { return nil }
+        return CGWindowID(number)
+    }
+
+    private func currentScreenFrame() -> CGRect {
+        if let assignedScreen {
+            return assignedScreen.frame
+        }
+        if let windowScreen = screen {
+            return windowScreen.frame
+        }
+        return frame
+    }
+
+    @MainActor
+    private func handleBlurAvailabilityChange(isAvailable: Bool) {
+        captureIsAvailable = isAvailable
+        captureContainer.isHidden = !isAvailable
+        blurView.isHidden = isAvailable
+        if !isAvailable {
+            captureContainer.layer?.contents = nil
+        } else {
+            let scale = assignedScreen?.backingScaleFactor ?? screen?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
+            captureContainer.layer?.contentsScale = scale
+        }
+    }
+
     private func updateBlurRadius(_ radius: Double, animated: Bool, duration: TimeInterval) {
         let clamped = max(0, min(radius, 100))
         let radiusChanged = abs(clamped - currentBlurRadius) > .ulpOfOne
         currentBlurRadius = clamped
         blurView.setBlurRadius(clamped, animated: animated && radiusChanged, duration: duration)
+        blurRenderer?.setBlurRadius(clamped)
         applyBlurToCaptureView(radius: clamped)
     }
 
     private func applyBlurToCaptureView(radius: Double) {
-        guard !captureContainer.isHidden else {
-            captureContainer.layer?.filters = nil
-            return
-        }
-
-        let treatment = currentStyle?.colorTreatment ?? .preserveColor
-        let filters = makeCaptureFilters(radius: radius, treatment: treatment)
-        captureContainer.layer?.filters = filters.isEmpty ? nil : filters
-    }
-
-    private func makeBlurFilter(radius: Double) -> CIFilter? {
-        guard let filter = CIFilter(name: "CIGaussianBlur") else { return nil }
-        filter.setDefaults()
-        filter.setValue(radius, forKey: kCIInputRadiusKey)
-        return filter
-    }
-
-    private func makeCaptureFilters(radius: Double, treatment: FocusOverlayColorTreatment) -> [CIFilter] {
-        var filters: [CIFilter] = []
-        if radius > 0.01, let blurFilter = makeBlurFilter(radius: radius) {
-            filters.append(blurFilter)
-        }
-        if treatment == .monochrome, let monochromeFilter = makeMonochromeFilter() {
-            filters.append(monochromeFilter)
-        }
-        return filters
-    }
-
-    private func makeMonochromeFilter() -> CIFilter? {
-        guard let filter = CIFilter(name: "CIColorControls") else { return nil }
-        filter.setDefaults()
-        filter.setValue(0, forKey: kCIInputSaturationKey)
-        return filter
+        captureContainer.layer?.filters = nil
     }
 
     private func shouldIgnoreMask(rect: NSRect, in bounds: NSRect) -> Bool {
@@ -430,7 +486,9 @@ private final class OverlayBlurView: NSView {
             desaturateFilter.setValue(0, forKey: kCIInputSaturationKey)
             filters.append(desaturateFilter)
         }
-        layer.backgroundFilters = filters
+        let appliedFilters: [CIFilter]? = filters.isEmpty ? nil : filters
+        layer.backgroundFilters = appliedFilters
+        layer.filters = appliedFilters
         CATransaction.commit()
     }
 }
