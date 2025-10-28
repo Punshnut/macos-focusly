@@ -58,6 +58,8 @@ Current tests cover the persistence layer that stores per-display overrides and 
 
 ## License
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+
 This project is currently in **Alpha stage** and released under the **MIT License**.
 
 All core features are available for free during development.  
@@ -65,8 +67,6 @@ Future versions may include additional functionality that could be offered as a 
 
 You are free to use, modify, and distribute this version of the software under the terms of the MIT License.  
 See the [LICENSE](./LICENSE) file for more information.
-
-[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
 ---
 
@@ -126,6 +126,8 @@ Las pruebas actuales validan la capa de persistencia que almacena overrides por 
 
 ## Licencia
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+
 Este proyecto se encuentra actualmente en **fase alfa** y se publica bajo la **licencia MIT**.
 
 Todas las funciones principales están disponibles de forma gratuita durante el desarrollo.  
@@ -133,5 +135,3 @@ Las versiones futuras pueden incluir funciones adicionales que podrían ofrecers
 
 Eres libre de usar, modificar y distribuir esta versión del software según los términos de la licencia MIT.  
 Consulta el archivo [LICENSE](./LICENSE) para más información.
-
-[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
