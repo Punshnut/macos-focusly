@@ -27,6 +27,13 @@ public struct AXWindowInfo: Hashable {
 public struct ActiveWindowSnapshot: Equatable {
     public let frame: NSRect
     public let cornerRadius: CGFloat
+
+    private static let tolerance: CGFloat = 0.5
+
+    public static func == (lhs: ActiveWindowSnapshot, rhs: ActiveWindowSnapshot) -> Bool {
+        lhs.frame.isApproximatelyEqual(to: rhs.frame, tolerance: Self.tolerance) &&
+        abs(lhs.cornerRadius - rhs.cornerRadius) <= Self.tolerance
+    }
 }
 
 private let windowCornerRadiusAttribute: CFString = "AXWindowCornerRadius" as CFString
@@ -49,12 +56,12 @@ private func axSize(_ value: CFTypeRef?) -> CGSize? {
 }
 
 /// Active (frontmost) window frame, or nil.
-func axActiveWindowFrame() -> NSRect? {
-    axActiveWindowSnapshot()?.frame
+func axActiveWindowFrame(preferredPID: pid_t? = nil) -> NSRect? {
+    axActiveWindowSnapshot(preferredPID: preferredPID)?.frame
 }
 
-func axActiveWindowSnapshot() -> ActiveWindowSnapshot? {
-    guard let window = axFocusedWindowElement(), let frame = axFrame(for: window) else {
+func axActiveWindowSnapshot(preferredPID: pid_t? = nil) -> ActiveWindowSnapshot? {
+    guard let window = axFocusedWindowElement(preferredPID: preferredPID), let frame = axFrame(for: window) else {
         return nil
     }
 
@@ -62,8 +69,8 @@ func axActiveWindowSnapshot() -> ActiveWindowSnapshot? {
     return ActiveWindowSnapshot(frame: frame, cornerRadius: max(0, cornerRadius))
 }
 
-func axActiveWindowCornerRadius() -> CGFloat? {
-    guard let window = axFocusedWindowElement() else { return nil }
+func axActiveWindowCornerRadius(preferredPID: pid_t? = nil) -> CGFloat? {
+    guard let window = axFocusedWindowElement(preferredPID: preferredPID) else { return nil }
     return axWindowCornerRadius(for: window)
 }
 
@@ -123,10 +130,16 @@ func axEnumerateAllWindows(limitPerApp: Int = 200) -> [AXWindowInfo] {
     return all
 }
 
-private func axFocusedWindowElement() -> AXUIElement? {
+private func axFocusedWindowElement(preferredPID: pid_t? = nil) -> AXUIElement? {
     guard isAccessibilityAccessGranted() else { return nil }
-    guard let app = NSWorkspace.shared.frontmostApplication else { return nil }
-    let axApp = AXUIElementCreateApplication(app.processIdentifier)
+    let resolvedPID: pid_t?
+    if let preferredPID {
+        resolvedPID = preferredPID
+    } else {
+        resolvedPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
+    }
+    guard let pid = resolvedPID else { return nil }
+    let axApp = AXUIElementCreateApplication(pid)
     var winRef: CFTypeRef?
     guard AXUIElementCopyAttributeValue(axApp, kAXFocusedWindowAttribute as CFString, &winRef) == .success,
           let rawWin = winRef,
@@ -154,4 +167,14 @@ private func axWindowCornerRadius(for window: AXUIElement) -> CGFloat? {
         return CGFloat(number.doubleValue)
     }
     return nil
+}
+
+extension NSRect {
+    func isApproximatelyEqual(to other: NSRect, tolerance: CGFloat) -> Bool {
+        guard tolerance >= 0 else { return self == other }
+        return abs(origin.x - other.origin.x) <= tolerance &&
+        abs(origin.y - other.origin.y) <= tolerance &&
+        abs(size.width - other.size.width) <= tolerance &&
+        abs(size.height - other.size.height) <= tolerance
+    }
 }

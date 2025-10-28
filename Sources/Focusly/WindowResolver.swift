@@ -5,9 +5,12 @@ import CoreGraphics
 /// Falls back to accessibility lookups when Core Graphics metadata is not available
 /// (e.g. when an app has no on-screen windows).
 func resolveActiveWindowSnapshot(excluding windowNumbers: Set<Int> = []) -> ActiveWindowSnapshot? {
-    if let frame = cgActiveWindowFrame(excluding: windowNumbers) {
-        let radius = axActiveWindowCornerRadius() ?? fallbackCornerRadius(for: frame)
-        return ActiveWindowSnapshot(frame: frame, cornerRadius: clampCornerRadius(radius, to: frame))
+    if let frontWindow = cgFrontWindow(excluding: windowNumbers) {
+        let radius = axActiveWindowCornerRadius(preferredPID: frontWindow.ownerPID) ?? fallbackCornerRadius(for: frontWindow.frame)
+        return ActiveWindowSnapshot(
+            frame: frontWindow.frame,
+            cornerRadius: clampCornerRadius(radius, to: frontWindow.frame)
+        )
     }
 
     guard let snapshot = axActiveWindowSnapshot() else {
@@ -24,79 +27,74 @@ func resolveActiveWindowSnapshot(excluding windowNumbers: Set<Int> = []) -> Acti
 /// Falls back to accessibility lookups when Core Graphics metadata is not available
 /// (e.g. when an app has no on-screen windows).
 func resolveActiveWindowFrame(excluding windowNumbers: Set<Int> = []) -> NSRect? {
-    resolveActiveWindowSnapshot(excluding: windowNumbers)?.frame
+    if let frontWindow = cgFrontWindow(excluding: windowNumbers) {
+        return frontWindow.frame
+    }
+    return axActiveWindowSnapshot()?.frame
 }
 
 /// CoreGraphics-only variant to avoid touching the Accessibility APIs.
 func resolveActiveWindowFrameUsingCoreGraphics(excluding windowNumbers: Set<Int> = []) -> NSRect? {
-    cgActiveWindowFrame(excluding: windowNumbers)
+    cgFrontWindow(excluding: windowNumbers)?.frame
 }
 
-private func cgActiveWindowFrame(excluding windowNumbers: Set<Int>) -> NSRect? {
-    guard let frontApp = NSWorkspace.shared.frontmostApplication else { return nil }
-    let targetPID = frontApp.processIdentifier
+private struct CGFrontWindow {
+    let frame: NSRect
+    let ownerPID: pid_t
+}
 
-    guard let infoList = CGWindowListCopyWindowInfo(
-        [.optionOnScreenOnly, .excludeDesktopElements],
-        kCGNullWindowID
-    ) as? [[String: Any]] else {
+private func cgFrontWindow(excluding windowNumbers: Set<Int>) -> CGFrontWindow? {
+    let options: CGWindowListOption = [.optionOnScreenOnly, .excludeDesktopElements]
+
+    let resolveFrontWindow: ([[String: Any]]) -> CGFrontWindow? = { windows in
+        for window in windows {
+            guard let number = window[kCGWindowNumber as String] as? Int else { continue }
+            if windowNumbers.contains(number) { continue }
+            guard let layer = window[kCGWindowLayer as String] as? Int, layer == 0 else { continue }
+            if let alpha = window[kCGWindowAlpha as String] as? Double, alpha < 0.05 { continue }
+            guard
+                let boundsDict = window[kCGWindowBounds as String] as? [String: Any],
+                let bounds = CGRect(dictionaryRepresentation: boundsDict as CFDictionary)
+            else {
+                continue
+            }
+            guard bounds.width >= 4, bounds.height >= 4 else { continue }
+
+            let correctedBounds = convertCGWindowBoundsToCocoa(bounds)
+            let resolvedPID: pid_t
+            if let pidValue = window[kCGWindowOwnerPID as String] as? Int {
+                resolvedPID = pid_t(pidValue)
+            } else if let pidValue = window[kCGWindowOwnerPID as String] as? pid_t {
+                resolvedPID = pidValue
+            } else {
+                continue
+            }
+
+            let frame = NSRect(
+                x: correctedBounds.origin.x,
+                y: correctedBounds.origin.y,
+                width: correctedBounds.size.width,
+                height: correctedBounds.size.height
+            )
+
+            return CGFrontWindow(frame: frame, ownerPID: resolvedPID)
+        }
         return nil
     }
 
-    if let frame = findWindow(in: infoList, matchingPID: targetPID, excluding: windowNumbers) {
-        return frame
+    guard let fullList = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]], !fullList.isEmpty else {
+        return nil
     }
 
-    // Fallback: grab the first visible window that is not part of our overlay stack.
-    if let frame = findWindow(in: infoList, matchingPID: nil, excluding: windowNumbers) {
-        return frame
+    let shortlist = Array(fullList.prefix(24))
+    if let front = resolveFrontWindow(shortlist) {
+        return front
     }
 
-    return nil
-}
-
-private func findWindow(
-    in windows: [[String: Any]],
-    matchingPID pid: pid_t?,
-    excluding excludedNumbers: Set<Int>
-) -> NSRect? {
-    for window in windows {
-        if let pid, let ownerPID = window[kCGWindowOwnerPID as String] as? pid_t, ownerPID != pid {
-            continue
-        }
-
-        guard let layer = window[kCGWindowLayer as String] as? Int, layer == 0 else {
-            continue
-        }
-
-        if
-            let number = window[kCGWindowNumber as String] as? Int,
-            excludedNumbers.contains(number)
-        {
-            continue
-        }
-
-        guard
-            let boundsDict = window[kCGWindowBounds as String] as? [String: Any],
-            let bounds = CGRect(dictionaryRepresentation: boundsDict as CFDictionary)
-        else {
-            continue
-        }
-
-        guard bounds.width >= 4, bounds.height >= 4 else { continue }
-
-        if let alpha = window[kCGWindowAlpha as String] as? Double, alpha < 0.05 {
-            continue
-        }
-
-        let correctedBounds = convertCGWindowBoundsToCocoa(bounds)
-        return NSRect(
-            x: correctedBounds.origin.x,
-            y: correctedBounds.origin.y,
-            width: correctedBounds.size.width,
-            height: correctedBounds.size.height
-        )
+    if let front = resolveFrontWindow(fullList) {
+        return front
     }
+
     return nil
 }
 

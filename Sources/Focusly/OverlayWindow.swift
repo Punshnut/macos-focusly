@@ -100,14 +100,27 @@ final class OverlayWindow: NSPanel {
         if let rect = rectInContentView {
             let bounds = contentView.bounds
             if shouldIgnoreMask(rect: rect, in: bounds) {
+                if currentMaskRectInContent == nil, currentMaskCornerRadius == 0 {
+                    return
+                }
                 currentMaskRectInContent = nil
                 currentMaskCornerRadius = 0
                 clearMasks()
                 return
             }
+            let tolerance = maskTolerance(for: contentView)
+            let resolvedCornerRadius = max(0, cornerRadius)
+            if let current = currentMaskRectInContent,
+               current.isApproximatelyEqual(to: rect, tolerance: tolerance),
+               abs(currentMaskCornerRadius - resolvedCornerRadius) <= tolerance {
+                return
+            }
             currentMaskRectInContent = rect
-            currentMaskCornerRadius = max(0, cornerRadius)
+            currentMaskCornerRadius = resolvedCornerRadius
         } else {
+            if currentMaskRectInContent == nil, currentMaskCornerRadius == 0 {
+                return
+            }
             currentMaskRectInContent = nil
             currentMaskCornerRadius = 0
             clearMasks()
@@ -341,6 +354,11 @@ final class OverlayWindow: NSPanel {
         guard !intersection.isNull else { return true }
         let coverage = (intersection.width * intersection.height) / (bounds.width * bounds.height)
         return coverage >= 0.98
+    }
+
+    private func maskTolerance(for view: NSView) -> CGFloat {
+        let scale = view.window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 1
+        return max(1.0 / max(scale, 1), 0.25)
     }
 }
 

@@ -4,7 +4,7 @@
 
 ## English
 
-Focusly is a lightweight macOS companion that softens your desktop, lets every display pick its own ambience, and keeps distraction-cutting controls a click away in the status bar.
+Focusly is a lightweight macOS companion that softens your desktop, adapts ambience to your workspace, and keeps distraction-cutting controls a click away in the status bar.
 
 > Current build: Prerelease Alpha 0.1
 
