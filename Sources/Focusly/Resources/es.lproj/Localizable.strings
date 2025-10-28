@@ -2,7 +2,6 @@
 "Displays" = "Pantallas";
 "Reset" = "Restablecer";
 "Color Filter" = "Filtro de color";
-"Blur Radius" = "Radio de desenfoque";
 "Enable Focus Toggle Shortcut" = "Activar atajo para alternar Focusly";
 "Shortcut" = "Atajo";
 "Record" = "Grabar";
@@ -37,7 +36,7 @@
 "1. Switch overlays on" = "1. Activa las superposiciones";
 "Click the Focusly status bar icon and toggle overlays for the displays you want to soften." = "Haz clic en el icono de Focusly en la barra de menús y alterna las superposiciones de las pantallas que quieras suavizar.";
 "2. Pick a filter" = "2. Elige un filtro";
-"Open Preferences to choose blur, opacity, and one of the Blur (Focus), Warm, Colorful, or Monochrome presets per display." = "Abre Preferencias para ajustar el desenfoque, la opacidad y elegir entre los presets Blur (Focus), Cálido, Colorido o Monocromo por pantalla.";
+"Open Preferences to choose opacity, tint, and one of the Focus, Warm, Colorful, or Monochrome presets per display." = "Abre Preferencias para ajustar la opacidad, el tinte y elegir entre los presets Focus, Cálido, Colorido o Monocromo por pantalla.";
 "3. Set your controls" = "3. Configura tus controles";
 "Assign a global shortcut and enable Launch at Login in Preferences so Focusly is ready whenever you are." = "Asigna un atajo global y activa Iniciar al abrir sesión en Preferencias para que Focusly esté listo cuando lo necesites.";
 "Warm" = "Cálido";

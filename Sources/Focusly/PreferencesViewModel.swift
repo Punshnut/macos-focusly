@@ -7,7 +7,6 @@ final class PreferencesViewModel: ObservableObject {
         let id: DisplayID
         var name: String
         var opacity: Double
-        var blurRadius: Double
         var tint: NSColor
         var colorTreatment: FocusOverlayColorTreatment
 
@@ -77,12 +76,6 @@ final class PreferencesViewModel: ObservableObject {
         commit(display: displays[index])
     }
 
-    func updateBlur(for displayID: DisplayID, value: Double) {
-        guard let index = displays.firstIndex(where: { $0.id == displayID }) else { return }
-        displays[index].blurRadius = value
-        commit(display: displays[index])
-    }
-
     func updateTint(for displayID: DisplayID, value: NSColor) {
         guard let index = displays.firstIndex(where: { $0.id == displayID }) else { return }
         displays[index].tint = value
@@ -104,7 +97,6 @@ final class PreferencesViewModel: ObservableObject {
         guard let source = displays.first(where: { $0.id == displayID }) else { return }
         for index in displays.indices where displays[index].id != displayID {
             displays[index].opacity = source.opacity
-            displays[index].blurRadius = source.blurRadius
             displays[index].tint = source.tint
             displays[index].colorTreatment = source.colorTreatment
             commit(display: displays[index])
@@ -163,7 +155,6 @@ final class PreferencesViewModel: ObservableObject {
         )
         let style = FocusOverlayStyle(
             opacity: display.opacity,
-            blurRadius: display.blurRadius,
             tint: tint,
             animationDuration: 0.3,
             colorTreatment: display.colorTreatment

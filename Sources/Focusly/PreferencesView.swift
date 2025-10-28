@@ -141,17 +141,11 @@ struct PreferencesView: View {
 
     private func displayDetail(for display: PreferencesViewModel.DisplaySettings) -> some View {
         let liveOpacity = viewModel.displays.first(where: { $0.id == display.id })?.opacity ?? display.opacity
-        let liveBlur = viewModel.displays.first(where: { $0.id == display.id })?.blurRadius ?? display.blurRadius
         let liveTint = viewModel.displays.first(where: { $0.id == display.id })?.tint ?? display.tint
 
         let opacityBinding = Binding(
             get: { viewModel.displays.first(where: { $0.id == display.id })?.opacity ?? display.opacity },
             set: { viewModel.updateOpacity(for: display.id, value: $0) }
-        )
-
-        let blurBinding = Binding(
-            get: { viewModel.displays.first(where: { $0.id == display.id })?.blurRadius ?? display.blurRadius },
-            set: { viewModel.updateBlur(for: display.id, value: $0) }
         )
 
         let tintBinding = Binding(
@@ -219,20 +213,6 @@ struct PreferencesView: View {
                     Slider(value: opacityBinding, in: 0.35...1.0, step: 0.01)
                 }
 
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack {
-                        Text(String(localized: "Blur Radius", bundle: .module))
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                        Spacer()
-                        Text(blurLabel(for: liveBlur))
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                            .monospacedDigit()
-                    }
-                    Slider(value: blurBinding, in: 10...80, step: 1)
-                }
-
                 VStack(alignment: .leading, spacing: 8) {
                     Text(String(localized: "Tint", bundle: .module))
                         .font(.caption)
@@ -251,7 +231,7 @@ struct PreferencesView: View {
                                 .stroke(Color.primary.opacity(0.08))
                         )
                         .accessibilityHidden(true)
-                    Text(String(localized: "Adjust the tint, blur, and transparency until it matches your space.", bundle: .module))
+                    Text(String(localized: "Adjust the tint and transparency until it matches your space.", bundle: .module))
                         .font(.caption2)
                         .foregroundColor(.secondary)
                 }
@@ -350,9 +330,6 @@ struct PreferencesView: View {
         return String(format: "%.0f%%", clamped * 100)
     }
 
-    private func blurLabel(for value: Double) -> String {
-        String(format: "%.0f px", value)
-    }
 }
 
 private struct StatusBarIconStyleMenuPreview: View {
@@ -411,15 +388,6 @@ private struct DisplayChip: View {
                         .imageScale(.small)
                         .foregroundColor(.secondary)
                     Text(String(format: "%.0f%%", clampedOpacity * 100))
-                        .font(.caption2)
-                        .foregroundColor(.secondary)
-                        .monospacedDigit()
-                }
-                HStack(spacing: 4) {
-                    Image(systemName: "drop")
-                        .imageScale(.small)
-                        .foregroundColor(.secondary)
-                    Text(String(format: "%.0f px", display.blurRadius))
                         .font(.caption2)
                         .foregroundColor(.secondary)
                         .monospacedDigit()

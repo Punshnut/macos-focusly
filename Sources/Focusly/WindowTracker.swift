@@ -14,6 +14,12 @@ final class WindowTracker {
 
     /// Poll interval in seconds (tune for performance vs. responsiveness)
     var interval: TimeInterval = 0.2
+    /// Enable when listeners need snapshots of every known window.
+    var collectsAllWindows = false
+
+    private let accessCheckInterval: TimeInterval = 1.5
+    private var cachedAccessibilityAccess = isAccessibilityAccessGranted()
+    private var lastAccessCheck = Date.distantPast
 
     func start() {
         stop()
@@ -29,9 +35,25 @@ final class WindowTracker {
     }
 
     private func tick() {
-        let active = resolveActiveWindowFrame()
-        let all = axEnumerateAllWindows()
+        refreshAccessibilityStateIfNeeded()
+        let hasAccessibility = cachedAccessibilityAccess
+
+        let active: NSRect?
+        if hasAccessibility {
+            active = resolveActiveWindowFrame()
+        } else {
+            active = resolveActiveWindowFrameUsingCoreGraphics()
+        }
+
+        let all = (hasAccessibility && collectsAllWindows) ? axEnumerateAllWindows() : []
         let snap = Snapshot(timestamp: Date(), activeFrame: active, allWindows: all)
         NotificationCenter.default.post(name: Self.didUpdate, object: snap)
+    }
+
+    private func refreshAccessibilityStateIfNeeded() {
+        let now = Date()
+        guard now.timeIntervalSince(lastAccessCheck) >= accessCheckInterval else { return }
+        cachedAccessibilityAccess = isAccessibilityAccessGranted()
+        lastAccessCheck = now
     }
 }

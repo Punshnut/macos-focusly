@@ -11,6 +11,11 @@ func resolveActiveWindowFrame(excluding windowNumbers: Set<Int> = []) -> NSRect?
     return axActiveWindowFrame()
 }
 
+/// CoreGraphics-only variant to avoid touching the Accessibility APIs.
+func resolveActiveWindowFrameUsingCoreGraphics(excluding windowNumbers: Set<Int> = []) -> NSRect? {
+    cgActiveWindowFrame(excluding: windowNumbers)
+}
+
 private func cgActiveWindowFrame(excluding windowNumbers: Set<Int>) -> NSRect? {
     guard let frontApp = NSWorkspace.shared.frontmostApplication else { return nil }
     let targetPID = frontApp.processIdentifier

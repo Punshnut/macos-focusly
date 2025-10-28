@@ -8,6 +8,11 @@ func requestAccessibilityIfNeeded(prompt: Bool = true) -> Bool {
     return AXIsProcessTrustedWithOptions(opts)
 }
 
+/// Returns whether the app currently has accessibility access without showing a prompt.
+func isAccessibilityAccessGranted() -> Bool {
+    AXIsProcessTrusted()
+}
+
 /// Typed window info we expose to the app.
 public struct AXWindowInfo: Hashable {
     public let pid: pid_t
@@ -38,6 +43,8 @@ private func axSize(_ value: CFTypeRef?) -> CGSize? {
 
 /// Active (frontmost) window frame, or nil.
 func axActiveWindowFrame() -> NSRect? {
+    guard isAccessibilityAccessGranted() else { return nil }
+
     guard let app = NSWorkspace.shared.frontmostApplication else { return nil }
     let axApp = AXUIElementCreateApplication(app.processIdentifier)
     var winRef: CFTypeRef?
@@ -55,6 +62,8 @@ func axActiveWindowFrame() -> NSRect? {
 
 /// Enumerate windows for all GUI apps (best-effort; requires AX permission).
 func axEnumerateAllWindows(limitPerApp: Int = 200) -> [AXWindowInfo] {
+    guard isAccessibilityAccessGranted() else { return [] }
+
     var all: [AXWindowInfo] = []
 
     for app in NSWorkspace.shared.runningApplications where app.activationPolicy != .prohibited {

@@ -2,7 +2,6 @@
 "Displays" = "Displays";
 "Reset" = "Reset";
 "Color Filter" = "Color Filter";
-"Blur Radius" = "Blur Radius";
 "Enable Focus Toggle Shortcut" = "Enable Focus Toggle Shortcut";
 "Shortcut" = "Shortcut";
 "Record" = "Record";
@@ -37,7 +36,7 @@
 "1. Switch overlays on" = "1. Switch overlays on";
 "Click the Focusly status bar icon and toggle overlays for the displays you want to soften." = "Click the Focusly status bar icon and toggle overlays for the displays you want to soften.";
 "2. Pick a filter" = "2. Pick a filter";
-"Open Preferences to choose blur, opacity, and one of the Blur (Focus), Warm, Colorful, or Monochrome presets per display." = "Open Preferences to choose blur, opacity, and one of the Blur (Focus), Warm, Colorful, or Monochrome presets per display.";
+"Open Preferences to choose opacity, tint, and one of the Focus, Warm, Colorful, or Monochrome presets per display." = "Open Preferences to choose opacity, tint, and one of the Focus, Warm, Colorful, or Monochrome presets per display.";
 "3. Set your controls" = "3. Set your controls";
 "Assign a global shortcut and enable Launch at Login in Preferences so Focusly is ready whenever you are." = "Assign a global shortcut and enable Launch at Login in Preferences so Focusly is ready whenever you are.";
 "Warm" = "Warm";

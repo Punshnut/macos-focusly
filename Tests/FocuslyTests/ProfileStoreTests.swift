@@ -8,7 +8,7 @@ final class ProfileStoreTests: XCTestCase {
         defer { defaults.removePersistentDomain(forName: "FocuslyTests.ProfileStore") }
         let store = ProfileStore(defaults: defaults)
         let displayID: UInt32 = 1
-        let override = FocusOverlayStyle(opacity: 0.5, blurRadius: 20, tint: .neutral, animationDuration: 0.3)
+        let override = FocusOverlayStyle(opacity: 0.5, tint: .neutral, animationDuration: 0.3)
         store.updateStyle(override, forDisplayID: displayID)
         XCTAssertEqual(store.style(forDisplayID: displayID).opacity, 0.5, accuracy: 0.001)
 
@@ -26,7 +26,6 @@ final class ProfileStoreTests: XCTestCase {
         let displayID: UInt32 = 9
         let override = FocusOverlayStyle(
             opacity: 0.61,
-            blurRadius: 42,
             tint: .ember,
             animationDuration: 0.27,
             colorTreatment: .monochrome

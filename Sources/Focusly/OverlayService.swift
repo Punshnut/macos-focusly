@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 
 @MainActor
 protocol OverlayServiceDelegate: AnyObject {
@@ -8,12 +9,20 @@ protocol OverlayServiceDelegate: AnyObject {
 @MainActor
 final class OverlayService {
     private let profileStore: ProfileStore
+    private let appSettings: AppSettings
+    private var filtersEnabledObservation: AnyCancellable?
     private var overlays: [DisplayID: OverlayWindow] = [:]
     private var enabled = false
     weak var delegate: OverlayServiceDelegate?
 
-    init(profileStore: ProfileStore) {
+    init(profileStore: ProfileStore, appSettings: AppSettings) {
         self.profileStore = profileStore
+        self.appSettings = appSettings
+        filtersEnabledObservation = appSettings.$filtersEnabled
+            .removeDuplicates()
+            .sink { [weak self] enabled in
+                self?.applyFiltersEnabledState(enabled)
+            }
     }
 
     /// Turns overlay windows on or off and primes them with the latest style when becoming active.
@@ -23,6 +32,7 @@ final class OverlayService {
         if enabled {
             refreshDisplays(animated: false, applyStyles: false)
             overlays.values.forEach { overlay in
+                overlay.setFiltersEnabled(appSettings.filtersEnabled)
                 overlay.prepareForPresentation()
                 overlay.orderFrontRegardless()
                 let style = profileStore.style(forDisplayID: overlay.associatedDisplayID())
@@ -50,6 +60,7 @@ final class OverlayService {
                 overlay.updateFrame(to: screen)
             } else {
                 let overlay = OverlayWindow(screen: screen, displayID: displayID)
+                overlay.setFiltersEnabled(appSettings.filtersEnabled)
                 overlays[displayID] = overlay
                 if enabled {
                     overlay.orderFrontRegardless()
@@ -76,5 +87,9 @@ final class OverlayService {
     func updateStyle(for displayID: DisplayID, animated: Bool) {
         guard let overlay = overlays[displayID], enabled else { return }
         overlay.apply(style: profileStore.style(forDisplayID: displayID), animated: animated)
+    }
+
+    private func applyFiltersEnabledState(_ enabled: Bool) {
+        overlays.values.forEach { $0.setFiltersEnabled(enabled) }
     }
 }

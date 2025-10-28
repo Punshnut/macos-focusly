@@ -79,6 +79,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
         // Track less aggressively to avoid UI hitches when debug window is visible.
         windowTracker.interval = 0.5
+        windowTracker.collectsAllWindows = true
         attachTracker()
     }
 
@@ -100,6 +101,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     @MainActor
     private func tearDownDebugWindow() {
         windowTracker.stop()
+        windowTracker.collectsAllWindows = false
         if let observer = trackerObserver {
             NotificationCenter.default.removeObserver(observer)
             trackerObserver = nil

@@ -11,6 +11,7 @@ final class FocuslyAppCoordinator: NSObject {
     }
 
     private let environment: FocuslyEnvironment
+    private let appSettings: AppSettings
     private let profileStore: ProfileStore
     private let overlayService: OverlayService
     private let overlayController: OverlayController
@@ -40,12 +41,12 @@ final class FocuslyAppCoordinator: NSObject {
 
     init(environment: FocuslyEnvironment, overlayController: OverlayController) {
         self.environment = environment
+        self.appSettings = AppSettings()
         self.profileStore = ProfileStore(defaults: environment.userDefaults)
-        self.overlayService = OverlayService(profileStore: profileStore)
+        self.overlayService = OverlayService(profileStore: profileStore, appSettings: appSettings)
         self.overlayController = overlayController
         self.statusBar = StatusBarController()
         self.hotkeyCenter = HotkeyCenter()
-        self.overlayService.delegate = overlayController
 
         let defaults = environment.userDefaults
         overlaysEnabled = defaults.object(forKey: DefaultsKeys.overlaysEnabled) as? Bool ?? true
@@ -58,8 +59,11 @@ final class FocuslyAppCoordinator: NSObject {
             statusBarIconStyle = .dot
         }
 
+        appSettings.filtersEnabled = overlaysEnabled
+
         super.init()
 
+        overlayService.delegate = overlayController
         statusBar.setDelegate(self)
         hotkeyCenter.onActivation = { [weak self] in
             self?.toggleOverlays()
@@ -114,6 +118,7 @@ final class FocuslyAppCoordinator: NSObject {
 
     private func setOverlaysEnabled(_ enabled: Bool) {
         overlaysEnabled = enabled
+        appSettings.filtersEnabled = enabled
         syncOverlayControllerRunningState()
         overlayService.setEnabled(enabled, animated: true)
         syncStatusBar()
@@ -300,7 +305,6 @@ final class FocuslyAppCoordinator: NSObject {
                 id: displayID,
                 name: name,
                 opacity: style.opacity,
-                blurRadius: style.blurRadius,
                 tint: tintColor,
                 colorTreatment: style.colorTreatment
             )
@@ -356,10 +360,10 @@ final class FocuslyAppCoordinator: NSObject {
                     comment: "Onboarding title highlighting filter selection."
                 ),
                 message: NSLocalizedString(
-                    "Open Preferences to choose blur, opacity, and one of the Blur (Focus), Warm, Colorful, or Monochrome presets per display.",
+                    "Open Preferences to choose opacity, tint, and one of the Focus, Warm, Colorful, or Monochrome presets per display.",
                     tableName: nil,
                     bundle: .module,
-                    value: "Open Preferences to choose blur, opacity, and one of the Blur (Focus), Warm, Colorful, or Monochrome presets per display.",
+                    value: "Open Preferences to choose opacity, tint, and one of the Focus, Warm, Colorful, or Monochrome presets per display.",
                     comment: "Onboarding message about picking presets and per-display tuning."
                 ),
                 systemImageName: "paintpalette"
