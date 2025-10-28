@@ -1,5 +1,7 @@
 # Focusly
 
+> 🧪 This is an alpha release — expect updates and improvements before the stable version.
+
 ## English
 
 Focusly is a lightweight macOS companion that softens your desktop, lets every display pick its own ambience, and keeps distraction-cutting controls a click away in the status bar.
@@ -9,7 +11,7 @@ Focusly is a lightweight macOS companion that softens your desktop, lets every d
 ### Highlights
 - Status bar control with primary and context menus, including quick toggles, presets, and launch-at-login management.
 - Per-display overlays rendered above desktop icons with smooth animations, configurable opacity, blur, and tint.
-- Four built-in ambience filters — Blur (Focus), Warm, Colorful, Monochrome — each tweakable per monitor without losing the defaults.
+- Four built-in ambience filters - Blur (Focus), Warm, Colorful, Monochrome - each tweakable per monitor without losing the defaults.
 - Three status bar icon styles (Dot, Halo, Equalizer) so you can match Focusly to the rest of your menu bar.
 - Customisable global shortcut powered by Carbon hotkeys; capture any modifier combination directly from Preferences.
 - Preferences window built with SwiftUI that updates overlays in real time and keeps settings in sync with UserDefaults.
@@ -54,6 +56,17 @@ Current tests cover the persistence layer that stores per-display overrides and 
 - `PreferencesWindowController` hosts a SwiftUI-driven editor for displays, hotkeys, and login options.
 - `HotkeyCenter` wraps Carbon APIs for modifier-aware shortcuts and emits toggle events back to the coordinator.
 
+## License
+
+This project is currently in **Alpha stage** and released under the **MIT License**.
+
+All core features are available for free during development.  
+Future versions may include additional functionality that could be offered as a **low-cost Pro or upgrade version**.
+
+You are free to use, modify, and distribute this version of the software under the terms of the MIT License.  
+See the [LICENSE](./LICENSE) file for more information.
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+
 ---
 
 ## Español
@@ -65,7 +78,7 @@ Focusly es un compañero ligero para macOS que suaviza tu escritorio, permite qu
 ### Destacados
 - Control en la barra de estado con menús principal y contextual, atajos rápidos, presets y manejo de inicio automático.
 - Superposiciones por pantalla situadas sobre los iconos del escritorio, con animaciones fluidas y ajustes de opacidad, desenfoque y tinte.
-- Cuatro filtros integrados — Blur (Focus), Cálido, Colorido, Monocromo — personalizables por monitor sin perder el ajuste original.
+- Cuatro filtros integrados - Blur (Focus), Cálido, Colorido, Monocromo - personalizables por monitor sin perder el ajuste original.
 - Tres estilos para el icono de la barra de menús (Punto, Halo, Ecualizador) para que Focusly combine con tu menú.
 - Atajo global configurable usando hotkeys de Carbon; grábalo directamente desde Preferencias con cualquier combinación de modificadores.
 - Ventana de preferencias creada con SwiftUI que actualiza las superposiciones en tiempo real y sincroniza ajustes en `UserDefaults`.
@@ -109,3 +122,14 @@ Las pruebas actuales validan la capa de persistencia que almacena overrides por 
 - `ProfileStore` serializa el preset seleccionado y los overrides en un solo payload dentro de `UserDefaults`.
 - `PreferencesWindowController` hospeda un editor basado en SwiftUI para pantallas, atajos y opciones de arranque.
 - `HotkeyCenter` encapsula las APIs de Carbon y envía eventos de alternancia de vuelta al coordinador.
+
+## Licencia
+
+Este proyecto se encuentra actualmente en **fase alfa** y se publica bajo la **licencia MIT**.
+
+Todas las funciones principales están disponibles de forma gratuita durante el desarrollo.  
+Las versiones futuras pueden incluir funciones adicionales que podrían ofrecerse como una **versión Pro o de pago a bajo costo**.
+
+Eres libre de usar, modificar y distribuir esta versión del software según los términos de la licencia MIT.  
+Consulta el archivo [LICENSE](./LICENSE) para más información.
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
