@@ -24,6 +24,7 @@ public struct AXWindowInfo: Hashable {
     public let isFocused: Bool
 }
 
+/// Snapshot of the currently focused window including carve-outs for related UI.
 public struct ActiveWindowSnapshot: Equatable {
     /// Describes a rect that needs to be carved out from the overlay (menus, context menus, etc.).
     public struct MaskRegion: Equatable {
@@ -89,6 +90,7 @@ func axActiveWindowFrame(preferredPID: pid_t? = nil) -> NSRect? {
     axActiveWindowSnapshot(preferredPID: preferredPID)?.frame
 }
 
+/// Returns the currently focused window description, preferring a given PID if supplied.
 func axActiveWindowSnapshot(preferredPID: pid_t? = nil) -> ActiveWindowSnapshot? {
     guard let window = axFocusedWindowElement(preferredPID: preferredPID), let frame = axFrame(for: window) else {
         return nil
@@ -98,12 +100,14 @@ func axActiveWindowSnapshot(preferredPID: pid_t? = nil) -> ActiveWindowSnapshot?
     return ActiveWindowSnapshot(frame: frame, cornerRadius: max(0, cornerRadius))
 }
 
+/// Resolves the corner radius for the focused window if available.
 func axActiveWindowCornerRadius(preferredPID: pid_t? = nil) -> CGFloat? {
     guard let window = axFocusedWindowElement(preferredPID: preferredPID) else { return nil }
     return axWindowCornerRadius(for: window)
 }
 
 /// Enumerate windows for all GUI apps (best-effort; requires AX permission).
+/// Collects metadata for visible windows across all running GUI apps, capped per process.
 func axEnumerateAllWindows(limitPerApp: Int = 200) -> [AXWindowInfo] {
     guard isAccessibilityAccessGranted() else { return [] }
 
@@ -159,6 +163,7 @@ func axEnumerateAllWindows(limitPerApp: Int = 200) -> [AXWindowInfo] {
     return all
 }
 
+/// Returns the focused `AXUIElement` for the chosen process or the active application.
 private func axFocusedWindowElement(preferredPID: pid_t? = nil) -> AXUIElement? {
     guard isAccessibilityAccessGranted() else { return nil }
     let resolvedPID: pid_t?
@@ -178,6 +183,7 @@ private func axFocusedWindowElement(preferredPID: pid_t? = nil) -> AXUIElement? 
     return unsafeBitCast(rawWin, to: AXUIElement.self)
 }
 
+/// Extracts an AppKit-style rect from the accessibility window element.
 private func axFrame(for window: AXUIElement) -> NSRect? {
     var posRef: CFTypeRef?
     var sizeRef: CFTypeRef?
@@ -187,6 +193,7 @@ private func axFrame(for window: AXUIElement) -> NSRect? {
     return NSRect(x: p.x, y: p.y, width: s.width, height: s.height)
 }
 
+/// Attempts to pull the optional corner radius attribute from a window element.
 private func axWindowCornerRadius(for window: AXUIElement) -> CGFloat? {
     var radiusRef: CFTypeRef?
     guard AXUIElementCopyAttributeValue(window, windowCornerRadiusAttribute, &radiusRef) == .success else {
@@ -199,6 +206,7 @@ private func axWindowCornerRadius(for window: AXUIElement) -> CGFloat? {
 }
 
 extension NSRect {
+    /// Approximate comparison that tolerates minor rounding differences between coordinate spaces.
     func isApproximatelyEqual(to other: NSRect, tolerance: CGFloat) -> Bool {
         guard tolerance >= 0 else { return self == other }
         return abs(origin.x - other.origin.x) <= tolerance &&

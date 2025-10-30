@@ -1,5 +1,6 @@
 import AppKit
 
+/// Codable tint definition that drives overlay colorization.
 struct FocusTint: Codable, Equatable {
     var red: Double
     var green: Double
@@ -11,16 +12,19 @@ struct FocusTint: Codable, Equatable {
     static let lagoon = FocusTint(red: 0.10, green: 0.36, blue: 0.52, alpha: 0.72)
     static let slate = FocusTint(red: 0.20, green: 0.23, blue: 0.27, alpha: 0.82)
 
+    /// Translates the serialized tint into an `NSColor` for rendering.
     func makeColor() -> NSColor {
         NSColor(calibratedRed: red, green: green, blue: blue, alpha: alpha)
     }
 }
 
+/// Granular options for how the overlay should treat captured window colors.
 enum FocusOverlayColorTreatment: String, Codable {
     case preserveColor
     case monochrome
 }
 
+/// Persisted style representation consumed by the overlay renderer.
 struct FocusOverlayStyle: Codable, Equatable {
     var opacity: Double
     var tint: FocusTint
@@ -75,6 +79,7 @@ struct FocusOverlayStyle: Codable, Equatable {
     static let ember = warm
 }
 
+/// User-facing preset that bundles metadata with a concrete overlay style.
 struct FocusPreset: Codable, Equatable, Identifiable {
     var id: String
     var name: String

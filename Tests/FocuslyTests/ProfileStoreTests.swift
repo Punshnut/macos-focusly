@@ -3,10 +3,10 @@ import XCTest
 
 final class ProfileStoreTests: XCTestCase {
     func testSelectPresetClearsOverrides() {
-        let defaults = UserDefaults(suiteName: "FocuslyTests.ProfileStore")!
-        defaults.removePersistentDomain(forName: "FocuslyTests.ProfileStore")
-        defer { defaults.removePersistentDomain(forName: "FocuslyTests.ProfileStore") }
-        let store = ProfileStore(defaults: defaults)
+        let userDefaults = UserDefaults(suiteName: "FocuslyTests.ProfileStore")!
+        userDefaults.removePersistentDomain(forName: "FocuslyTests.ProfileStore")
+        defer { userDefaults.removePersistentDomain(forName: "FocuslyTests.ProfileStore") }
+        let store = ProfileStore(userDefaults: userDefaults)
         let displayID: UInt32 = 1
         let override = FocusOverlayStyle(opacity: 0.5, tint: .neutral, animationDuration: 0.3)
         store.updateStyle(override, forDisplayID: displayID)
@@ -18,11 +18,11 @@ final class ProfileStoreTests: XCTestCase {
     }
 
     func testOverridesPersistBetweenInstances() {
-        let defaults = UserDefaults(suiteName: "FocuslyTests.ProfileStorePersistence")!
-        defaults.removePersistentDomain(forName: "FocuslyTests.ProfileStorePersistence")
-        defer { defaults.removePersistentDomain(forName: "FocuslyTests.ProfileStorePersistence") }
+        let userDefaults = UserDefaults(suiteName: "FocuslyTests.ProfileStorePersistence")!
+        userDefaults.removePersistentDomain(forName: "FocuslyTests.ProfileStorePersistence")
+        defer { userDefaults.removePersistentDomain(forName: "FocuslyTests.ProfileStorePersistence") }
 
-        var store: ProfileStore? = ProfileStore(defaults: defaults)
+        var store: ProfileStore? = ProfileStore(userDefaults: userDefaults)
         let displayID: UInt32 = 9
         let override = FocusOverlayStyle(
             opacity: 0.61,
@@ -33,7 +33,7 @@ final class ProfileStoreTests: XCTestCase {
         store?.updateStyle(override, forDisplayID: displayID)
         store = nil
 
-        let newStore = ProfileStore(defaults: defaults)
+        let newStore = ProfileStore(userDefaults: userDefaults)
         XCTAssertEqual(newStore.style(forDisplayID: displayID).opacity, 0.61, accuracy: 0.001)
         XCTAssertEqual(newStore.style(forDisplayID: displayID).colorTreatment, .monochrome)
     }

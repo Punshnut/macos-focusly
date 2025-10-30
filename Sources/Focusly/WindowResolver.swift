@@ -43,6 +43,7 @@ func resolveActiveWindowFrameUsingCoreGraphics(excluding windowNumbers: Set<Int>
     cgFrontWindow(excluding: windowNumbers)?.frame
 }
 
+/// Metadata representing the window currently at the front of the CoreGraphics list.
 private struct CGFrontWindowSnapshot {
     let frame: NSRect
     let ownerPID: pid_t
@@ -50,6 +51,7 @@ private struct CGFrontWindowSnapshot {
     let supplementaryMasks: [ActiveWindowSnapshot.MaskRegion]
 }
 
+/// Uses CoreGraphics to locate the foremost visible window while skipping overlay windows.
 private func cgFrontWindow(excluding windowNumbers: Set<Int>) -> CGFrontWindowSnapshot? {
     let options: CGWindowListOption = [.optionOnScreenOnly, .excludeDesktopElements]
 
@@ -78,6 +80,7 @@ private func cgFrontWindow(excluding windowNumbers: Set<Int>) -> CGFrontWindowSn
     )
 }
 
+/// Walks window dictionaries looking for the topmost candidate the overlay should carve out.
 private func findFrontWindow(in windows: [[String: Any]], excluding windowNumbers: Set<Int>) -> CGFrontWindowSnapshot? {
     for window in windows {
         guard let number = window[kCGWindowNumber as String] as? Int else { continue }
@@ -223,6 +226,7 @@ private func menuCornerRadius(for frame: NSRect) -> CGFloat {
     clampCornerRadius(8, to: frame)
 }
 
+/// Heuristically identifies whether a window should be treated as a menu carve-out.
 private func classifyMenuWindow(
     layer: Int,
     name: String?,
@@ -260,6 +264,7 @@ private func classifyMenuWindow(
     return nil
 }
 
+/// Provides a stable ordering so mask regions sort consistently.
 private func maskPurposeOrder(_ purpose: ActiveWindowSnapshot.MaskRegion.Purpose) -> Int {
     switch purpose {
     case .applicationWindow:
@@ -271,6 +276,7 @@ private func maskPurposeOrder(_ purpose: ActiveWindowSnapshot.MaskRegion.Purpose
     }
 }
 
+/// Converts CoreGraphics window coordinates to Cocoa coordinates for the correct screen.
 private func convertCGWindowBoundsToCocoa(_ bounds: CGRect) -> CGRect {
     guard let targetScreen = screenMatching(bounds) else {
         return bounds
@@ -284,6 +290,7 @@ private func convertCGWindowBoundsToCocoa(_ bounds: CGRect) -> CGRect {
     return converted
 }
 
+/// Finds the screen whose frame contains the largest portion of the supplied rect.
 private func screenMatching(_ rect: CGRect) -> NSScreen? {
     var bestMatch: (screen: NSScreen, area: CGFloat)?
 
@@ -303,12 +310,14 @@ private func screenMatching(_ rect: CGRect) -> NSScreen? {
     return bestMatch?.screen ?? NSScreen.screens.first
 }
 
+/// Clamps a corner radius so it never exceeds half the window dimensions.
 private func clampCornerRadius(_ radius: CGFloat, to frame: NSRect) -> CGFloat {
     guard radius > 0 else { return 0 }
     let maxRadius = min(frame.width, frame.height) / 2
     return min(radius, maxRadius)
 }
 
+/// Provides a conservative default corner radius for macOS versions that hide the value.
 private func fallbackCornerRadius(for frame: NSRect) -> CGFloat {
     if ProcessInfo.processInfo.operatingSystemVersion.majorVersion >= 15 {
         return 26

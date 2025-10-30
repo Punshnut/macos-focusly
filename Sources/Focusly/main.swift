@@ -1,14 +1,16 @@
 import AppKit
 import Combine
 
+/// AppKit delegate that wires together the coordinator, menus, and optional debug tooling.
 final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
-    private var coordinator: FocuslyAppCoordinator?
+    private var appCoordinator: FocuslyAppCoordinator?
     private var overlayController: OverlayController?
-    private var localizationCancellable: AnyCancellable?
+    private var localizationSubscription: AnyCancellable?
 
-    private let windowTracker = WindowTracker()
-    private var trackerObserver: NSObjectProtocol?
-    private var debugWindow: NSWindow?
+    private let accessibilityWindowTracker = WindowTracker()
+    private var windowTrackerObserver: NSObjectProtocol?
+    private var debugTrackingWindow: NSWindow?
+    /// Performs initial setup, prompts for accessibility, and starts the coordinator.
     @MainActor
     func applicationDidFinishLaunching(_ notification: Notification) {
         configureMainMenu()
@@ -16,54 +18,59 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         // Prompt for accessibility once so overlays can function after relaunch.
         _ = requestAccessibilityIfNeeded(prompt: true)
 
-        startCoordinator()
+        startAppCoordinator()
 
-        if shouldShowDebugWindow {
-            presentDebugWindow()
+        if shouldDisplayDebugWindow {
+            displayDebugWindow()
         }
 
-        let localization = LocalizationService.shared
+        let localizationService = LocalizationService.shared
 
-        localizationCancellable = localization.$overrideIdentifier
+        localizationSubscription = localizationService.$languageOverrideIdentifier
             .removeDuplicates()
             .sink { [weak self] _ in
                 self?.configureMainMenu()
             }
     }
 
+    /// Stops services before the process exits.
     @MainActor
     func applicationWillTerminate(_ notification: Notification) {
-        coordinator?.stop()
-        tearDownDebugWindow()
+        appCoordinator?.stop()
+        dismissDebugWindow()
     }
 
+    /// Keeps the menu bar app running after closing auxiliary windows.
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         false
     }
 
     // MARK: - Coordinator
 
+    /// Lazily creates the app coordinator and starts overlay management.
     @MainActor
-    private func startCoordinator() {
-        guard coordinator == nil else { return }
+    private func startAppCoordinator() {
+        guard appCoordinator == nil else { return }
         let environment = FocuslyEnvironment.default
         let overlayController = overlayController ?? OverlayController()
         self.overlayController = overlayController
         let coordinator = FocuslyAppCoordinator(environment: environment, overlayController: overlayController)
-        self.coordinator = coordinator
+        self.appCoordinator = coordinator
         coordinator.start()
     }
 
     // MARK: - Debug Window
 
-    private var shouldShowDebugWindow: Bool {
+    /// Determines whether the developer-focused debug window should be shown.
+    private var shouldDisplayDebugWindow: Bool {
         ProcessInfo.processInfo.environment["FOCUSLY_DEBUG_WINDOW"] == "1" ||
         UserDefaults.standard.bool(forKey: "FocuslyDebugWindow")
     }
 
+    /// Builds and presents the debug overlay window used during development.
     @MainActor
-    private func presentDebugWindow() {
-        guard debugWindow == nil else { return }
+    private func displayDebugWindow() {
+        guard debugTrackingWindow == nil else { return }
 
         let window = NSWindow(
             contentRect: NSMakeRect(120, 120, 560, 360),
@@ -85,153 +92,159 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         label.maximumNumberOfLines = 3
         window.contentView?.addSubview(label)
 
-        debugWindow = window
+        debugTrackingWindow = window
 
         // Track less aggressively to avoid UI hitches when debug window is visible.
-        windowTracker.interval = 0.5
-        windowTracker.collectsAllWindows = true
-        attachTracker()
+        accessibilityWindowTracker.pollingInterval = 0.5
+        accessibilityWindowTracker.isCollectingAllWindows = true
+        startDebugWindowTracking()
     }
 
-    private func attachTracker() {
-        trackerObserver = NotificationCenter.default.addObserver(
+    /// Hooks the window tracker to feed updates into the debug overlay.
+    private func startDebugWindowTracking() {
+        windowTrackerObserver = NotificationCenter.default.addObserver(
             forName: WindowTracker.didUpdate,
             object: nil,
             queue: .main
-        ) { [weak self] note in
-            guard let snap = note.object as? WindowTracker.Snapshot else { return }
+        ) { [weak self] notification in
+            guard let snapshot = notification.object as? WindowTracker.Snapshot else { return }
             Task { @MainActor [weak self] in
                 guard let self else { return }
-                self.renderDebug(snap: snap)
+                self.renderDebugSnapshot(snapshot)
             }
         }
-        windowTracker.start()
+        accessibilityWindowTracker.start()
     }
 
+    /// Tears down debug tracking and closes the debug window.
     @MainActor
-    private func tearDownDebugWindow() {
-        windowTracker.stop()
-        windowTracker.collectsAllWindows = false
-        if let observer = trackerObserver {
+    private func dismissDebugWindow() {
+        accessibilityWindowTracker.stop()
+        accessibilityWindowTracker.isCollectingAllWindows = false
+        if let observer = windowTrackerObserver {
             NotificationCenter.default.removeObserver(observer)
-            trackerObserver = nil
+            windowTrackerObserver = nil
         }
-        debugWindow?.orderOut(nil)
-        debugWindow = nil
+        debugTrackingWindow?.orderOut(nil)
+        debugTrackingWindow = nil
     }
 
+    /// Updates the debug window title with the latest focused window geometry.
     @MainActor
-    private func renderDebug(snap: WindowTracker.Snapshot) {
-        guard let window = debugWindow else { return }
-        if let frame = snap.activeFrame {
+    private func renderDebugSnapshot(_ snapshot: WindowTracker.Snapshot) {
+        guard let window = debugTrackingWindow else { return }
+        if let frame = snapshot.activeFrame {
             window.title = "Focusly – Active: x:\(Int(frame.origin.x)) y:\(Int(frame.origin.y)) w:\(Int(frame.size.width)) h:\(Int(frame.size.height))"
         } else {
             window.title = "Focusly – Active: (none)"
         }
     }
 
+    /// Clears debug resources if the debug window is manually closed.
     @MainActor
     func windowWillClose(_ notification: Notification) {
         guard
-            let closedWindow = notification.object as? NSWindow,
-            closedWindow === debugWindow
+            let closedDebugWindow = notification.object as? NSWindow,
+            closedDebugWindow === debugTrackingWindow
         else { return }
-        tearDownDebugWindow()
+        dismissDebugWindow()
     }
 
     // MARK: - Menu
 
+    /// Rebuilds the app-level menu with localized titles and actions.
     @MainActor
     private func configureMainMenu() {
-        let localization = LocalizationService.shared
-        let mainMenu = NSMenu()
-        let appMenuItem = NSMenuItem()
-        let appMenu = NSMenu()
+        let localizationService = LocalizationService.shared
+        let applicationMenu = NSMenu()
+        let applicationMenuItem = NSMenuItem()
+        let applicationSubmenu = NSMenu()
 
         let appName = Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String ?? "Focusly"
 
-        let aboutTemplate = localization.localized(
+        let aboutMenuTemplate = localizationService.localized(
             "About %@",
             fallback: "About %@"
         )
-        let aboutTitle = String(format: aboutTemplate, locale: localization.locale, appName)
-        let aboutItem = NSMenuItem(title: aboutTitle, action: #selector(showAboutPanel(_:)), keyEquivalent: "")
-        aboutItem.target = self
-        appMenu.addItem(aboutItem)
-        appMenu.addItem(NSMenuItem.separator())
+        let aboutMenuTitle = String(format: aboutMenuTemplate, locale: localizationService.locale, appName)
+        let aboutMenuItem = NSMenuItem(title: aboutMenuTitle, action: #selector(showAboutPanel(_:)), keyEquivalent: "")
+        aboutMenuItem.target = self
+        applicationSubmenu.addItem(aboutMenuItem)
+        applicationSubmenu.addItem(NSMenuItem.separator())
 
-        let quitTemplate = localization.localized(
+        let quitMenuTemplate = localizationService.localized(
             "Quit %@",
             fallback: "Quit %@"
         )
-        let quitTitle = String(format: quitTemplate, locale: localization.locale, appName)
-        let quitItem = NSMenuItem(title: quitTitle, action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
-        quitItem.target = nil
-        appMenu.addItem(quitItem)
+        let quitMenuTitle = String(format: quitMenuTemplate, locale: localizationService.locale, appName)
+        let quitMenuItem = NSMenuItem(title: quitMenuTitle, action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        quitMenuItem.target = nil
+        applicationSubmenu.addItem(quitMenuItem)
 
-        mainMenu.addItem(appMenuItem)
-        mainMenu.setSubmenu(appMenu, for: appMenuItem)
+        applicationMenu.addItem(applicationMenuItem)
+        applicationMenu.setSubmenu(applicationSubmenu, for: applicationMenuItem)
 
-        NSApp.mainMenu = mainMenu
+        NSApp.mainMenu = applicationMenu
     }
 
+    /// Shows a localized About panel with basic app metadata.
     @MainActor
     @objc private func showAboutPanel(_ sender: Any?) {
-        let localization = LocalizationService.shared
+        let localizationService = LocalizationService.shared
         let appName = Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String ?? "Focusly"
-        let creditsHeader = localization.localized(
+        let creditsHeader = localizationService.localized(
             "Credits",
             fallback: "Credits"
         )
-        let nameLine = localization.localized(
+        let nameLine = localizationService.localized(
             "Jan Feuerbacher",
             fallback: "Jan Feuerbacher"
         )
-        let nametagLine = localization.localized(
+        let nametagLine = localizationService.localized(
             "Punshnut",
             fallback: "Punshnut"
         )
 
-        let paragraph = NSMutableParagraphStyle()
-        paragraph.alignment = .center
-        let headerAttributes: [NSAttributedString.Key: Any] = [
+        let centeredParagraphStyle = NSMutableParagraphStyle()
+        centeredParagraphStyle.alignment = .center
+        let headerTextAttributes: [NSAttributedString.Key: Any] = [
             .font: NSFont.boldSystemFont(ofSize: 13),
             .foregroundColor: NSColor.labelColor,
-            .paragraphStyle: paragraph
+            .paragraphStyle: centeredParagraphStyle
         ]
-        let bodyAttributes: [NSAttributedString.Key: Any] = [
+        let bodyTextAttributes: [NSAttributedString.Key: Any] = [
             .font: NSFont.systemFont(ofSize: 13),
             .foregroundColor: NSColor.labelColor,
-            .paragraphStyle: paragraph
+            .paragraphStyle: centeredParagraphStyle
         ]
         let credits = NSMutableAttributedString(
             string: creditsHeader + "\n",
-            attributes: headerAttributes
+            attributes: headerTextAttributes
         )
         let bodyText = [nameLine, nametagLine].joined(separator: "\n")
-        credits.append(NSAttributedString(string: bodyText, attributes: bodyAttributes))
+        credits.append(NSAttributedString(string: bodyText, attributes: bodyTextAttributes))
 
         // Placeholder icon until a dedicated About PNG is available.
-        let placeholderSize = NSSize(width: 160, height: 160)
-        let placeholderIcon = NSImage(size: placeholderSize, flipped: false) { rect in
+        let placeholderIconSize = NSSize(width: 160, height: 160)
+        let placeholderAboutIcon = NSImage(size: placeholderIconSize, flipped: false) { rect in
             NSColor.windowBackgroundColor.setFill()
             rect.fill()
             return true
         }
 
-        let options: [NSApplication.AboutPanelOptionKey: Any] = [
+        let panelOptions: [NSApplication.AboutPanelOptionKey: Any] = [
             .applicationName: appName,
             .credits: credits,
-            .applicationIcon: placeholderIcon,
+            .applicationIcon: placeholderAboutIcon,
             .version: FocuslyBuildInfo.marketingVersion
         ]
 
-        NSApp.orderFrontStandardAboutPanel(options: options)
+        NSApp.orderFrontStandardAboutPanel(options: panelOptions)
     }
 }
 
 let application = NSApplication.shared
-let delegate = AppDelegate()
-application.delegate = delegate
+let appDelegate = AppDelegate()
+application.delegate = appDelegate
 application.setActivationPolicy(.regular)
 application.run()

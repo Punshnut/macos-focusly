@@ -9,6 +9,7 @@ final class OnboardingWindowController: NSWindowController {
     private let localization: LocalizationService
     private var localizationCancellable: AnyCancellable?
 
+    /// Creates an onboarding window bound to the supplied view model and localization service.
     init(viewModel: OnboardingViewModel, localization: LocalizationService) {
         self.viewModel = viewModel
         self.localization = localization
@@ -30,7 +31,7 @@ final class OnboardingWindowController: NSWindowController {
         window.level = .floating // Keep the walkthrough visible above the overlay windows.
         super.init(window: window)
 
-        localizationCancellable = localization.$overrideIdentifier
+        localizationCancellable = localization.$languageOverrideIdentifier
             .removeDuplicates()
             .sink { [weak self] _ in
                 self?.updateWindowTitle()
@@ -42,21 +43,25 @@ final class OnboardingWindowController: NSWindowController {
         fatalError("init(coder:) has not been implemented")
     }
 
+    /// Brings the onboarding window to the front and activates the app.
     func present() {
         guard let window else { return }
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
     }
 
+    /// Applies localization updates when the user switches languages.
     func updateLocalization(localization: LocalizationService) {
         guard localization === self.localization else { return }
         updateWindowTitle()
     }
 
+    /// Passes new onboarding steps through to the view model.
     func updateSteps(_ steps: [OnboardingViewModel.Step]) {
         viewModel.updateSteps(steps)
     }
 
+    /// Syncs the window title with the currently selected language.
     private func updateWindowTitle() {
         guard let window else { return }
         window.title = localization.localized(

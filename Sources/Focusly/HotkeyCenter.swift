@@ -1,6 +1,7 @@
 import AppKit
 import Carbon
 
+/// Manages a single global keyboard shortcut using Carbon hotkey APIs.
 @MainActor
 final class HotkeyCenter {
     var onActivation: (() -> Void)?
@@ -28,18 +29,22 @@ final class HotkeyCenter {
         }
     }
 
+    /// Registers a new shortcut definition; pass nil to clear the binding.
     func updateShortcut(_ shortcut: HotkeyShortcut?) {
         self.shortcut = shortcut
     }
 
+    /// Enables or disables the global hotkey without forgetting the shortcut.
     func setEnabled(_ enabled: Bool) {
         self.enabled = enabled
     }
 
+    /// Returns the currently registered shortcut, if any.
     func currentShortcut() -> HotkeyShortcut? {
         shortcut
     }
 
+    /// Installs the Carbon event handler used to receive hotkey callbacks.
     private func installHandler() {
         var eventSpec = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
         let pointer = UnsafeMutableRawPointer(Unmanaged.passUnretained(self).toOpaque())
@@ -55,6 +60,7 @@ final class HotkeyCenter {
         }, 1, &eventSpec, pointer, &handlerRef)
     }
 
+    /// Updates the registered hotkey whenever the shortcut or enabled state changes.
     private func refreshRegistration() {
         unregister()
         guard enabled, let shortcut else { return }
@@ -74,6 +80,7 @@ final class HotkeyCenter {
         }
     }
 
+    /// Unregisters the previously registered hotkey, if one exists.
     private func unregister() {
         if let hotKeyRef {
             UnregisterEventHotKey(hotKeyRef)
@@ -81,6 +88,7 @@ final class HotkeyCenter {
         }
     }
 
+    /// Handles carbon callbacks, forwarding matched hotkey presses to the consumer.
     private func handle(event: EventRef) {
         var hotKeyID = EventHotKeyID()
         GetEventParameter(event, EventParamName(kEventParamDirectObject), EventParamType(typeEventHotKeyID), nil, MemoryLayout<EventHotKeyID>.size, nil, &hotKeyID)
@@ -92,6 +100,7 @@ final class HotkeyCenter {
     }
 }
 
+/// Helper that encodes a string into the four-character code format required by Carbon.
 private func fourCharCode(_ string: String) -> OSType {
     var value: OSType = 0
     for character in string.utf16 {

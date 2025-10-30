@@ -1,8 +1,10 @@
 import AppKit
 import Combine
 
+/// View model powering the SwiftUI preferences scene with strongly typed callbacks into the app.
 @MainActor
 final class PreferencesViewModel: ObservableObject {
+    /// Editable overlay configuration for a single display.
     struct DisplaySettings: Identifiable {
         let id: DisplayID
         var name: String
@@ -15,6 +17,7 @@ final class PreferencesViewModel: ObservableObject {
         }
     }
 
+    /// Glue closures that let the preferences UI trigger app-level changes.
     struct Callbacks {
         /// Glue closure bundle so the view model can stay UI focused without knowing about app coordination.
         var onDisplayChange: (DisplayID, FocusOverlayStyle) -> Void
@@ -29,126 +32,141 @@ final class PreferencesViewModel: ObservableObject {
         var onSelectLanguage: (String) -> Void
     }
 
-    @Published var displays: [DisplaySettings]
-    @Published var availablePresets: [FocusPreset]
-    @Published var selectedPresetID: String
-    @Published var hotkeysEnabled: Bool
-    @Published var launchAtLoginEnabled: Bool
-    @Published var launchAtLoginAvailable: Bool
-    @Published var launchAtLoginMessage: String?
-    @Published var capturingShortcut = false
-    @Published private(set) var shortcutDescription: String
+    @Published var displaySettings: [DisplaySettings]
+    @Published var presetOptions: [FocusPreset]
+    @Published var selectedPresetIdentifier: String
+    @Published var areHotkeysEnabled: Bool
+    @Published var isLaunchAtLoginEnabled: Bool
+    @Published var isLaunchAtLoginAvailable: Bool
+    @Published var launchAtLoginStatusMessage: String?
+    @Published var isCapturingShortcut = false
+    @Published private(set) var shortcutSummary: String
     @Published var statusIconStyle: StatusBarIconStyle
-    private var shortcut: HotkeyShortcut?
-    private let callbacks: Callbacks
-    let availableIconStyles: [StatusBarIconStyle]
+    private var activeShortcut: HotkeyShortcut?
+    private let handlers: Callbacks
+    let iconStyleOptions: [StatusBarIconStyle]
 
+    /// Creates the view model with the current overlay, shortcut, and status bar state.
     init(
-        displays: [DisplaySettings],
-        hotkeysEnabled: Bool,
-        launchAtLoginEnabled: Bool,
-        launchAtLoginAvailable: Bool,
-        launchAtLoginMessage: String?,
-        shortcut: HotkeyShortcut?,
+        displaySettings: [DisplaySettings],
+        areHotkeysEnabled: Bool,
+        isLaunchAtLoginEnabled: Bool,
+        isLaunchAtLoginAvailable: Bool,
+        launchAtLoginStatusMessage: String?,
+        activeShortcut: HotkeyShortcut?,
         statusIconStyle: StatusBarIconStyle,
-        availableIconStyles: [StatusBarIconStyle],
-        availablePresets: [FocusPreset],
-        selectedPresetID: String,
-        callbacks: Callbacks
+        iconStyleOptions: [StatusBarIconStyle],
+        presetOptions: [FocusPreset],
+        selectedPresetIdentifier: String,
+        handlers: Callbacks
     ) {
-        self.displays = displays
-        self.availablePresets = availablePresets
-        self.selectedPresetID = selectedPresetID
-        self.hotkeysEnabled = hotkeysEnabled
-        self.launchAtLoginEnabled = launchAtLoginEnabled
-        self.launchAtLoginAvailable = launchAtLoginAvailable
-        self.launchAtLoginMessage = launchAtLoginMessage
-        self.shortcut = shortcut
-        self.callbacks = callbacks
-        self.shortcutDescription = PreferencesViewModel.describeShortcut(shortcut)
+        self.displaySettings = displaySettings
+        self.presetOptions = presetOptions
+        self.selectedPresetIdentifier = selectedPresetIdentifier
+        self.areHotkeysEnabled = areHotkeysEnabled
+        self.isLaunchAtLoginEnabled = isLaunchAtLoginEnabled
+        self.isLaunchAtLoginAvailable = isLaunchAtLoginAvailable
+        self.launchAtLoginStatusMessage = launchAtLoginStatusMessage
+        self.activeShortcut = activeShortcut
+        self.handlers = handlers
+        self.shortcutSummary = PreferencesViewModel.describeShortcut(activeShortcut)
         self.statusIconStyle = statusIconStyle
-        self.availableIconStyles = availableIconStyles
+        self.iconStyleOptions = iconStyleOptions
     }
 
+    /// Persists live opacity changes for a display and notifies the app.
     func updateOpacity(for displayID: DisplayID, value: Double) {
-        guard let index = displays.firstIndex(where: { $0.id == displayID }) else { return }
-        displays[index].opacity = value
-        commit(display: displays[index])
+        guard let index = displaySettings.firstIndex(where: { $0.id == displayID }) else { return }
+        displaySettings[index].opacity = value
+        commit(display: displaySettings[index])
     }
 
+    /// Persists tint adjustments for a display and notifies the app.
     func updateTint(for displayID: DisplayID, value: NSColor) {
-        guard let index = displays.firstIndex(where: { $0.id == displayID }) else { return }
-        displays[index].tint = value
-        commit(display: displays[index])
+        guard let index = displaySettings.firstIndex(where: { $0.id == displayID }) else { return }
+        displaySettings[index].tint = value
+        commit(display: displaySettings[index])
     }
 
+    /// Reverts a display to its preset defaults.
     func resetDisplay(_ displayID: DisplayID) {
-        callbacks.onDisplayReset(displayID)
+        handlers.onDisplayReset(displayID)
     }
 
+    /// Switches to a new preset and informs the coordinator.
     func selectPreset(id: String) {
-        guard selectedPresetID != id else { return }
-        selectedPresetID = id
+        guard selectedPresetIdentifier != id else { return }
+        selectedPresetIdentifier = id
         guard let preset = preset(for: id) else { return }
-        callbacks.onSelectPreset(preset)
+        handlers.onSelectPreset(preset)
     }
 
+    /// Copies one display's settings across all others.
     func syncDisplaySettings(from displayID: DisplayID) {
-        guard let source = displays.first(where: { $0.id == displayID }) else { return }
-        for index in displays.indices where displays[index].id != displayID {
-            displays[index].opacity = source.opacity
-            displays[index].tint = source.tint
-            displays[index].colorTreatment = source.colorTreatment
-            commit(display: displays[index])
+        guard let source = displaySettings.first(where: { $0.id == displayID }) else { return }
+        for index in displaySettings.indices where displaySettings[index].id != displayID {
+            displaySettings[index].opacity = source.opacity
+            displaySettings[index].tint = source.tint
+            displaySettings[index].colorTreatment = source.colorTreatment
+            commit(display: displaySettings[index])
         }
     }
 
+    /// Enables or disables the global hotkey preference.
     func setHotkeysEnabled(_ enabled: Bool) {
-        hotkeysEnabled = enabled
-        callbacks.onToggleHotkeys(enabled)
+        areHotkeysEnabled = enabled
+        handlers.onToggleHotkeys(enabled)
     }
 
+    /// Toggles the launch-at-login setting when the feature is supported.
     func setLaunchAtLoginEnabled(_ enabled: Bool) {
-        guard launchAtLoginAvailable else { return }
-        launchAtLoginEnabled = enabled
-        callbacks.onToggleLaunchAtLogin(enabled)
+        guard isLaunchAtLoginAvailable else { return }
+        isLaunchAtLoginEnabled = enabled
+        handlers.onToggleLaunchAtLogin(enabled)
     }
 
+    /// Initiates capturing a new shortcut and updates state when recording finishes.
     func beginShortcutCapture() {
-        capturingShortcut = true
-        callbacks.onRequestShortcutCapture { [weak self] shortcut in
+        isCapturingShortcut = true
+        handlers.onRequestShortcutCapture { [weak self] shortcut in
             guard let self else { return }
-            self.capturingShortcut = false
-            self.shortcut = shortcut
-            self.shortcutDescription = PreferencesViewModel.describeShortcut(shortcut)
-            self.callbacks.onUpdateShortcut(shortcut)
+            self.isCapturingShortcut = false
+            self.activeShortcut = shortcut
+            self.shortcutSummary = PreferencesViewModel.describeShortcut(shortcut)
+            self.handlers.onUpdateShortcut(shortcut)
         }
     }
 
+    /// Removes the current shortcut so no global hotkey remains registered.
     func clearShortcut() {
-        shortcut = nil
-        shortcutDescription = "—"
-        callbacks.onUpdateShortcut(nil)
+        activeShortcut = nil
+        shortcutSummary = "—"
+        handlers.onUpdateShortcut(nil)
     }
 
+    /// Persists the status bar icon style choice.
     func updateStatusIconStyle(_ style: StatusBarIconStyle) {
         statusIconStyle = style
-        callbacks.onUpdateStatusIconStyle(style)
+        handlers.onUpdateStatusIconStyle(style)
     }
 
+    /// Passes the newly selected localization identifier back to the coordinator.
     func setLanguage(id: String) {
-        callbacks.onSelectLanguage(id)
+        handlers.onSelectLanguage(id)
     }
 
+    /// Requests that the onboarding sequence be shown again.
     func showOnboarding() {
-        callbacks.onRequestOnboarding()
+        handlers.onRequestOnboarding()
     }
 
-    func applyShortcut(_ shortcut: HotkeyShortcut?) {
-        self.shortcut = shortcut
-        shortcutDescription = PreferencesViewModel.describeShortcut(shortcut)
+    /// Applies a shortcut received from outside the view model (e.g., persisted state).
+    func applyShortcut(_ activeShortcut: HotkeyShortcut?) {
+        self.activeShortcut = activeShortcut
+        shortcutSummary = PreferencesViewModel.describeShortcut(activeShortcut)
     }
 
+    /// Converts UI-managed display settings into a `FocusOverlayStyle` and emits callbacks.
     private func commit(display: DisplaySettings) {
         let baseColor = display.tint.usingColorSpace(.genericRGB) ?? display.tint
         let tint = FocusTint(
@@ -163,37 +181,40 @@ final class PreferencesViewModel: ObservableObject {
             animationDuration: 0.3,
             colorTreatment: display.colorTreatment
         )
-        callbacks.onDisplayChange(display.id, style)
+        handlers.onDisplayChange(display.id, style)
     }
 
-    private static func describeShortcut(_ shortcut: HotkeyShortcut?) -> String {
-        guard let shortcut else { return "—" }
+    /// Builds a human-readable representation of a shortcut for UI display.
+    private static func describeShortcut(_ activeShortcut: HotkeyShortcut?) -> String {
+        guard let activeShortcut else { return "—" }
         var components: [String] = []
-        let flags = shortcut.modifiers
+        let flags = activeShortcut.modifiers
         if flags.contains(.control) { components.append("⌃") }
         if flags.contains(.option) { components.append("⌥") }
         if flags.contains(.shift) { components.append("⇧") }
         if flags.contains(.command) { components.append("⌘") }
-        if let key = KeyTransformer.displayName(for: shortcut.keyCode) {
+        if let key = KeyTransformer.displayName(for: activeShortcut.keyCode) {
             components.append(key)
         } else {
-            components.append(String(format: "%02X", shortcut.keyCode))
+            components.append(String(format: "%02X", activeShortcut.keyCode))
         }
         return components.joined(separator: " ")
     }
 
+    /// Finds the matching preset for the supplied identifier, updating selection if necessary.
     private func preset(for id: String) -> FocusPreset? {
-        if let match = availablePresets.first(where: { $0.id == id }) {
+        if let match = presetOptions.first(where: { $0.id == id }) {
             return match
         }
-        if let fallback = availablePresets.first {
-            selectedPresetID = fallback.id
+        if let fallback = presetOptions.first {
+            selectedPresetIdentifier = fallback.id
             return fallback
         }
         return nil
     }
 }
 
+/// Minimal key code to character mapper for displaying shortcuts.
 private enum KeyTransformer {
     static func displayName(for keyCode: UInt32) -> String? {
         switch keyCode {

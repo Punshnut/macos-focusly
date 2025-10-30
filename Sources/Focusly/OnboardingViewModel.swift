@@ -3,6 +3,7 @@ import Combine
 /// Coordinates onboarding step progression and reports completion back to the caller.
 @MainActor
 final class OnboardingViewModel: ObservableObject {
+    /// Representation of one screen in the onboarding flow.
     struct Step: Identifiable {
         let id: Int
         let title: String
@@ -38,6 +39,7 @@ final class OnboardingViewModel: ObservableObject {
         currentIndex == steps.count - 1
     }
 
+    /// Moves forward to the next onboarding step or finishes the flow.
     func advance() {
         guard !steps.isEmpty else {
             completion(false)
@@ -51,15 +53,18 @@ final class OnboardingViewModel: ObservableObject {
         }
     }
 
+    /// Steps backward if a previous onboarding card exists.
     func retreat() {
         guard currentIndex > 0 else { return }
         currentIndex -= 1
     }
 
+    /// Exits the onboarding flow without marking it as completed.
     func cancel() {
         completion(false)
     }
 
+    /// Replaces the onboarding steps while maintaining the closest possible selection.
     func updateSteps(_ newSteps: [Step]) {
         let existingID: Int? = currentIndex < steps.count ? steps[currentIndex].id : nil
         steps = newSteps

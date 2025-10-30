@@ -3,11 +3,13 @@ import Combine
 
 private let applicationAppearanceNotificationName = Notification.Name("NSApplicationDidChangeEffectiveAppearanceNotification")
 
+/// Visual styles Focusly can display in the macOS status bar.
 enum StatusBarIconStyle: String, CaseIterable, Codable, Equatable, Hashable {
     case dot
     case halo
     case pulse
 
+    /// Localized display name used for menu selections.
     @MainActor var localizedName: String {
         let localization = LocalizationService.shared
         switch self {
@@ -30,18 +32,20 @@ enum StatusBarIconStyle: String, CaseIterable, Codable, Equatable, Hashable {
     }
 }
 
+/// Snapshot of data needed to render status bar menus and tooltips.
 struct StatusBarState {
-    var enabled: Bool
-    var hotkeysEnabled: Bool
+    var areOverlaysEnabled: Bool
+    var areHotkeysEnabled: Bool
     var hasShortcut: Bool
-    var launchAtLoginEnabled: Bool
-    var launchAtLoginAvailable: Bool
-    var launchAtLoginMessage: String?
-    var activePresetID: String
-    var presets: [FocusPreset]
+    var isLaunchAtLoginEnabled: Bool
+    var isLaunchAtLoginAvailable: Bool
+    var launchAtLoginStatusMessage: String?
+    var activePresetIdentifier: String
+    var presetOptions: [FocusPreset]
     var iconStyle: StatusBarIconStyle
 }
 
+/// Receives events triggered from the Focusly status bar menus.
 @MainActor
 protocol StatusBarControllerDelegate: AnyObject {
     func statusBarDidToggleEnabled(_ controller: StatusBarController)
@@ -54,6 +58,7 @@ protocol StatusBarControllerDelegate: AnyObject {
     func statusBarDidRequestQuit(_ controller: StatusBarController)
 }
 
+/// Builds and manages the menu bar item, including icons, menus, and hotkey shortcuts.
 @MainActor
 final class StatusBarController: NSObject {
     private let statusItem: NSStatusItem
@@ -63,19 +68,20 @@ final class StatusBarController: NSObject {
     private let localization: LocalizationService
     private var localizationCancellable: AnyCancellable?
     private var state = StatusBarState(
-        enabled: false,
-        hotkeysEnabled: false,
+        areOverlaysEnabled: false,
+        areHotkeysEnabled: false,
         hasShortcut: false,
-        launchAtLoginEnabled: false,
-        launchAtLoginAvailable: false,
-        launchAtLoginMessage: nil,
-        activePresetID: PresetLibrary.presets.first?.id ?? "focus",
-        presets: PresetLibrary.presets,
+        isLaunchAtLoginEnabled: false,
+        isLaunchAtLoginAvailable: false,
+        launchAtLoginStatusMessage: nil,
+        activePresetIdentifier: PresetLibrary.presets.first?.id ?? "focus",
+        presetOptions: PresetLibrary.presets,
         iconStyle: .dot
     )
 
     // MARK: - Initialization
 
+    /// Configures the status item, menus, and observers needed to stay in sync with system appearance and localization.
     init(delegate: StatusBarControllerDelegate? = nil, localization: LocalizationService? = nil) {
         let localization = localization ?? LocalizationService.shared
         self.localization = localization
@@ -102,7 +108,7 @@ final class StatusBarController: NSObject {
         quickMenu.appearance = NSAppearance(named: .vibrantLight)
         configureStatusItem()
 
-        localizationCancellable = localization.$overrideIdentifier
+        localizationCancellable = localization.$languageOverrideIdentifier
             .removeDuplicates()
             .sink { [weak self] _ in
                 self?.updateMenuTitles()
@@ -117,10 +123,12 @@ final class StatusBarController: NSObject {
 
     // MARK: - Public API
 
+    /// Assigns the delegate after initialization.
     func setDelegate(_ delegate: StatusBarControllerDelegate) {
         self.delegate = delegate
     }
 
+    /// Applies new state from the coordinator so menus can refresh.
     func update(state newState: StatusBarState) {
         state = newState
         rebuildMenus()
@@ -128,6 +136,7 @@ final class StatusBarController: NSObject {
 
     // MARK: - Menu Construction
 
+    /// Prepares the underlying status item button and initial menus.
     private func configureStatusItem() {
         guard let button = statusItem.button else { return }
         button.title = ""
@@ -141,6 +150,7 @@ final class StatusBarController: NSObject {
         rebuildMenus()
     }
 
+    /// Recreates the primary status bar menu, reflecting the latest state and localization.
     private func rebuildMenus() {
         updateMenuTitles()
         statusItem.button?.toolTip = localized("Focusly")
@@ -151,10 +161,10 @@ final class StatusBarController: NSObject {
         mainMenu.addItem(makeVersionMenuItem())
         mainMenu.addItem(.separator())
 
-        let toggleTitle = localized(state.enabled ? "Disable Overlays" : "Enable Overlays")
+        let toggleTitle = localized(state.areOverlaysEnabled ? "Disable Overlays" : "Enable Overlays")
         let toggleItem = NSMenuItem(title: toggleTitle, action: #selector(toggleOverlay), keyEquivalent: "")
         toggleItem.target = self
-        toggleItem.state = state.enabled ? .on : .off
+        toggleItem.state = state.areOverlaysEnabled ? .on : .off
         mainMenu.addItem(toggleItem)
 
         mainMenu.addItem(.separator())
@@ -162,7 +172,7 @@ final class StatusBarController: NSObject {
         let presetsTitle = localized("Presets")
         let presetsItem = NSMenuItem(title: presetsTitle, action: nil, keyEquivalent: "")
         let presetsMenu = NSMenu(title: presetsTitle)
-        for preset in state.presets {
+        for preset in state.presetOptions {
             presetsMenu.addItem(makePresetMenuItem(for: preset))
         }
         presetsMenu.addItem(.separator())
@@ -176,21 +186,21 @@ final class StatusBarController: NSObject {
 
         mainMenu.addItem(.separator())
 
-        let hotkeyTitle = localized(state.hotkeysEnabled ? "Disable Shortcut" : "Enable Shortcut")
+        let hotkeyTitle = localized(state.areHotkeysEnabled ? "Disable Shortcut" : "Enable Shortcut")
         let hotkeyItem = NSMenuItem(title: hotkeyTitle, action: #selector(toggleHotkeys), keyEquivalent: "")
         hotkeyItem.target = self
-        hotkeyItem.state = state.hotkeysEnabled ? .on : .off
+        hotkeyItem.state = state.areHotkeysEnabled ? .on : .off
         hotkeyItem.isEnabled = state.hasShortcut
         mainMenu.addItem(hotkeyItem)
 
-        if state.launchAtLoginAvailable {
-            let loginKey = state.launchAtLoginEnabled ? "Launch at Login ✅" : "Launch at Login ⬜️"
+        if state.isLaunchAtLoginAvailable {
+            let loginKey = state.isLaunchAtLoginEnabled ? "Launch at Login ✅" : "Launch at Login ⬜️"
             let loginTitle = localized(loginKey)
             let loginItem = NSMenuItem(title: loginTitle, action: #selector(toggleLaunchAtLogin), keyEquivalent: "")
             loginItem.target = self
-            loginItem.state = state.launchAtLoginEnabled ? .on : .off
+            loginItem.state = state.isLaunchAtLoginEnabled ? .on : .off
             mainMenu.addItem(loginItem)
-        } else if let message = state.launchAtLoginMessage {
+        } else if let message = state.launchAtLoginStatusMessage {
             let loginItem = NSMenuItem(title: message, action: nil, keyEquivalent: "")
             loginItem.isEnabled = false
             mainMenu.addItem(loginItem)
@@ -207,7 +217,7 @@ final class StatusBarController: NSObject {
             item.state = style == state.iconStyle ? .on : .off
             item.image = StatusBarIconFactory.icon(
                 style: style,
-                isActive: state.enabled,
+                isActive: state.areOverlaysEnabled,
                 tone: tone,
                 template: false
             )
@@ -239,16 +249,17 @@ final class StatusBarController: NSObject {
         rebuildQuickMenu()
     }
 
+    /// Builds the compact context menu shown on right-click or control-click.
     private func rebuildQuickMenu() {
         quickMenu.removeAllItems()
         // Use a compact version header for the quick/context menu so it doesn't force a wide menu.
         quickMenu.addItem(makeVersionMenuItem(compact: true))
         quickMenu.addItem(.separator())
 
-        let toggleTitle = localized(state.enabled ? "Disable Overlays" : "Enable Overlays")
+        let toggleTitle = localized(state.areOverlaysEnabled ? "Disable Overlays" : "Enable Overlays")
         let toggleItem = NSMenuItem(title: toggleTitle, action: #selector(toggleOverlay), keyEquivalent: "")
         toggleItem.target = self
-        toggleItem.state = state.enabled ? .on : .off
+        toggleItem.state = state.areOverlaysEnabled ? .on : .off
         quickMenu.addItem(toggleItem)
 
         quickMenu.addItem(.separator())
@@ -259,27 +270,27 @@ final class StatusBarController: NSObject {
         presetsHeader.attributedTitle = compactAttributedTitle(presetsTitle)
         quickMenu.addItem(presetsHeader)
 
-        for preset in state.presets {
+        for preset in state.presetOptions {
             quickMenu.addItem(makePresetMenuItem(for: preset, compact: true))
         }
 
         quickMenu.addItem(.separator())
 
-        let hotkeyTitle = localized(state.hotkeysEnabled ? "Disable Shortcut" : "Enable Shortcut")
+        let hotkeyTitle = localized(state.areHotkeysEnabled ? "Disable Shortcut" : "Enable Shortcut")
         let hotkeyItem = NSMenuItem(title: hotkeyTitle, action: #selector(toggleHotkeys), keyEquivalent: "")
         hotkeyItem.target = self
-        hotkeyItem.state = state.hotkeysEnabled ? .on : .off
+        hotkeyItem.state = state.areHotkeysEnabled ? .on : .off
         hotkeyItem.isEnabled = state.hasShortcut
         quickMenu.addItem(hotkeyItem)
 
-        if state.launchAtLoginAvailable {
-            let loginKey = state.launchAtLoginEnabled ? "Launch at Login ✅" : "Launch at Login ⬜️"
+        if state.isLaunchAtLoginAvailable {
+            let loginKey = state.isLaunchAtLoginEnabled ? "Launch at Login ✅" : "Launch at Login ⬜️"
             let loginTitle = localized(loginKey)
             let loginItem = NSMenuItem(title: loginTitle, action: #selector(toggleLaunchAtLogin), keyEquivalent: "")
             loginItem.target = self
-            loginItem.state = state.launchAtLoginEnabled ? .on : .off
+            loginItem.state = state.isLaunchAtLoginEnabled ? .on : .off
             quickMenu.addItem(loginItem)
-        } else if let message = state.launchAtLoginMessage {
+        } else if let message = state.launchAtLoginStatusMessage {
             // Use a short, 5-word variant for the quick/context menu to avoid excessive width.
             let shortMessage = abbreviatedFiveWords(message)
             let loginItem = NSMenuItem(title: shortMessage, action: nil, keyEquivalent: "")
@@ -315,6 +326,7 @@ final class StatusBarController: NSObject {
         }
     }
 
+    /// Creates the standard version header shown in the main menu.
     private func makeVersionMenuItem() -> NSMenuItem {
         let title = "Focusly · \(FocuslyBuildInfo.marketingVersion)"
         let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
@@ -323,6 +335,7 @@ final class StatusBarController: NSObject {
     }
 
     // Compact variant used for the quick/context menu to avoid excessive width.
+    /// Compact variant of the version header for the quick menu.
     private func makeVersionMenuItem(compact: Bool) -> NSMenuItem {
         if compact {
             let item = NSMenuItem(title: "Focusly", action: nil, keyEquivalent: "")
@@ -334,11 +347,12 @@ final class StatusBarController: NSObject {
         }
     }
 
+    /// Builds a menu item for a preset, optionally using the compact style.
     private func makePresetMenuItem(for preset: FocusPreset, compact: Bool = false) -> NSMenuItem {
         let item = NSMenuItem(title: preset.name, action: #selector(selectPreset(_:)), keyEquivalent: "")
         item.target = self
         item.representedObject = preset.id
-        item.state = preset.id == state.activePresetID ? .on : .off
+        item.state = preset.id == state.activePresetIdentifier ? .on : .off
         if compact {
             item.attributedTitle = compactAttributedTitle(preset.name)
         }
@@ -347,16 +361,19 @@ final class StatusBarController: NSObject {
 
     // MARK: - Actions
 
+    /// Forwards the enable/disable command to the delegate.
     @objc private func toggleOverlay() {
         delegate?.statusBarDidToggleEnabled(self)
     }
 
+    /// Handles preset menu selection and notifies the delegate.
     @objc private func selectPreset(_ item: NSMenuItem) {
         guard let id = item.representedObject as? String else { return }
         let preset = PresetLibrary.preset(withID: id)
         delegate?.statusBar(self, selectedPreset: preset)
     }
 
+    /// Reports icon style changes back to the delegate.
     @objc private func selectIconStyle(_ item: NSMenuItem) {
         guard
             let raw = item.representedObject as? String,
@@ -367,28 +384,34 @@ final class StatusBarController: NSObject {
         delegate?.statusBar(self, didSelectIconStyle: style)
     }
 
+    /// Toggles the global hotkey preference via the delegate.
     @objc private func toggleHotkeys() {
         delegate?.statusBarDidToggleHotkeys(self)
     }
 
+    /// Requests that the delegate flip the launch-at-login option.
     @objc private func toggleLaunchAtLogin() {
         delegate?.statusBarDidToggleLaunchAtLogin(self)
     }
 
+    /// Opens the preferences window when the menu item is selected.
     @objc private func openPreferences() {
         delegate?.statusBarDidRequestPreferences(self)
     }
 
+    /// Asks the delegate to replay the onboarding flow.
     @objc private func showOnboarding() {
         delegate?.statusBarDidRequestOnboarding(self)
     }
 
+    /// Passes the quit request up to the app coordinator.
     @objc private func quitApp() {
         delegate?.statusBarDidRequestQuit(self)
     }
 
     // MARK: - Presentation
 
+    /// Routes status item clicks to either toggle overlays or open menus.
     @objc private func handleClick(_ sender: Any?) {
         guard let event = NSApp.currentEvent else {
             showMainMenu()
@@ -411,6 +434,7 @@ final class StatusBarController: NSObject {
         }
     }
 
+    /// Shows the full status menu anchored to the status item.
     private func showMainMenu() {
         if let button = statusItem.button {
             statusItem.menu = mainMenu
@@ -419,6 +443,7 @@ final class StatusBarController: NSObject {
         }
     }
 
+    /// Presents the compact quick menu for context-click interactions.
     private func showQuickMenu(with event: NSEvent) {
         if let button = statusItem.button {
             statusItem.menu = quickMenu
@@ -429,16 +454,19 @@ final class StatusBarController: NSObject {
 
     // MARK: - Localization
 
+    /// Applies localized titles to the primary and quick menus.
     private func updateMenuTitles() {
         mainMenu.title = localized("Focusly")
         quickMenu.title = localized("Quick Actions")
     }
 
+    /// Convenience accessor for localized strings scoped to status bar UI.
     private func localized(_ key: String) -> String {
         localization.localized(key, fallback: key)
     }
 
     // Return a compact attributed title (smaller menu font + truncation) used for quick/context menu items.
+    /// Applies condensed typography so quick menu items stay narrow.
     private func compactAttributedTitle(_ title: String) -> NSAttributedString {
         let paragraph = NSMutableParagraphStyle()
         paragraph.lineBreakMode = .byTruncatingTail
@@ -454,19 +482,22 @@ final class StatusBarController: NSObject {
     }
 
     // Produce a short version of a message by keeping at most the first five words and adding an ellipsis if truncated.
+    /// Truncates a message to five words with an ellipsis to fit tight menu widths.
     private func abbreviatedFiveWords(_ message: String) -> String {
         let words = message.split { $0.isWhitespace || $0.isNewline }.map(String.init)
         guard words.count > 5 else { return message }
         return words.prefix(5).joined(separator: " ") + "…"
     }
     
+    /// Updates the status item artwork to match the active state and appearance tone.
     private func updateStatusItemIcon(tone providedTone: StatusBarIconTone? = nil) {
         guard let button = statusItem.button else { return }
         let tone = providedTone ?? resolvedStatusBarIconTone()
-        button.image = StatusBarIconFactory.icon(style: state.iconStyle, isActive: state.enabled, tone: tone)
+        button.image = StatusBarIconFactory.icon(style: state.iconStyle, isActive: state.areOverlaysEnabled, tone: tone)
         button.alternateImage = StatusBarIconFactory.icon(style: state.iconStyle, isActive: true, tone: tone)
     }
 
+    /// Determines whether the status bar is currently light or dark for icon rendering.
     private func resolvedStatusBarIconTone() -> StatusBarIconTone {
         let appearanceSources: [NSAppearance?] = [
             statusItem.button?.window?.effectiveAppearance,
@@ -486,6 +517,7 @@ final class StatusBarController: NSObject {
 }
 
 private extension StatusBarController {
+    /// Infers appearance tone by sampling the resolved label color brightness.
     static func derivedTone(from appearance: NSAppearance) -> StatusBarIconTone? {
         var resolvedColor = NSColor.labelColor
         appearance.performAsCurrentDrawingAppearance {
@@ -510,24 +542,29 @@ private extension StatusBarController {
 }
 
 @objc private extension StatusBarController {
+    /// Responds to appearance changes by redrawing icons and menus.
     func handleAppearanceChange() {
         rebuildMenus()
     }
 }
+/// Categorises the menu bar appearance so icons can swap palettes.
 enum StatusBarIconTone: Hashable {
     case light
     case dark
 }
 
+/// Draws custom menu bar icons and caches them per appearance tone.
 enum StatusBarIconFactory {
     private static let iconSize: CGFloat = 18
     private static let canvasSize = NSSize(width: iconSize, height: iconSize)
     private static var cache: [CacheKey: NSImage] = [:]
 
+    /// Convenience overload that renders template icons for the status item.
     static func icon(style: StatusBarIconStyle, isActive: Bool) -> NSImage {
         icon(style: style, isActive: isActive, tone: .light, template: true)
     }
 
+    /// Returns a cached or newly drawn icon for the supplied style.
     static func icon(
         style: StatusBarIconStyle,
         isActive: Bool,
@@ -555,6 +592,7 @@ enum StatusBarIconFactory {
         return image
     }
 
+    /// Selects the color palette appropriate for the current menu bar tone.
     private static func palette(for tone: StatusBarIconTone) -> IconPalette {
         switch tone {
         case .light:
@@ -572,6 +610,7 @@ enum StatusBarIconFactory {
         }
     }
 
+    /// Renders the dot icon variant with filled or outlined states.
     private static func drawDotIcon(isActive: Bool, palette: IconPalette, template: Bool) -> NSImage {
         let image = NSImage(size: canvasSize, flipped: false) { rect in
             let diameter = rect.width * (isActive ? 0.42 : 0.46)
@@ -596,6 +635,7 @@ enum StatusBarIconFactory {
         return image
     }
 
+    /// Renders the equalizer-style icon with animated bars when active.
     private static func drawPulseIcon(isActive: Bool, palette: IconPalette, template: Bool) -> NSImage {
         let image = NSImage(size: canvasSize, flipped: false) { rect in
             let barWidth = rect.width * 0.18
@@ -627,6 +667,7 @@ enum StatusBarIconFactory {
         return image
     }
 
+    /// Renders the halo icon variation using either a filled circle or outlined ring.
     private static func drawHaloIcon(isActive: Bool, palette: IconPalette, template: Bool) -> NSImage {
         let image = NSImage(size: canvasSize, flipped: false) { rect in
             let minDimension = min(rect.width, rect.height)
@@ -671,6 +712,7 @@ enum StatusBarIconFactory {
         return image
     }
 
+    /// Cache key capturing the factors that affect icon rendering.
     private struct CacheKey: Hashable {
         let style: StatusBarIconStyle
         let isActive: Bool
@@ -678,6 +720,7 @@ enum StatusBarIconFactory {
         let template: Bool
     }
 
+    /// Simple color bundle used while rasterizing icons.
     private struct IconPalette {
         let primary: NSColor
         let highlight: NSColor

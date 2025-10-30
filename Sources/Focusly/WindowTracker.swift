@@ -3,6 +3,7 @@ import Cocoa
 /// Posts updates with the current active window frame and a snapshot of all windows.
 /// Polling avoids per-app AX observers and is robust enough for overlays.
 final class WindowTracker {
+    /// Notification payload describing window state at a particular moment.
     struct Snapshot {
         let timestamp: Date
         let activeFrame: NSRect?
@@ -10,50 +11,55 @@ final class WindowTracker {
     }
 
     static let didUpdate = Notification.Name("Focusly.WindowTracker.didUpdate")
-    private var timer: Timer?
+    private var pollingTimer: Timer?
 
     /// Poll interval in seconds (tune for performance vs. responsiveness)
-    var interval: TimeInterval = 0.2
+    var pollingInterval: TimeInterval = 0.2
     /// Enable when listeners need snapshots of every known window.
-    var collectsAllWindows = false
+    var isCollectingAllWindows = false
 
-    private let accessCheckInterval: TimeInterval = 1.5
-    private var cachedAccessibilityAccess = isAccessibilityAccessGranted()
-    private var lastAccessCheck = Date.distantPast
+    private let accessibilityCheckInterval: TimeInterval = 1.5
+    private var hasAccessibilityPermission = isAccessibilityAccessGranted()
+    private var lastAccessibilityCheck = Date.distantPast
 
+    /// Begins polling for active window changes and posts notifications.
     func start() {
         stop()
-        timer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
-            self?.tick()
+        pollingTimer = Timer.scheduledTimer(withTimeInterval: pollingInterval, repeats: true) { [weak self] _ in
+            self?.handleTimerTick()
         }
-        RunLoop.main.add(timer!, forMode: .common)
+        guard let pollingTimer else { return }
+        RunLoop.main.add(pollingTimer, forMode: .common)
     }
 
+    /// Stops polling and releases the timer.
     func stop() {
-        timer?.invalidate()
-        timer = nil
+        pollingTimer?.invalidate()
+        pollingTimer = nil
     }
 
-    private func tick() {
-        refreshAccessibilityStateIfNeeded()
-        let hasAccessibility = cachedAccessibilityAccess
+    /// Collects the latest window metadata and publishes it to observers.
+    private func handleTimerTick() {
+        refreshAccessibilityPermissionIfNeeded()
+        let isAccessibilityAuthorized = hasAccessibilityPermission
 
-        let active: NSRect?
-        if hasAccessibility {
-            active = resolveActiveWindowFrame()
+        let activeWindowFrame: NSRect?
+        if isAccessibilityAuthorized {
+            activeWindowFrame = resolveActiveWindowFrame()
         } else {
-            active = resolveActiveWindowFrameUsingCoreGraphics()
+            activeWindowFrame = resolveActiveWindowFrameUsingCoreGraphics()
         }
 
-        let all = (hasAccessibility && collectsAllWindows) ? axEnumerateAllWindows() : []
-        let snap = Snapshot(timestamp: Date(), activeFrame: active, allWindows: all)
-        NotificationCenter.default.post(name: Self.didUpdate, object: snap)
+        let enumeratedWindows = (isAccessibilityAuthorized && isCollectingAllWindows) ? axEnumerateAllWindows() : []
+        let snapshot = Snapshot(timestamp: Date(), activeFrame: activeWindowFrame, allWindows: enumeratedWindows)
+        NotificationCenter.default.post(name: Self.didUpdate, object: snapshot)
     }
 
-    private func refreshAccessibilityStateIfNeeded() {
+    /// Periodically re-checks accessibility permission so we can downgrade gracefully if revoked.
+    private func refreshAccessibilityPermissionIfNeeded() {
         let now = Date()
-        guard now.timeIntervalSince(lastAccessCheck) >= accessCheckInterval else { return }
-        cachedAccessibilityAccess = isAccessibilityAccessGranted()
-        lastAccessCheck = now
+        guard now.timeIntervalSince(lastAccessibilityCheck) >= accessibilityCheckInterval else { return }
+        hasAccessibilityPermission = isAccessibilityAccessGranted()
+        lastAccessibilityCheck = now
     }
 }

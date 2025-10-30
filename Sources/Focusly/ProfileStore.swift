@@ -1,69 +1,79 @@
 import Foundation
 
+/// Persists overlay presets and per-display overrides to user defaults.
 @MainActor
 final class ProfileStore {
+    /// Codable payload saved to disk that captures the selected preset and overrides.
     struct State: Codable, Equatable {
         var selectedPresetID: String
         var displayOverrides: [DisplayID: FocusOverlayStyle]
     }
 
-    private let defaults: UserDefaults
-    private let stateKey = "Focusly.ProfileStore.State"
-    private let encoder = JSONEncoder()
-    private let decoder = JSONDecoder()
+    private let userDefaults: UserDefaults
+    private let stateDefaultsKey = "Focusly.ProfileStore.State"
+    private let jsonEncoder = JSONEncoder()
+    private let jsonDecoder = JSONDecoder()
 
-    private(set) var state: State {
-        didSet { persist() }
+    private(set) var profileState: State {
+        didSet { persistProfileState() }
     }
 
-    init(defaults: UserDefaults) {
-        self.defaults = defaults
-        if let data = defaults.data(forKey: stateKey),
-           let decoded = try? decoder.decode(State.self, from: data) {
-            state = decoded
+    /// Loads persisted state or seeds defaults when the app runs for the first time.
+    init(userDefaults: UserDefaults) {
+        self.userDefaults = userDefaults
+        if let data = userDefaults.data(forKey: stateDefaultsKey),
+           let decoded = try? jsonDecoder.decode(State.self, from: data) {
+            profileState = decoded
         } else {
-            state = State(
+            profileState = State(
                 selectedPresetID: PresetLibrary.presets.first?.id ?? "focus",
                 displayOverrides: [:]
             )
-            persist()
+            persistProfileState()
         }
     }
 
+    /// Selects a new preset and clears overrides so displays inherit the new look.
     func selectPreset(_ preset: FocusPreset) {
-        guard state.selectedPresetID != preset.id else { return }
-        state.selectedPresetID = preset.id
-        state.displayOverrides = [:]
+        guard profileState.selectedPresetID != preset.id else { return }
+        profileState.selectedPresetID = preset.id
+        profileState.displayOverrides = [:]
     }
 
+    /// Returns the appropriate overlay style for a display, falling back to the active preset.
     func style(forDisplayID displayID: DisplayID) -> FocusOverlayStyle {
-        if let override = state.displayOverrides[displayID] {
+        if let override = profileState.displayOverrides[displayID] {
             return override
         }
-        return PresetLibrary.preset(withID: state.selectedPresetID).style
+        return PresetLibrary.preset(withID: profileState.selectedPresetID).style
     }
 
+    /// Stores a per-display override.
     func updateStyle(_ style: FocusOverlayStyle, forDisplayID displayID: DisplayID) {
-        state.displayOverrides[displayID] = style
+        profileState.displayOverrides[displayID] = style
     }
 
+    /// Removes any per-display override for the given display.
     func resetOverride(forDisplayID displayID: DisplayID) {
-        state.displayOverrides.removeValue(forKey: displayID)
+        profileState.displayOverrides.removeValue(forKey: displayID)
     }
 
+    /// Drops overrides for displays that are no longer connected.
     func removeInvalidOverrides(validDisplayIDs: Set<DisplayID>) {
-        let filtered = state.displayOverrides.filter { validDisplayIDs.contains($0.key) }
-        if filtered.count != state.displayOverrides.count {
-            state.displayOverrides = filtered
+        let filtered = profileState.displayOverrides.filter { validDisplayIDs.contains($0.key) }
+        if filtered.count != profileState.displayOverrides.count {
+            profileState.displayOverrides = filtered
         }
     }
 
+    /// Returns the currently selected preset model.
     func currentPreset() -> FocusPreset {
-        PresetLibrary.preset(withID: state.selectedPresetID)
+        PresetLibrary.preset(withID: profileState.selectedPresetID)
     }
 
-    private func persist() {
-        guard let data = try? encoder.encode(state) else { return }
-        defaults.set(data, forKey: stateKey)
+    /// Serializes the profile state to user defaults.
+    private func persistProfileState() {
+        guard let data = try? jsonEncoder.encode(profileState) else { return }
+        userDefaults.set(data, forKey: stateDefaultsKey)
     }
 }

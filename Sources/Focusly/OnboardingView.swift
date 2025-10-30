@@ -68,6 +68,7 @@ struct OnboardingView: View {
         .frame(width: 420, height: 320)
     }
 
+    /// Convenience wrapper so the view can access the localization service.
     private func localized(_ key: String) -> String {
         localization.localized(key, fallback: key)
     }

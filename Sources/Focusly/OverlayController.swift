@@ -4,86 +4,92 @@
 
 import AppKit
 
+/// Keeps OverlayWindow instances synchronized with the focused window and display configuration.
 @MainActor
 final class OverlayController {
-    private let pollInterval: TimeInterval = 0.2
-    private let activeWindowSnapshotProvider: (Set<Int>) -> ActiveWindowSnapshot?
+    private let pollingInterval: TimeInterval = 0.2
+    private let activeWindowSnapshotResolver: (Set<Int>) -> ActiveWindowSnapshot?
 
-    private var overlays: [DisplayID: OverlayWindow] = [:]
-    private var screensByID: [DisplayID: NSScreen] = [:]
-    private var pollTimer: Timer?
-    private var clickThroughEnabled = true
+    private var overlayWindows: [DisplayID: OverlayWindow] = [:]
+    private var screensByDisplayID: [DisplayID: NSScreen] = [:]
+    private var pollingTimer: Timer?
+    private var isClickThroughEnabled = true
     private var isRunning = false
-    private var lastActiveWindowSnapshot: ActiveWindowSnapshot?
+    private var cachedActiveWindowSnapshot: ActiveWindowSnapshot?
 
     init(
-        activeWindowSnapshotProvider: @escaping (Set<Int>) -> ActiveWindowSnapshot? = resolveActiveWindowSnapshot
+        activeWindowSnapshotResolver: @escaping (Set<Int>) -> ActiveWindowSnapshot? = resolveActiveWindowSnapshot
     ) {
-        self.activeWindowSnapshotProvider = activeWindowSnapshotProvider
+        self.activeWindowSnapshotResolver = activeWindowSnapshotResolver
     }
 
+    /// Begins monitoring the focused window and updates overlay masks accordingly.
     func start() {
         guard !isRunning else { return }
         isRunning = true
         rebuildScreensLookup()
         startPolling()
-        applyCurrentHole()
-        pollActiveWindowSnapshot()
+        applyCachedOverlayMask()
+        refreshActiveWindowSnapshot()
     }
 
+    /// Stops monitoring and clears active overlay carve-outs.
     func stop() {
         guard isRunning else { return }
         isRunning = false
         stopPolling()
-        lastActiveWindowSnapshot = nil
-        overlays.values.forEach { $0.applyMask(regions: []) }
+        cachedActiveWindowSnapshot = nil
+        overlayWindows.values.forEach { $0.applyMask(regions: []) }
     }
 
+    /// Toggles whether overlay windows forward mouse events to windows underneath.
     func setClickThrough(_ enabled: Bool) {
-        clickThroughEnabled = enabled
-        overlays.values.forEach { $0.setClickThrough(enabled) }
+        isClickThroughEnabled = enabled
+        overlayWindows.values.forEach { $0.setClickThrough(enabled) }
     }
 
-    func updateOverlays(_ newOverlays: [DisplayID: OverlayWindow]) {
-        let previous = overlays
-        overlays = newOverlays
+    /// Replaces the overlay window map, cleaning up removed displays and applying cached masks.
+    func refreshOverlayWindows(_ updatedOverlayWindows: [DisplayID: OverlayWindow]) {
+        let previousOverlayWindows = overlayWindows
+        overlayWindows = updatedOverlayWindows
         rebuildScreensLookup()
 
-        let removedIDs = Set(previous.keys).subtracting(newOverlays.keys)
-        for id in removedIDs {
-            previous[id]?.applyMask(regions: [])
+        let removedDisplayIDs = Set(previousOverlayWindows.keys).subtracting(updatedOverlayWindows.keys)
+        for displayID in removedDisplayIDs {
+            previousOverlayWindows[displayID]?.applyMask(regions: [])
         }
 
-        overlays.values.forEach { $0.setClickThrough(clickThroughEnabled) }
+        overlayWindows.values.forEach { $0.setClickThrough(isClickThroughEnabled) }
 
         if isRunning {
-            applyCurrentHole()
+            applyCachedOverlayMask()
         }
     }
 
-    func updateHole(with snapshot: ActiveWindowSnapshot?) {
-        lastActiveWindowSnapshot = snapshot
+    /// Applies the supplied snapshot to all overlays, carving out the focused window and related UI.
+    func applyOverlayMask(with snapshot: ActiveWindowSnapshot?) {
+        cachedActiveWindowSnapshot = snapshot
 
         guard let snapshot else {
-            overlays.values.forEach { $0.applyMask(regions: []) }
+            overlayWindows.values.forEach { $0.applyMask(regions: []) }
             return
         }
 
-        let frame = snapshot.frame
+        let activeFrame = snapshot.frame
 
-        guard let targetDisplayID = screenIdentifier(for: frame) else {
-            overlays.values.forEach { $0.applyMask(regions: []) }
+        guard let targetDisplayID = screenIdentifier(for: activeFrame) else {
+            overlayWindows.values.forEach { $0.applyMask(regions: []) }
             return
         }
 
-        for (displayID, window) in overlays {
+        for (displayID, window) in overlayWindows {
             guard let contentView = window.contentView else {
                 window.applyMask(regions: [])
                 continue
             }
 
             if displayID == targetDisplayID {
-                let windowRect = window.convertFromScreen(frame)
+                let windowRect = window.convertFromScreen(activeFrame)
                 let rectInContent = contentView.convert(windowRect, from: nil)
                 let normalizedRect = rectInContent.intersection(contentView.bounds)
                 var maskRegions: [OverlayWindow.MaskRegion] = []
@@ -108,57 +114,67 @@ final class OverlayController {
         }
     }
 
+    /// Starts a repeating timer that samples the focused window position.
     private func startPolling() {
-        pollTimer = Timer.scheduledTimer(timeInterval: pollInterval, target: self, selector: #selector(handlePollTimer(_:)), userInfo: nil, repeats: true)
-        RunLoop.main.add(pollTimer!, forMode: .common)
+        pollingTimer = Timer.scheduledTimer(timeInterval: pollingInterval, target: self, selector: #selector(handlePollingTimer(_:)), userInfo: nil, repeats: true)
+        if let pollingTimer {
+            RunLoop.main.add(pollingTimer, forMode: .common)
+        }
     }
 
+    /// Stops the polling timer.
     private func stopPolling() {
-        pollTimer?.invalidate()
-        pollTimer = nil
+        pollingTimer?.invalidate()
+        pollingTimer = nil
     }
 
-    private func applyCurrentHole() {
-        updateHole(with: lastActiveWindowSnapshot)
+    /// Reapplies the last known snapshot so new overlay windows pick up current carve-outs.
+    private func applyCachedOverlayMask() {
+        applyOverlayMask(with: cachedActiveWindowSnapshot)
     }
 
-    private func pollActiveWindowSnapshot() {
-        let snapshot = activeWindowSnapshotProvider(currentOverlayWindowNumbers())
-        if let last = lastActiveWindowSnapshot, let snapshot {
+    /// Resolves the active window snapshot and updates overlays when it changes.
+    private func refreshActiveWindowSnapshot() {
+        let snapshot = activeWindowSnapshotResolver(activeOverlayWindowNumbers())
+        if let last = cachedActiveWindowSnapshot, let snapshot {
             guard last != snapshot else { return }
-        } else if lastActiveWindowSnapshot == nil, snapshot == nil {
+        } else if cachedActiveWindowSnapshot == nil, snapshot == nil {
             return
         }
-        updateHole(with: snapshot)
+        applyOverlayMask(with: snapshot)
     }
 
-    private func currentOverlayWindowNumbers() -> Set<Int> {
+    /// Returns window numbers for overlays so they can be ignored when calculating focus.
+    private func activeOverlayWindowNumbers() -> Set<Int> {
         Set(
-            overlays.values
+            overlayWindows.values
                 .map { $0.windowNumber }
                 .filter { $0 != 0 }
         )
     }
 
-    @objc private func handlePollTimer(_ timer: Timer) {
-        pollActiveWindowSnapshot()
+    /// Timer callback that re-checks the focused window position.
+    @objc private func handlePollingTimer(_ timer: Timer) {
+        refreshActiveWindowSnapshot()
     }
 
+    /// Rebuilds the mapping between display identifiers and `NSScreen` instances.
     private func rebuildScreensLookup() {
         var mapping: [DisplayID: NSScreen] = [:]
-        let knownDisplays = Set(overlays.keys)
+        let knownDisplays = Set(overlayWindows.keys)
         for screen in NSScreen.screens {
-            guard let displayID = Self.displayID(for: screen) else { continue }
+            guard let displayID = Self.displayIdentifier(for: screen) else { continue }
             guard knownDisplays.contains(displayID) else { continue }
             mapping[displayID] = screen
         }
-        screensByID = mapping
+        screensByDisplayID = mapping
     }
 
+    /// Finds the display whose bounds overlap the given rect the most.
     private func screenIdentifier(for frame: NSRect) -> DisplayID? {
         var bestMatch: (DisplayID, CGFloat)?
 
-        for (displayID, screen) in screensByID {
+        for (displayID, screen) in screensByDisplayID {
             let intersection = screen.frame.intersection(frame)
             guard !intersection.isNull else { continue }
             let area = intersection.width * intersection.height
@@ -174,7 +190,8 @@ final class OverlayController {
         return bestMatch?.0
     }
 
-    private static func displayID(for screen: NSScreen) -> DisplayID? {
+    /// Converts an `NSScreen` into a stable `DisplayID`.
+    private static func displayIdentifier(for screen: NSScreen) -> DisplayID? {
         guard let number = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber else {
             return nil
         }
@@ -183,7 +200,8 @@ final class OverlayController {
 }
 
 extension OverlayController: OverlayServiceDelegate {
-    func overlayService(_ service: OverlayService, didUpdateOverlays overlays: [DisplayID: OverlayWindow]) {
-        updateOverlays(overlays)
+    /// Receives overlay updates from the service and replaces the managed window set.
+    func overlayService(_ service: OverlayService, didUpdateOverlays updatedOverlayWindows: [DisplayID: OverlayWindow]) {
+        refreshOverlayWindows(updatedOverlayWindows)
     }
 }

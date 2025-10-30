@@ -1,9 +1,10 @@
 import AppKit
 import Combine
 
+/// Central coordinator responsible for wiring together overlays, preferences, onboarding, and status bar state.
 @MainActor
 final class FocuslyAppCoordinator: NSObject {
-    private enum DefaultsKeys {
+    private enum UserDefaultsKey {
         static let overlaysEnabled = "Focusly.Enabled"
         static let hotkeysEnabled = "Focusly.HotkeysEnabled"
         static let shortcut = "Focusly.Shortcut"
@@ -12,30 +13,30 @@ final class FocuslyAppCoordinator: NSObject {
         static let languageOverride = "Focusly.LanguageOverride"
     }
 
-    private let environment: FocuslyEnvironment
+    private let appEnvironment: FocuslyEnvironment
     private let appSettings: AppSettings
     private let profileStore: ProfileStore
-    private let overlayService: OverlayService
+    private let overlayWindowService: OverlayService
     private let overlayController: OverlayController
-    private let statusBar: StatusBarController
-    private let hotkeyCenter: HotkeyCenter
-    private var onboardingController: OnboardingWindowController? // Retain the welcome flow while it is onscreen.
-    private let localization: LocalizationService
-    private var localizationCancellable: AnyCancellable?
+    private let statusBarController: StatusBarController
+    private let hotkeyManager: HotkeyCenter
+    private var onboardingWindowController: OnboardingWindowController? // Retain the welcome flow while it is onscreen.
+    private let localizationService: LocalizationService
+    private var localizationSubscription: AnyCancellable?
 
-    private var preferencesController: PreferencesWindowController?
+    private var preferencesWindowController: PreferencesWindowController?
     private var preferencesViewModel: PreferencesViewModel?
-    private var displaysObserver: NSObjectProtocol?
-    private var spaceObserver: NSObjectProtocol?
+    private var displayChangeObserver: NSObjectProtocol?
+    private var spaceChangeObserver: NSObjectProtocol?
 
-    private var overlaysEnabled: Bool {
-        didSet { persistOverlaysEnabled() }
+    private var areOverlaysEnabled: Bool {
+        didSet { persistOverlayActivation() }
     }
-    private var hotkeysEnabled: Bool {
-        didSet { persistHotkeysEnabled() }
+    private var areHotkeysEnabled: Bool {
+        didSet { persistHotkeyActivationState() }
     }
-    private var shortcut: HotkeyShortcut? {
-        didSet { persistShortcut() }
+    private var activationShortcut: HotkeyShortcut? {
+        didSet { persistHotkeyShortcut() }
     }
     private var statusBarIconStyle: StatusBarIconStyle {
         didSet { persistStatusIconStyle() }
@@ -43,104 +44,111 @@ final class FocuslyAppCoordinator: NSObject {
 
     // MARK: - Initialization
 
+    /// Wires up all runtime services and restores persisted state for a new app session.
     init(environment: FocuslyEnvironment, overlayController: OverlayController) {
-        self.environment = environment
+        self.appEnvironment = environment
         self.appSettings = AppSettings()
-        self.profileStore = ProfileStore(defaults: environment.userDefaults)
-        self.overlayService = OverlayService(profileStore: profileStore, appSettings: appSettings)
+        self.profileStore = ProfileStore(userDefaults: environment.userDefaults)
+        self.overlayWindowService = OverlayService(profileStore: profileStore, appSettings: appSettings)
         self.overlayController = overlayController
-        self.localization = LocalizationService.shared
-        self.statusBar = StatusBarController(localization: localization)
-        self.hotkeyCenter = HotkeyCenter()
+        self.localizationService = LocalizationService.shared
+        self.statusBarController = StatusBarController(localization: localizationService)
+        self.hotkeyManager = HotkeyCenter()
 
-        let defaults = environment.userDefaults
-        overlaysEnabled = defaults.object(forKey: DefaultsKeys.overlaysEnabled) as? Bool ?? true
-        hotkeysEnabled = defaults.object(forKey: DefaultsKeys.hotkeysEnabled) as? Bool ?? true
-        shortcut = FocuslyAppCoordinator.loadShortcut(from: defaults)
-        if let storedStyle = defaults.string(forKey: DefaultsKeys.statusIconStyle),
+        let defaults = appEnvironment.userDefaults
+        areOverlaysEnabled = defaults.object(forKey: UserDefaultsKey.overlaysEnabled) as? Bool ?? true
+        areHotkeysEnabled = defaults.object(forKey: UserDefaultsKey.hotkeysEnabled) as? Bool ?? true
+        activationShortcut = FocuslyAppCoordinator.loadHotkeyShortcut(from: defaults)
+        if let storedStyle = defaults.string(forKey: UserDefaultsKey.statusIconStyle),
            let decoded = StatusBarIconStyle(rawValue: storedStyle) {
             statusBarIconStyle = decoded
         } else {
             statusBarIconStyle = .dot
         }
 
-        appSettings.filtersEnabled = overlaysEnabled
-        if let storedLanguage = defaults.string(forKey: DefaultsKeys.languageOverride) {
-            localization.overrideIdentifier = storedLanguage
+        appSettings.areFiltersEnabled = areOverlaysEnabled
+        if let storedLanguage = defaults.string(forKey: UserDefaultsKey.languageOverride) {
+            localizationService.languageOverrideIdentifier = storedLanguage
         }
 
         super.init()
 
-        overlayService.delegate = overlayController
-        statusBar.setDelegate(self)
-        hotkeyCenter.onActivation = { [weak self] in
-            self?.toggleOverlays()
+        overlayWindowService.delegate = overlayController
+        statusBarController.setDelegate(self)
+        hotkeyManager.onActivation = { [weak self] in
+            self?.toggleOverlayActivation()
         }
-        hotkeyCenter.updateShortcut(shortcut)
-        hotkeyCenter.setEnabled(hotkeysEnabled && shortcut != nil)
+        hotkeyManager.updateShortcut(activationShortcut)
+        hotkeyManager.setEnabled(areHotkeysEnabled && activationShortcut != nil)
 
-        localizationCancellable = localization.$overrideIdentifier
+        localizationSubscription = localizationService.$languageOverrideIdentifier
             .sink { [weak self] value in
                 guard let self else { return }
                 self.persistLanguageOverride(value)
-                self.syncLocalization()
+                self.synchronizeLocalization()
             }
     }
 
     // MARK: - Lifecycle
 
+    /// Starts long-lived services and brings overlays on screen if the feature is enabled.
     func start() {
-        syncOverlayControllerRunningState()
-        overlayService.setEnabled(overlaysEnabled, animated: false)
-        listenForDisplayChanges()
-        syncStatusBar()
+        synchronizeOverlayControllerRunningState()
+        overlayWindowService.setActive(areOverlaysEnabled, animated: false)
+        observeDisplayChanges()
+        synchronizeStatusBar()
         presentOnboardingIfNeeded()
     }
 
+    /// Tears down observers before the app exits.
     func stop() {
-        if let displaysObserver {
-            environment.notificationCenter.removeObserver(displaysObserver)
+        if let displayChangeObserver {
+            appEnvironment.notificationCenter.removeObserver(displayChangeObserver)
         }
-        if let spaceObserver {
-            environment.workspace.notificationCenter.removeObserver(spaceObserver)
+        if let spaceChangeObserver {
+            appEnvironment.workspace.notificationCenter.removeObserver(spaceChangeObserver)
         }
     }
 
     // MARK: - Display Coordination
 
-    private func listenForDisplayChanges() {
-        displaysObserver = environment.notificationCenter.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [weak self] _ in
+    /// Monitors screen configuration changes to keep overlays in sync with connected displays and spaces.
+    private func observeDisplayChanges() {
+        displayChangeObserver = appEnvironment.notificationCenter.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [weak self] _ in
             Task { @MainActor [weak self] in
                 guard let self else { return }
-                self.overlayService.refreshDisplays(animated: true)
-                self.syncPreferencesDisplays()
+                self.overlayWindowService.refreshDisplays(animated: true)
+                self.synchronizePreferencesDisplays()
             }
         }
 
-        spaceObserver = environment.workspace.notificationCenter.addObserver(forName: NSWorkspace.activeSpaceDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
+        spaceChangeObserver = appEnvironment.workspace.notificationCenter.addObserver(forName: NSWorkspace.activeSpaceDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
             Task { @MainActor [weak self] in
                 guard let self else { return }
-                self.overlayService.refreshDisplays(animated: true)
+                self.overlayWindowService.refreshDisplays(animated: true)
             }
         }
     }
 
     // MARK: - Overlay Configuration
 
-    private func toggleOverlays() {
-        setOverlaysEnabled(!overlaysEnabled)
+    /// Convenience toggle invoked from the menu bar and hotkey handlers.
+    private func toggleOverlayActivation() {
+        setOverlayActivation(!areOverlaysEnabled)
     }
 
-    private func setOverlaysEnabled(_ enabled: Bool) {
-        overlaysEnabled = enabled
-        appSettings.filtersEnabled = enabled
-        syncOverlayControllerRunningState()
-        overlayService.setEnabled(enabled, animated: true)
-        syncStatusBar()
+    /// Applies the user-selected overlay state and refreshes dependent systems.
+    private func setOverlayActivation(_ isEnabled: Bool) {
+        areOverlaysEnabled = isEnabled
+        appSettings.areFiltersEnabled = isEnabled
+        synchronizeOverlayControllerRunningState()
+        overlayWindowService.setActive(isEnabled, animated: true)
+        synchronizeStatusBar()
     }
 
-    private func syncOverlayControllerRunningState() {
-        if overlaysEnabled {
+    /// Starts or stops the overlay controller based on the persisted enabled flag.
+    private func synchronizeOverlayControllerRunningState() {
+        if areOverlaysEnabled {
             overlayController.start()
             overlayController.setClickThrough(true)
         } else {
@@ -150,148 +158,157 @@ final class FocuslyAppCoordinator: NSObject {
 
     // MARK: - Persistence
 
-    private func persistOverlaysEnabled() {
-        environment.userDefaults.set(overlaysEnabled, forKey: DefaultsKeys.overlaysEnabled)
+    /// Persists the overlay toggle so the preference survives relaunches.
+    private func persistOverlayActivation() {
+        appEnvironment.userDefaults.set(areOverlaysEnabled, forKey: UserDefaultsKey.overlaysEnabled)
     }
 
-    private func persistHotkeysEnabled() {
-        environment.userDefaults.set(hotkeysEnabled, forKey: DefaultsKeys.hotkeysEnabled)
+    /// Stores whether keyboard shortcuts should be respected.
+    private func persistHotkeyActivationState() {
+        appEnvironment.userDefaults.set(areHotkeysEnabled, forKey: UserDefaultsKey.hotkeysEnabled)
     }
 
-    private func persistShortcut() {
-        let defaults = environment.userDefaults
-        if let shortcut {
+    /// Saves the current activation shortcut, or removes it if clearing.
+    private func persistHotkeyShortcut() {
+        let defaults = appEnvironment.userDefaults
+        if let activationShortcut {
             let encoder = JSONEncoder()
-            if let data = try? encoder.encode(shortcut) {
-                defaults.set(data, forKey: DefaultsKeys.shortcut)
+            if let data = try? encoder.encode(activationShortcut) {
+                defaults.set(data, forKey: UserDefaultsKey.shortcut)
             }
         } else {
-            defaults.removeObject(forKey: DefaultsKeys.shortcut)
+            defaults.removeObject(forKey: UserDefaultsKey.shortcut)
         }
     }
 
-    private static func loadShortcut(from defaults: UserDefaults) -> HotkeyShortcut? {
-        guard let data = defaults.data(forKey: DefaultsKeys.shortcut) else { return nil }
+    /// Restores a previously persisted hotkey shortcut if one exists.
+    private static func loadHotkeyShortcut(from defaults: UserDefaults) -> HotkeyShortcut? {
+        guard let data = defaults.data(forKey: UserDefaultsKey.shortcut) else { return nil }
         return try? JSONDecoder().decode(HotkeyShortcut.self, from: data)
     }
 
+    /// Persists the selected status bar icon variant.
     private func persistStatusIconStyle() {
-        environment.userDefaults.set(statusBarIconStyle.rawValue, forKey: DefaultsKeys.statusIconStyle)
+        appEnvironment.userDefaults.set(statusBarIconStyle.rawValue, forKey: UserDefaultsKey.statusIconStyle)
     }
 
+    /// Writes the selected localization override, clearing the value when returning to system defaults.
     private func persistLanguageOverride(_ identifier: String?) {
         if let identifier {
-            environment.userDefaults.set(identifier, forKey: DefaultsKeys.languageOverride)
+            appEnvironment.userDefaults.set(identifier, forKey: UserDefaultsKey.languageOverride)
         } else {
-            environment.userDefaults.removeObject(forKey: DefaultsKeys.languageOverride)
+            appEnvironment.userDefaults.removeObject(forKey: UserDefaultsKey.languageOverride)
         }
     }
 
-    private func syncLocalization() {
-        syncStatusBar()
+    /// Reapplies localized strings wherever the user can see them.
+    private func synchronizeLocalization() {
+        synchronizeStatusBar()
         refreshOnboardingLocalizationIfNeeded()
     }
 
     private func refreshOnboardingLocalizationIfNeeded() {
-        guard let controller = onboardingController else { return }
-        controller.updateLocalization(localization: localization)
+        guard let controller = onboardingWindowController else { return }
+        controller.updateLocalization(localization: localizationService)
         controller.updateSteps(makeOnboardingSteps())
     }
 
     // MARK: - Status Bar
 
-    private func syncStatusBar() {
+    /// Pushes the latest overlay and shortcut state into the menu bar UI.
+    private func synchronizeStatusBar() {
         let state = StatusBarState(
-            enabled: overlaysEnabled,
-            hotkeysEnabled: hotkeysEnabled && shortcut != nil,
-            hasShortcut: shortcut != nil,
-            launchAtLoginEnabled: environment.launchAtLogin.isEnabled(),
-            launchAtLoginAvailable: environment.launchAtLogin.isAvailable,
-            launchAtLoginMessage: environment.launchAtLogin.unavailableReason,
-            activePresetID: profileStore.currentPreset().id,
-            presets: PresetLibrary.presets,
+            areOverlaysEnabled: areOverlaysEnabled,
+            areHotkeysEnabled: areHotkeysEnabled && activationShortcut != nil,
+            hasShortcut: activationShortcut != nil,
+            isLaunchAtLoginEnabled: appEnvironment.launchAtLogin.isEnabled(),
+            isLaunchAtLoginAvailable: appEnvironment.launchAtLogin.isAvailable,
+            launchAtLoginStatusMessage: appEnvironment.launchAtLogin.unavailableReason,
+            activePresetIdentifier: profileStore.currentPreset().id,
+            presetOptions: PresetLibrary.presets,
             iconStyle: statusBarIconStyle
         )
-        statusBar.update(state: state)
-        preferencesViewModel?.availablePresets = state.presets
-        preferencesViewModel?.selectedPresetID = state.activePresetID
+        statusBarController.update(state: state)
+        preferencesViewModel?.presetOptions = state.presetOptions
+        preferencesViewModel?.selectedPresetIdentifier = state.activePresetIdentifier
     }
 
     // MARK: - Preferences Flow
 
+    /// Presents (or refreshes) the preferences window with current runtime data.
     private func presentPreferences() {
-        if let controller = preferencesController {
+        if let controller = preferencesWindowController {
             controller.present()
-            let active = hotkeysEnabled && shortcut != nil
-            preferencesViewModel?.hotkeysEnabled = active
-            preferencesViewModel?.launchAtLoginEnabled = environment.launchAtLogin.isEnabled()
-            preferencesViewModel?.launchAtLoginAvailable = environment.launchAtLogin.isAvailable
-            preferencesViewModel?.launchAtLoginMessage = environment.launchAtLogin.unavailableReason
-            preferencesViewModel?.applyShortcut(shortcut)
+            let isHotkeyActive = areHotkeysEnabled && activationShortcut != nil
+            preferencesViewModel?.areHotkeysEnabled = isHotkeyActive
+            preferencesViewModel?.isLaunchAtLoginEnabled = appEnvironment.launchAtLogin.isEnabled()
+            preferencesViewModel?.isLaunchAtLoginAvailable = appEnvironment.launchAtLogin.isAvailable
+            preferencesViewModel?.launchAtLoginStatusMessage = appEnvironment.launchAtLogin.unavailableReason
+            preferencesViewModel?.applyShortcut(activationShortcut)
             preferencesViewModel?.statusIconStyle = statusBarIconStyle
-            preferencesViewModel?.availablePresets = PresetLibrary.presets
-            preferencesViewModel?.selectedPresetID = profileStore.currentPreset().id
-            controller.updateLocalization(localization: localization)
-            syncPreferencesDisplays()
+            preferencesViewModel?.presetOptions = PresetLibrary.presets
+            preferencesViewModel?.selectedPresetIdentifier = profileStore.currentPreset().id
+            controller.updateLocalization(localization: localizationService)
+            synchronizePreferencesDisplays()
             return
         }
 
         let viewModel = PreferencesViewModel(
-            displays: makeDisplaySettings(),
-            hotkeysEnabled: hotkeysEnabled && shortcut != nil,
-            launchAtLoginEnabled: environment.launchAtLogin.isEnabled(),
-            launchAtLoginAvailable: environment.launchAtLogin.isAvailable,
-            launchAtLoginMessage: environment.launchAtLogin.unavailableReason,
-            shortcut: shortcut,
+            displaySettings: makeDisplaySettings(),
+            areHotkeysEnabled: areHotkeysEnabled && activationShortcut != nil,
+            isLaunchAtLoginEnabled: appEnvironment.launchAtLogin.isEnabled(),
+            isLaunchAtLoginAvailable: appEnvironment.launchAtLogin.isAvailable,
+            launchAtLoginStatusMessage: appEnvironment.launchAtLogin.unavailableReason,
+            activeShortcut: activationShortcut,
             statusIconStyle: statusBarIconStyle,
-            availableIconStyles: StatusBarIconStyle.allCases,
-            availablePresets: PresetLibrary.presets,
-            selectedPresetID: profileStore.currentPreset().id,
-            callbacks: PreferencesViewModel.Callbacks(
+            iconStyleOptions: StatusBarIconStyle.allCases,
+            presetOptions: PresetLibrary.presets,
+            selectedPresetIdentifier: profileStore.currentPreset().id,
+            handlers: PreferencesViewModel.Callbacks(
                 onDisplayChange: { [weak self] displayID, style in
                     guard let self else { return }
                     self.profileStore.updateStyle(style, forDisplayID: displayID)
-                    self.overlayService.updateStyle(for: displayID, animated: true)
+                    self.overlayWindowService.updateStyle(for: displayID, animated: true)
                 },
                 onDisplayReset: { [weak self] displayID in
                     guard let self else { return }
                     self.profileStore.resetOverride(forDisplayID: displayID)
-                    self.overlayService.updateStyle(for: displayID, animated: true)
-                    self.syncPreferencesDisplays()
+                    self.overlayWindowService.updateStyle(for: displayID, animated: true)
+                    self.synchronizePreferencesDisplays()
                 },
                 onRequestShortcutCapture: { [weak self] completion in
                     self?.beginShortcutCapture(completion: completion)
                 },
                 onUpdateShortcut: { [weak self] shortcut in
                     guard let self else { return }
-                    self.shortcut = shortcut
-                    self.hotkeyCenter.updateShortcut(shortcut)
-                    let active = self.hotkeysEnabled && shortcut != nil
-                    self.hotkeyCenter.setEnabled(active)
-                    self.preferencesViewModel?.hotkeysEnabled = active
+                    self.activationShortcut = shortcut
+                    self.hotkeyManager.updateShortcut(shortcut)
+                    let isHotkeyActive = self.areHotkeysEnabled && shortcut != nil
+                    self.hotkeyManager.setEnabled(isHotkeyActive)
+                    self.preferencesViewModel?.areHotkeysEnabled = isHotkeyActive
                     self.preferencesViewModel?.applyShortcut(shortcut)
-                    self.syncStatusBar()
+                    self.synchronizeStatusBar()
                 },
                 onToggleHotkeys: { [weak self] enabled in
                     guard let self else { return }
-                    self.hotkeysEnabled = enabled
-                    let active = enabled && self.shortcut != nil
-                    self.hotkeyCenter.setEnabled(active)
-                    self.preferencesViewModel?.hotkeysEnabled = active
-                    self.syncStatusBar()
+                    self.areHotkeysEnabled = enabled
+                    let isHotkeyActive = enabled && self.activationShortcut != nil
+                    self.hotkeyManager.setEnabled(isHotkeyActive)
+                    self.preferencesViewModel?.areHotkeysEnabled = isHotkeyActive
+                    self.synchronizeStatusBar()
                 },
                 onToggleLaunchAtLogin: { [weak self] enabled in
                     guard let self else { return }
                     do {
-                        try self.environment.launchAtLogin.setEnabled(enabled)
-                        self.preferencesViewModel?.launchAtLoginMessage = self.environment.launchAtLogin.unavailableReason
+                        try self.appEnvironment.launchAtLogin.setEnabled(enabled)
+                        self.preferencesViewModel?.launchAtLoginStatusMessage = self.appEnvironment.launchAtLogin.unavailableReason
                     } catch {
                         NSSound.beep()
-                        self.preferencesViewModel?.launchAtLoginMessage = error.localizedDescription
+                        self.preferencesViewModel?.launchAtLoginStatusMessage = error.localizedDescription
                     }
-                    self.preferencesViewModel?.launchAtLoginEnabled = self.environment.launchAtLogin.isEnabled()
-                    self.preferencesViewModel?.launchAtLoginAvailable = self.environment.launchAtLogin.isAvailable
-                    self.syncStatusBar()
+                    self.preferencesViewModel?.isLaunchAtLoginEnabled = self.appEnvironment.launchAtLogin.isEnabled()
+                    self.preferencesViewModel?.isLaunchAtLoginAvailable = self.appEnvironment.launchAtLogin.isAvailable
+                    self.synchronizeStatusBar()
                 },
                 onRequestOnboarding: { [weak self] in
                     self?.presentOnboarding(force: true)
@@ -299,37 +316,40 @@ final class FocuslyAppCoordinator: NSObject {
                 onUpdateStatusIconStyle: { [weak self] style in
                     guard let self else { return }
                     self.statusBarIconStyle = style
-                    self.syncStatusBar()
+                    self.synchronizeStatusBar()
                 },
                 onSelectPreset: { [weak self] preset in
                     guard let self else { return }
                     self.profileStore.selectPreset(preset)
-                    self.overlayService.refreshDisplays(animated: true)
-                    self.syncStatusBar()
-                    self.syncPreferencesDisplays()
+                    self.overlayWindowService.refreshDisplays(animated: true)
+                    self.synchronizeStatusBar()
+                    self.synchronizePreferencesDisplays()
                 },
                 onSelectLanguage: { [weak self] identifier in
-                    self?.localization.selectLanguage(id: identifier)
+                    self?.localizationService.selectLanguage(id: identifier)
                 }
             )
         )
 
-        let controller = PreferencesWindowController(viewModel: viewModel, localization: localization)
+        let controller = PreferencesWindowController(viewModel: viewModel, localization: localizationService)
         preferencesViewModel = viewModel
-        preferencesController = controller
+        preferencesWindowController = controller
         controller.window?.delegate = self
         controller.present()
     }
 
+    /// Routes the shortcut capture request down to the preferences controller.
     private func beginShortcutCapture(completion: @escaping (HotkeyShortcut?) -> Void) {
-        guard let controller = preferencesController else { return }
+        guard let controller = preferencesWindowController else { return }
         controller.beginShortcutCapture(completion: completion)
     }
 
-    private func syncPreferencesDisplays() {
-        preferencesViewModel?.displays = makeDisplaySettings()
+    /// Keeps the display settings section in preferences synchronized with hardware updates.
+    private func synchronizePreferencesDisplays() {
+        preferencesViewModel?.displaySettings = makeDisplaySettings()
     }
 
+    /// Builds per-display preference models combining screen metadata and stored profile overrides.
     private func makeDisplaySettings() -> [PreferencesViewModel.DisplaySettings] {
         let displays: [PreferencesViewModel.DisplaySettings] = NSScreen.screens.compactMap { screen -> PreferencesViewModel.DisplaySettings? in
             guard let number = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber else {
@@ -354,18 +374,18 @@ final class FocuslyAppCoordinator: NSObject {
 
     /// Automatically surfaces onboarding until the user completes it once.
     private func presentOnboardingIfNeeded() {
-        let completed = environment.userDefaults.bool(forKey: DefaultsKeys.onboardingCompleted)
+        let completed = appEnvironment.userDefaults.bool(forKey: UserDefaultsKey.onboardingCompleted)
         guard !completed else { return }
         presentOnboarding(force: true)
     }
 
     /// Builds and presents the onboarding window, optionally forcing a rerun for returning users.
     private func presentOnboarding(force: Bool = false) {
-        let completed = environment.userDefaults.bool(forKey: DefaultsKeys.onboardingCompleted)
+        let completed = appEnvironment.userDefaults.bool(forKey: UserDefaultsKey.onboardingCompleted)
         guard force || !completed else { return }
 
-        if let controller = onboardingController {
-            controller.updateLocalization(localization: localization)
+        if let controller = onboardingWindowController {
+            controller.updateLocalization(localization: localizationService)
             controller.present()
             return
         }
@@ -375,27 +395,28 @@ final class FocuslyAppCoordinator: NSObject {
         let viewModel = OnboardingViewModel(steps: steps) { [weak self] completed in
             guard let self else { return }
             if completed {
-                self.environment.userDefaults.set(true, forKey: DefaultsKeys.onboardingCompleted)
+                self.appEnvironment.userDefaults.set(true, forKey: UserDefaultsKey.onboardingCompleted)
             }
-            self.onboardingController?.close()
-            self.onboardingController = nil
+            self.onboardingWindowController?.close()
+            self.onboardingWindowController = nil
         }
 
-        let controller = OnboardingWindowController(viewModel: viewModel, localization: localization)
-        onboardingController = controller
+        let controller = OnboardingWindowController(viewModel: viewModel, localization: localizationService)
+        onboardingWindowController = controller
         controller.window?.delegate = self
         controller.present()
     }
 
+    /// Returns the localized onboarding content sequence shown to new users.
     private func makeOnboardingSteps() -> [OnboardingViewModel.Step] {
         [
             OnboardingViewModel.Step(
                 id: 0,
-                title: localization.localized(
+                title: localizationService.localized(
                     "1. Switch overlays on",
                     fallback: "1. Switch overlays on"
                 ),
-                message: localization.localized(
+                message: localizationService.localized(
                     "Click the Focusly status bar icon and toggle overlays for the displays you want to soften.",
                     fallback: "Click the Focusly status bar icon and toggle overlays for the displays you want to soften."
                 ),
@@ -403,11 +424,11 @@ final class FocuslyAppCoordinator: NSObject {
             ),
             OnboardingViewModel.Step(
                 id: 1,
-                title: localization.localized(
+                title: localizationService.localized(
                     "2. Pick a filter",
                     fallback: "2. Pick a filter"
                 ),
-                message: localization.localized(
+                message: localizationService.localized(
                     "Open Preferences to choose opacity, tint, and one of the Focus, Warm, Colorful, or Monochrome presets per display.",
                     fallback: "Open Preferences to choose opacity, tint, and one of the Focus, Warm, Colorful, or Monochrome presets per display."
                 ),
@@ -415,11 +436,11 @@ final class FocuslyAppCoordinator: NSObject {
             ),
             OnboardingViewModel.Step(
                 id: 2,
-                title: localization.localized(
+                title: localizationService.localized(
                     "3. Set your controls",
                     fallback: "3. Set your controls"
                 ),
-                message: localization.localized(
+                message: localizationService.localized(
                     "Assign a global shortcut and enable Launch at Login in Preferences so Focusly is ready whenever you are.",
                     fallback: "Assign a global shortcut and enable Launch at Login in Preferences so Focusly is ready whenever you are."
                 ),
@@ -431,23 +452,24 @@ final class FocuslyAppCoordinator: NSObject {
 
 // MARK: - StatusBarControllerDelegate
 
+/// Handles menu bar interactions that affect overlays, presets, and preferences.
 extension FocuslyAppCoordinator: StatusBarControllerDelegate {
     func statusBarDidToggleEnabled(_ controller: StatusBarController) {
-        toggleOverlays()
+        toggleOverlayActivation()
     }
 
     func statusBar(_ controller: StatusBarController, selectedPreset preset: FocusPreset) {
         profileStore.selectPreset(preset)
-        overlayService.refreshDisplays(animated: true)
-        syncStatusBar()
-        syncPreferencesDisplays()
+        overlayWindowService.refreshDisplays(animated: true)
+        synchronizeStatusBar()
+        synchronizePreferencesDisplays()
     }
 
     func statusBar(_ controller: StatusBarController, didSelectIconStyle style: StatusBarIconStyle) {
         guard statusBarIconStyle != style else { return }
         statusBarIconStyle = style
         preferencesViewModel?.statusIconStyle = style
-        syncStatusBar()
+        synchronizeStatusBar()
     }
 
     func statusBarDidRequestPreferences(_ controller: StatusBarController) {
@@ -459,30 +481,30 @@ extension FocuslyAppCoordinator: StatusBarControllerDelegate {
     }
 
     func statusBarDidToggleHotkeys(_ controller: StatusBarController) {
-        hotkeysEnabled.toggle()
-        hotkeyCenter.setEnabled(hotkeysEnabled && shortcut != nil)
-        preferencesViewModel?.hotkeysEnabled = hotkeysEnabled && shortcut != nil
-        syncStatusBar()
+        areHotkeysEnabled.toggle()
+        hotkeyManager.setEnabled(areHotkeysEnabled && activationShortcut != nil)
+        preferencesViewModel?.areHotkeysEnabled = areHotkeysEnabled && activationShortcut != nil
+        synchronizeStatusBar()
     }
 
     func statusBarDidToggleLaunchAtLogin(_ controller: StatusBarController) {
-        guard environment.launchAtLogin.isAvailable else {
+        guard appEnvironment.launchAtLogin.isAvailable else {
             NSSound.beep()
-            preferencesViewModel?.launchAtLoginAvailable = false
-            preferencesViewModel?.launchAtLoginMessage = environment.launchAtLogin.unavailableReason
-            syncStatusBar()
+            preferencesViewModel?.isLaunchAtLoginAvailable = false
+            preferencesViewModel?.launchAtLoginStatusMessage = appEnvironment.launchAtLogin.unavailableReason
+            synchronizeStatusBar()
             return
         }
-        let desired = !environment.launchAtLogin.isEnabled()
+        let desiredState = !appEnvironment.launchAtLogin.isEnabled()
         do {
-            try environment.launchAtLogin.setEnabled(desired)
+            try appEnvironment.launchAtLogin.setEnabled(desiredState)
         } catch {
             NSSound.beep()
         }
-        preferencesViewModel?.launchAtLoginEnabled = environment.launchAtLogin.isEnabled()
-        preferencesViewModel?.launchAtLoginAvailable = environment.launchAtLogin.isAvailable
-        preferencesViewModel?.launchAtLoginMessage = environment.launchAtLogin.unavailableReason
-        syncStatusBar()
+        preferencesViewModel?.isLaunchAtLoginEnabled = appEnvironment.launchAtLogin.isEnabled()
+        preferencesViewModel?.isLaunchAtLoginAvailable = appEnvironment.launchAtLogin.isAvailable
+        preferencesViewModel?.launchAtLoginStatusMessage = appEnvironment.launchAtLogin.unavailableReason
+        synchronizeStatusBar()
     }
 
     func statusBarDidRequestQuit(_ controller: StatusBarController) {
@@ -492,14 +514,15 @@ extension FocuslyAppCoordinator: StatusBarControllerDelegate {
 
 // MARK: - NSWindowDelegate
 
+/// Drops references when windows dismiss so they can be recreated later.
 extension FocuslyAppCoordinator: NSWindowDelegate {
     func windowWillClose(_ notification: Notification) {
-        if let window = notification.object as? NSWindow, window === preferencesController?.window {
+        if let window = notification.object as? NSWindow, window === preferencesWindowController?.window {
             preferencesViewModel = nil
-            preferencesController = nil
+            preferencesWindowController = nil
         }
-        if let window = notification.object as? NSWindow, window === onboardingController?.window {
-            onboardingController = nil
+        if let window = notification.object as? NSWindow, window === onboardingWindowController?.window {
+            onboardingWindowController = nil
         }
     }
 }

@@ -2,21 +2,23 @@ import AppKit
 import Combine
 import SwiftUI
 
+/// Hosts the SwiftUI preferences view inside an AppKit window and handles shortcut capture.
 @MainActor
 final class PreferencesWindowController: NSWindowController {
     private let viewModel: PreferencesViewModel
     private let localization: LocalizationService
-    private var eventMonitor: Any?
-    private var captureCompletion: ((HotkeyShortcut?) -> Void)?
-    private var cancellables: Set<AnyCancellable> = []
-    private var localizationCancellable: AnyCancellable?
+    private var shortcutEventMonitor: Any?
+    private var shortcutCaptureCompletion: ((HotkeyShortcut?) -> Void)?
+    private var subscriptions: Set<AnyCancellable> = []
+    private var localizationSubscription: AnyCancellable?
 
+    /// Builds the preferences window and wires up localization and layout observers.
     init(viewModel: PreferencesViewModel, localization: LocalizationService) {
         self.viewModel = viewModel
         self.localization = localization
-        let view = PreferencesView(viewModel: viewModel).environmentObject(localization)
-        let hostingController = NSHostingController(rootView: view)
-        let layout = PreferencesWindowController.layout(for: viewModel.displays.count)
+        let preferencesView = PreferencesView(viewModel: viewModel).environmentObject(localization)
+        let hostingController = NSHostingController(rootView: preferencesView)
+        let layout = PreferencesWindowController.windowLayout(for: viewModel.displaySettings.count)
         let window = NSWindow(
             contentRect: NSRect(origin: .zero, size: layout.initialSize),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
@@ -33,15 +35,15 @@ final class PreferencesWindowController: NSWindowController {
         window.contentViewController = hostingController
         super.init(window: window)
 
-        viewModel.$displays
+        viewModel.$displaySettings
             .map(\.count)
             .removeDuplicates()
             .sink { [weak self] count in
                 self?.updateWindowSize(for: count)
             }
-            .store(in: &cancellables)
+            .store(in: &subscriptions)
 
-        localizationCancellable = localization.$overrideIdentifier
+        localizationSubscription = localization.$languageOverrideIdentifier
             .removeDuplicates()
             .sink { [weak self] _ in
                 self?.updateWindowTitle()
@@ -58,29 +60,32 @@ final class PreferencesWindowController: NSWindowController {
         stopShortcutCapture()
     }
 
+    /// Brings the preferences window to the foreground and focuses the app.
     func present() {
         guard let window else { return }
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
     }
 
+    /// Updates localized chrome when the language changes.
     func updateLocalization(localization: LocalizationService) {
         guard localization === self.localization else { return }
         updateWindowTitle()
     }
 
+    /// Begins listening for a keyboard shortcut and reports the captured combination.
     func beginShortcutCapture(completion: @escaping (HotkeyShortcut?) -> Void) {
-        captureCompletion = completion
-        if eventMonitor != nil {
+        shortcutCaptureCompletion = completion
+        if shortcutEventMonitor != nil {
             stopShortcutCapture()
         }
 
-        eventMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown]) { [weak self] event in
+        shortcutEventMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown]) { [weak self] event in
             guard let self else { return event }
             let modifiers = event.modifierFlags.intersection([.command, .option, .control, .shift])
 
             if event.keyCode == 53 { // Escape cancels
-                self.captureCompletion?(nil)
+                self.shortcutCaptureCompletion?(nil)
                 self.stopShortcutCapture()
                 return nil
             }
@@ -91,23 +96,25 @@ final class PreferencesWindowController: NSWindowController {
             }
 
             let shortcut = HotkeyShortcut(keyCode: UInt32(event.keyCode), modifiers: modifiers)
-            self.captureCompletion?(shortcut)
+            self.shortcutCaptureCompletion?(shortcut)
             self.stopShortcutCapture()
             return nil
         }
     }
 
+    /// Cleans up the local event monitor after shortcut capture completes.
     private func stopShortcutCapture() {
-        if let eventMonitor {
-            NSEvent.removeMonitor(eventMonitor)
+        if let shortcutEventMonitor {
+            NSEvent.removeMonitor(shortcutEventMonitor)
         }
-        eventMonitor = nil
-        captureCompletion = nil
+        shortcutEventMonitor = nil
+        shortcutCaptureCompletion = nil
     }
 
+    /// Adjusts the window dimensions to better fit the number of connected displays.
     private func updateWindowSize(for displayCount: Int) {
         guard let window else { return }
-        let layout = PreferencesWindowController.layout(for: displayCount)
+        let layout = PreferencesWindowController.windowLayout(for: displayCount)
         window.contentMinSize = layout.minimumSize
         let currentSize = window.contentLayoutRect.size
         let widthDelta = abs(currentSize.width - layout.initialSize.width)
@@ -124,6 +131,7 @@ final class PreferencesWindowController: NSWindowController {
         }
     }
 
+    /// Reflects the current localization in the window title.
     private func updateWindowTitle() {
         guard let window else { return }
         window.title = localization.localized(
@@ -132,7 +140,8 @@ final class PreferencesWindowController: NSWindowController {
         )
     }
 
-    private static func layout(for displayCount: Int) -> (initialSize: NSSize, minimumSize: NSSize) {
+    /// Returns recommended window sizes based on how many display cards will be shown.
+    private static func windowLayout(for displayCount: Int) -> (initialSize: NSSize, minimumSize: NSSize) {
         let multipleDisplays = displayCount > 1
         let initialWidth: CGFloat = multipleDisplays ? 640 : 520
         let minimumWidth: CGFloat = multipleDisplays ? 560 : 460

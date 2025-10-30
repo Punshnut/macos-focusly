@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 
+/// Hosts the SwiftUI preferences UI for overlays, hotkeys, onboarding, and localization.
 struct PreferencesView: View {
     @ObservedObject var viewModel: PreferencesViewModel
     @EnvironmentObject private var localization: LocalizationService
@@ -42,11 +43,12 @@ struct PreferencesView: View {
         .frame(minWidth: 420)
         .onAppear {
             if selectedDisplayID == nil {
-                selectedDisplayID = viewModel.displays.first?.id
+                selectedDisplayID = viewModel.displaySettings.first?.id
             }
         }
     }
 
+    /// Preset and status icon controls.
     private var appearanceSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text(localized("Appearance"))
@@ -55,11 +57,11 @@ struct PreferencesView: View {
             Picker(
                 localized("Overlay Preset"),
                 selection: Binding(
-                    get: { viewModel.selectedPresetID },
+                    get: { viewModel.selectedPresetIdentifier },
                     set: { viewModel.selectPreset(id: $0) }
                 )
             ) {
-                ForEach(viewModel.availablePresets) { preset in
+                ForEach(viewModel.presetOptions) { preset in
                     Text(preset.name).tag(preset.id)
                 }
             }
@@ -76,7 +78,7 @@ struct PreferencesView: View {
                     set: { viewModel.updateStatusIconStyle($0) }
                 )
             ) {
-                ForEach(viewModel.availableIconStyles, id: \.self) { style in
+                ForEach(viewModel.iconStyleOptions, id: \.self) { style in
                     HStack(spacing: 8) {
                         StatusBarIconStyleMenuPreview(style: style)
                         Text(style.localizedName)
@@ -92,12 +94,13 @@ struct PreferencesView: View {
         }
     }
 
+    /// Per-display overlay customization UI.
     private var displaysSection: some View {
         VStack(alignment: .leading, spacing: 16) {
             VStack(alignment: .leading, spacing: 4) {
                 Text(localized("Displays"))
                     .font(.headline)
-                if viewModel.displays.count > 1 {
+                if viewModel.displaySettings.count > 1 {
                     Text(localized("Pick a screen to fine-tune or copy its look to every monitor."))
                         .font(.caption)
                         .foregroundColor(.secondary)
@@ -108,7 +111,7 @@ struct PreferencesView: View {
                 }
             }
 
-            if viewModel.displays.isEmpty {
+            if viewModel.displaySettings.isEmpty {
                 Text(localized("No displays detected. Connect a monitor to adjust overlay styling."))
                     .font(.subheadline)
                     .foregroundColor(.secondary)
@@ -124,10 +127,11 @@ struct PreferencesView: View {
     }
 
     @ViewBuilder
+    /// Horizontal selector showing all detected displays.
     private var displayChooser: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 12) {
-                ForEach(viewModel.displays) { display in
+                ForEach(viewModel.displaySettings) { display in
                     Button {
                         selectedDisplayID = display.id
                     } label: {
@@ -144,17 +148,18 @@ struct PreferencesView: View {
         }
     }
 
+    /// Detailed controls for adjusting opacity and tint on the selected display.
     private func displayDetail(for display: PreferencesViewModel.DisplaySettings) -> some View {
-        let liveOpacity = viewModel.displays.first(where: { $0.id == display.id })?.opacity ?? display.opacity
-        let liveTint = viewModel.displays.first(where: { $0.id == display.id })?.tint ?? display.tint
+        let liveOpacity = viewModel.displaySettings.first(where: { $0.id == display.id })?.opacity ?? display.opacity
+        let liveTint = viewModel.displaySettings.first(where: { $0.id == display.id })?.tint ?? display.tint
 
         let opacityBinding = Binding(
-            get: { viewModel.displays.first(where: { $0.id == display.id })?.opacity ?? display.opacity },
+            get: { viewModel.displaySettings.first(where: { $0.id == display.id })?.opacity ?? display.opacity },
             set: { viewModel.updateOpacity(for: display.id, value: $0) }
         )
 
         let tintBinding = Binding(
-            get: { Color(nsColor: viewModel.displays.first(where: { $0.id == display.id })?.tint ?? display.tint) },
+            get: { Color(nsColor: viewModel.displaySettings.first(where: { $0.id == display.id })?.tint ?? display.tint) },
             set: { newColor in
                 if let cgColor = newColor.cgColor,
                    let nsColor = NSColor(cgColor: cgColor) {
@@ -180,7 +185,7 @@ struct PreferencesView: View {
                     Button(localized("Reset This Display")) {
                         viewModel.resetDisplay(display.id)
                     }
-                    if viewModel.displays.count > 1 {
+                    if viewModel.displaySettings.count > 1 {
                         Button(localized("Copy settings to other displays")) {
                             viewModel.syncDisplaySettings(from: display.id)
                         }
@@ -249,23 +254,26 @@ struct PreferencesView: View {
         )
     }
 
+    /// Currently focused display entry, defaulting to the first available.
     private var selectedDisplay: PreferencesViewModel.DisplaySettings? {
         if let id = selectedDisplayID,
-           let match = viewModel.displays.first(where: { $0.id == id }) {
+           let match = viewModel.displaySettings.first(where: { $0.id == id }) {
             return match
         }
-        return viewModel.displays.first
+        return viewModel.displaySettings.first
     }
 
+    /// Checks whether the supplied display ID matches the highlighted tile.
     private func isSelected(displayID: DisplayID) -> Bool {
-        guard let activeID = selectedDisplay?.id ?? selectedDisplayID ?? viewModel.displays.first?.id else { return false }
+        guard let activeID = selectedDisplay?.id ?? selectedDisplayID ?? viewModel.displaySettings.first?.id else { return false }
         return activeID == displayID
     }
 
+    /// Shortcut enablement and capture controls.
     private var hotkeySection: some View {
         VStack(alignment: .leading, spacing: 10) {
             Toggle(isOn: Binding(
-                get: { viewModel.hotkeysEnabled },
+                get: { viewModel.areHotkeysEnabled },
                 set: { viewModel.setHotkeysEnabled($0) }
             )) {
                 Text(localized("Enable Focus Toggle Shortcut"))
@@ -276,7 +284,7 @@ struct PreferencesView: View {
                 HStack {
                     Text(localized("Shortcut"))
                         .foregroundColor(.secondary)
-                    Text(viewModel.shortcutDescription)
+                    Text(viewModel.shortcutSummary)
                         .font(.body)
                     Spacer()
                     Button {
@@ -284,7 +292,7 @@ struct PreferencesView: View {
                     } label: {
                         Text(localized("Record"))
                     }
-                    .disabled(viewModel.capturingShortcut)
+                    .disabled(viewModel.isCapturingShortcut)
                     Button {
                         viewModel.clearShortcut()
                     } label: {
@@ -292,7 +300,7 @@ struct PreferencesView: View {
                     }
                 }
 
-                if viewModel.capturingShortcut {
+                if viewModel.isCapturingShortcut {
                     Text(localized("Press a key combination…"))
                         .font(.caption)
                         .foregroundColor(.accentColor)
@@ -301,18 +309,19 @@ struct PreferencesView: View {
         }
     }
 
+    /// Launch-at-login toggle with status messaging.
     private var launchAtLoginSection: some View {
         VStack(alignment: .leading, spacing: 8) {
             Toggle(isOn: Binding(
-                get: { viewModel.launchAtLoginEnabled },
+                get: { viewModel.isLaunchAtLoginEnabled },
                 set: { viewModel.setLaunchAtLoginEnabled($0) }
             )) {
                 Text(localized("Launch Focusly at login"))
             }
             .toggleStyle(.switch)
-            .disabled(!viewModel.launchAtLoginAvailable)
+            .disabled(!viewModel.isLaunchAtLoginAvailable)
 
-            if let message = viewModel.launchAtLoginMessage {
+            if let message = viewModel.launchAtLoginStatusMessage {
                 Text(message)
                     .font(.caption)
                     .foregroundColor(.secondary)
@@ -320,6 +329,7 @@ struct PreferencesView: View {
         }
     }
 
+    /// Button to reopen the onboarding walkthrough.
     private var onboardingSection: some View {
         Button {
             viewModel.showOnboarding()
@@ -330,6 +340,7 @@ struct PreferencesView: View {
         .controlSize(.small)
     }
 
+    /// Language picker that leverages the localization service overrides.
     private var languageSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text(localized("App Language"))
@@ -354,17 +365,20 @@ struct PreferencesView: View {
         }
     }
 
+    /// Formats an opacity value as a percentage string.
     private func opacityLabel(for value: Double) -> String {
         let clamped = max(0, min(1, value))
         return String(format: "%.0f%%", clamped * 100)
     }
 
+    /// Convenience wrapper so the view reads from the localization service.
     private func localized(_ key: String) -> String {
         localization.localized(key, fallback: key)
     }
 
 }
 
+/// Menu row preview for status bar icon styles.
 private struct StatusBarIconStyleMenuPreview: View {
     let style: StatusBarIconStyle
 
@@ -376,6 +390,7 @@ private struct StatusBarIconStyleMenuPreview: View {
         .accessibilityHidden(true)
     }
 
+    /// Renders either the active or inactive variant of the icon.
     private func previewIcon(isActive: Bool) -> some View {
         Image(nsImage: StatusBarIconFactory.icon(style: style, isActive: isActive))
             .renderingMode(.template)
@@ -385,10 +400,12 @@ private struct StatusBarIconStyleMenuPreview: View {
     }
 }
 
+/// Compact tile summarizing a display's overlay settings.
 private struct DisplayChip: View {
     let display: PreferencesViewModel.DisplaySettings
     let isSelected: Bool
 
+    /// Bounds the provided opacity before rendering or displaying it.
     private var clampedOpacity: Double {
         max(0, min(1, display.opacity))
     }

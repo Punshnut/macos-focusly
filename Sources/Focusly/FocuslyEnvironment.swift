@@ -1,5 +1,6 @@
 import AppKit
 
+/// Injection container that bundles service clients used across the app.
 struct FocuslyEnvironment {
     let userDefaults: UserDefaults
     let notificationCenter: NotificationCenter
