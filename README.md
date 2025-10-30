@@ -11,12 +11,9 @@
 
 ## ✨ Overview
 
-**Focusly** is a lightweight macOS menu bar companion designed to bring calm ambience and clear focus to your workspace.  
-It softens each display with subtle overlays, dims distractions, and keeps your active window perfectly highlighted — all without breaking your flow.
+**Focusly** is a lightweight menu bar companion for macOS. It softens each display with a glassy overlay, keeps distractions under control, and gives you per-monitor ambience controls without getting in the way.
 
-Presets, per-display customization, and localization support are built right into the Swift Package, making it easy for contributors to extend and refine Focusly using familiar Apple tooling.
-
-> _Imagine your Mac breathing with your concentration — suave, tranquilo… like a zen tapas bar for your pixels._
+Focusly tracks the active window (with your permission) so the foreground content stays sharp while the rest of the desktop calmly fades back. Presets, per-display overrides, and localizations live directly inside the Swift Package so contributors can tweak everything with familiar tooling.
 
 ---
 
