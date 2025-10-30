@@ -12,3 +12,7 @@ DerivedData/
 
 # macOS
 .DS_Store
+
+# builds
+*.app
+Focusly.app/
