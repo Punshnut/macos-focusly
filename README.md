@@ -147,4 +147,4 @@ Released under the **MIT License**. See [LICENSE](./LICENSE) for full details.
 
 ---
 
-**Made with ❤️ and SwiftUI — for Mac users who believe calm focus is a feature, not a setting.**
+**Made with ❤️**
