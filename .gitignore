@@ -10,6 +10,10 @@ DerivedData/
 *.xccheckout
 *.xcscmblueprint
 
+# vscode
+.vscode/
+
+
 # macOS
 .DS_Store
 
@@ -17,3 +21,5 @@ DerivedData/
 *.app
 Focusly.app/
 Focusly.dmg
+build_app.sh
+build_dmg.sh
