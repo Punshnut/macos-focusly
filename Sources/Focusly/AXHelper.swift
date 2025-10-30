@@ -25,14 +25,43 @@ public struct AXWindowInfo: Hashable {
 }
 
 public struct ActiveWindowSnapshot: Equatable {
+    /// Describes a rect that needs to be carved out from the overlay (menus, context menus, etc.).
+    public struct MaskRegion: Equatable {
+        public enum Purpose: Equatable {
+            case applicationWindow
+            case applicationMenu
+            case systemMenu
+        }
+
+        public let frame: NSRect
+        public let cornerRadius: CGFloat
+        public let purpose: Purpose
+    }
+
     public let frame: NSRect
     public let cornerRadius: CGFloat
+    public let supplementaryMasks: [MaskRegion]
 
     private static let tolerance: CGFloat = 0.5
 
+    public init(frame: NSRect, cornerRadius: CGFloat, supplementaryMasks: [MaskRegion] = []) {
+        self.frame = frame
+        self.cornerRadius = cornerRadius
+        self.supplementaryMasks = supplementaryMasks
+    }
+
     public static func == (lhs: ActiveWindowSnapshot, rhs: ActiveWindowSnapshot) -> Bool {
-        lhs.frame.isApproximatelyEqual(to: rhs.frame, tolerance: Self.tolerance) &&
-        abs(lhs.cornerRadius - rhs.cornerRadius) <= Self.tolerance
+        guard lhs.frame.isApproximatelyEqual(to: rhs.frame, tolerance: Self.tolerance) else { return false }
+        guard abs(lhs.cornerRadius - rhs.cornerRadius) <= Self.tolerance else { return false }
+        guard lhs.supplementaryMasks.count == rhs.supplementaryMasks.count else { return false }
+
+        for (leftMask, rightMask) in zip(lhs.supplementaryMasks, rhs.supplementaryMasks) {
+            guard leftMask.purpose == rightMask.purpose else { return false }
+            guard leftMask.frame.isApproximatelyEqual(to: rightMask.frame, tolerance: Self.tolerance) else { return false }
+            guard abs(leftMask.cornerRadius - rightMask.cornerRadius) <= Self.tolerance else { return false }
+        }
+
+        return true
     }
 }
 

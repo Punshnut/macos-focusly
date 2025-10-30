@@ -5,6 +5,12 @@ import QuartzCore
 final class OverlayWindow: NSPanel {
     private let blurView = OverlayBlurView()
 
+    /// Describes a carved-out rect in the overlay.
+    struct MaskRegion: Equatable {
+        let rect: NSRect
+        let cornerRadius: CGFloat
+    }
+
     private let tintView: NSView = {
         let view = NSView()
         view.translatesAutoresizingMaskIntoConstraints = false
@@ -16,17 +22,10 @@ final class OverlayWindow: NSPanel {
         return view
     }()
 
-    private let tintMaskLayer = CAShapeLayer()
-    private let blurMaskLayer: CAShapeLayer = {
-        let layer = CAShapeLayer()
-        layer.fillRule = .evenOdd
-        layer.fillColor = NSColor.white.cgColor
-        layer.backgroundColor = nil
-        return layer
-    }()
+    private let tintMaskLayer = OverlayMaskLayer()
+    private let blurMaskLayer = OverlayMaskLayer()
     private var currentStyle: FocusOverlayStyle?
-    private var currentMaskRectInContent: NSRect?
-    private var currentMaskCornerRadius: CGFloat = 0
+    private var currentMaskRegions: [MaskRegion] = []
     private var staticExcludedRects: [NSRect] = []
     private(set) var displayID: DisplayID
     private weak var assignedScreen: NSScreen?
@@ -95,38 +94,69 @@ final class OverlayWindow: NSPanel {
     }
 
     func applyMask(excluding rectInContentView: NSRect?, cornerRadius: CGFloat = 0) {
+        if let rect = rectInContentView {
+            applyMask(regions: [MaskRegion(rect: rect, cornerRadius: cornerRadius)])
+        } else {
+            applyMask(regions: [])
+        }
+    }
+
+    /// Allows the caller to carve out multiple regions at once (window, context menu, menus, ...).
+    func applyMask(regions: [MaskRegion]) {
         guard let contentView else { return }
 
-        if let rect = rectInContentView {
-            let bounds = contentView.bounds
-            if shouldIgnoreMask(rect: rect, in: bounds) {
-                if currentMaskRectInContent == nil, currentMaskCornerRadius == 0 {
-                    return
-                }
-                currentMaskRectInContent = nil
-                currentMaskCornerRadius = 0
-                clearMasks()
-                return
-            }
-            let tolerance = maskTolerance(for: contentView)
-            let resolvedCornerRadius = max(0, cornerRadius)
-            if let current = currentMaskRectInContent,
-               current.isApproximatelyEqual(to: rect, tolerance: tolerance),
-               abs(currentMaskCornerRadius - resolvedCornerRadius) <= tolerance {
-                return
-            }
-            currentMaskRectInContent = rect
-            currentMaskCornerRadius = resolvedCornerRadius
-        } else {
-            if currentMaskRectInContent == nil, currentMaskCornerRadius == 0 {
-                return
-            }
-            currentMaskRectInContent = nil
-            currentMaskCornerRadius = 0
+        guard filtersEnabled else {
+            currentMaskRegions = []
             clearMasks()
             return
         }
 
+        let bounds = contentView.bounds
+        let tolerance = maskTolerance(for: contentView)
+
+        let sanitized = regions.compactMap { region -> MaskRegion? in
+            let clipped = region.rect.intersection(bounds)
+            guard !clipped.isNull else { return nil }
+            if shouldIgnoreMask(rect: clipped, in: bounds) { return nil }
+            let limitedRadius = min(max(0, region.cornerRadius), min(clipped.width, clipped.height) / 2)
+            return MaskRegion(rect: clipped, cornerRadius: limitedRadius)
+        }
+
+        // Keep a deterministic ordering so tolerance-based equality checks remain stable.
+        let ordered = sanitized.sorted { lhs, rhs in
+            if lhs.rect.origin.y != rhs.rect.origin.y {
+                return lhs.rect.origin.y < rhs.rect.origin.y
+            }
+            if lhs.rect.origin.x != rhs.rect.origin.x {
+                return lhs.rect.origin.x < rhs.rect.origin.x
+            }
+            if lhs.rect.width != rhs.rect.width {
+                return lhs.rect.width < rhs.rect.width
+            }
+            return lhs.rect.height < rhs.rect.height
+        }
+
+        guard !ordered.isEmpty else {
+            if currentMaskRegions.isEmpty {
+                updateMaskLayer()
+                return
+            }
+            currentMaskRegions = []
+            updateMaskLayer()
+            return
+        }
+
+        if currentMaskRegions.count == ordered.count {
+            let matches = zip(currentMaskRegions, ordered).allSatisfy { current, updated in
+                current.rect.isApproximatelyEqual(to: updated.rect, tolerance: tolerance) &&
+                abs(current.cornerRadius - updated.cornerRadius) <= tolerance
+            }
+            if matches {
+                return
+            }
+        }
+
+        currentMaskRegions = ordered
         updateMaskLayer()
     }
 
@@ -170,7 +200,6 @@ final class OverlayWindow: NSPanel {
 
         contentView.addSubview(blurView)
         contentView.addSubview(tintView)
-        blurView.layer?.mask = blurMaskLayer
 
         NSLayoutConstraint.activate([
             blurView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
@@ -248,6 +277,7 @@ final class OverlayWindow: NSPanel {
             self.tintView.animator().alphaValue = targetOpacity
         }
 
+        // Rebuild the mask layer graph using destinationOut sublayers so overlaps stay transparent.
         CATransaction.begin()
         CATransaction.setAnimationDuration(duration)
         CATransaction.setAnimationTimingFunction(CAMediaTimingFunction(name: .easeInEaseOut))
@@ -304,48 +334,45 @@ final class OverlayWindow: NSPanel {
         }
 
         let bounds = contentView.bounds
-        let hasDynamicMask = currentMaskRectInContent != nil
+        let hasDynamicMask = !currentMaskRegions.isEmpty
         guard hasDynamicMask || !staticExcludedRects.isEmpty else {
             clearMasks()
             return
         }
 
-        let path = CGMutablePath()
-        path.addRect(bounds)
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
 
-        staticExcludedRects.forEach { path.addRect($0) }
+        let scale = backingScaleFactor
+        tintMaskLayer.configure(
+            bounds: bounds,
+            scale: scale,
+            staticRects: staticExcludedRects,
+            dynamicRegions: currentMaskRegions
+        )
+        blurMaskLayer.configure(
+            bounds: bounds,
+            scale: scale,
+            staticRects: staticExcludedRects,
+            dynamicRegions: currentMaskRegions
+        )
 
-        if let dynamic = currentMaskRectInContent {
-            let resolvedRadius = min(currentMaskCornerRadius, min(dynamic.width, dynamic.height) / 2)
-            if resolvedRadius > 0 {
-                let rounded = CGPath(
-                    roundedRect: dynamic,
-                    cornerWidth: resolvedRadius,
-                    cornerHeight: resolvedRadius,
-                    transform: nil
-                )
-                path.addPath(rounded)
-            } else {
-                path.addRect(dynamic)
-            }
+        if tintView.layer?.mask !== tintMaskLayer {
+            tintView.layer?.mask = tintMaskLayer
+        }
+        if blurView.layer?.mask !== blurMaskLayer {
+            blurView.layer?.mask = blurMaskLayer
         }
 
-        tintMaskLayer.path = path
-        tintMaskLayer.fillRule = .evenOdd
-        tintMaskLayer.frame = bounds
-        tintMaskLayer.contentsScale = backingScaleFactor
-        tintView.layer?.mask = tintMaskLayer
-        blurMaskLayer.path = path
-        blurMaskLayer.frame = bounds
-        blurMaskLayer.contentsScale = backingScaleFactor
-        blurView.layer?.mask = blurMaskLayer
+        CATransaction.commit()
     }
 
     private func clearMasks() {
         tintView.layer?.mask = nil
         blurView.layer?.mask = nil
-        blurMaskLayer.path = nil
-        currentMaskCornerRadius = 0
+        tintMaskLayer.reset()
+        blurMaskLayer.reset()
+        currentMaskRegions = []
     }
 
     private func shouldIgnoreMask(rect: NSRect, in bounds: NSRect) -> Bool {
@@ -359,6 +386,102 @@ final class OverlayWindow: NSPanel {
     private func maskTolerance(for view: NSView) -> CGFloat {
         let scale = view.window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 1
         return max(1.0 / max(scale, 1), 0.25)
+    }
+}
+
+/// Helper mask that rasterises carve-outs into a grayscale image (1 = visible, 0 = hidden).
+private final class OverlayMaskLayer: CALayer {
+    override init() {
+        super.init()
+        anchorPoint = .zero
+        contentsGravity = .resize
+    }
+
+    override init(layer: Any) {
+        super.init(layer: layer)
+        anchorPoint = .zero
+        contentsGravity = .resize
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        nil
+    }
+
+    func configure(
+        bounds: CGRect,
+        scale: CGFloat,
+        staticRects: [CGRect],
+        dynamicRegions: [OverlayWindow.MaskRegion]
+    ) {
+        frame = bounds
+        contentsScale = scale
+        contents = makeMaskImage(
+            bounds: bounds,
+            scale: scale,
+            staticRects: staticRects,
+            dynamicRegions: dynamicRegions
+        )
+    }
+
+    func reset() {
+        contents = nil
+        frame = .zero
+    }
+
+    private func makeMaskImage(
+        bounds: CGRect,
+        scale: CGFloat,
+        staticRects: [CGRect],
+        dynamicRegions: [OverlayWindow.MaskRegion]
+    ) -> CGImage? {
+        let pixelWidth = Int((bounds.width * scale).rounded(.up))
+        let pixelHeight = Int((bounds.height * scale).rounded(.up))
+        guard pixelWidth > 0, pixelHeight > 0 else { return nil }
+
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        let bitmapInfo = CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue)
+        guard let context = CGContext(
+            data: nil,
+            width: pixelWidth,
+            height: pixelHeight,
+            bitsPerComponent: 8,
+            bytesPerRow: 0,
+            space: colorSpace,
+            bitmapInfo: bitmapInfo.rawValue
+        ) else {
+            return nil
+        }
+
+        context.scaleBy(x: scale, y: scale)
+        context.translateBy(x: -bounds.origin.x, y: -bounds.origin.y)
+
+        context.setFillColor(red: 1, green: 1, blue: 1, alpha: 1)
+        context.fill(bounds)
+
+        staticRects.forEach { drawHole(in: $0, cornerRadius: 0, using: context) }
+        dynamicRegions.forEach { drawHole(in: $0.rect, cornerRadius: $0.cornerRadius, using: context) }
+
+        return context.makeImage()
+    }
+
+    private func drawHole(in rect: CGRect, cornerRadius: CGFloat, using context: CGContext) {
+        guard rect.width > 0, rect.height > 0 else { return }
+        let radius = min(max(cornerRadius, 0), min(rect.width, rect.height) / 2)
+        context.setBlendMode(.clear)
+        if radius > 0 {
+            let path = CGPath(
+                roundedRect: rect,
+                cornerWidth: radius,
+                cornerHeight: radius,
+                transform: nil
+            )
+            context.addPath(path)
+            context.fillPath()
+        } else {
+            context.fill(rect)
+        }
+        context.setBlendMode(.normal)
     }
 }
 

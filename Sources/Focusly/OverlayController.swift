@@ -36,7 +36,7 @@ final class OverlayController {
         isRunning = false
         stopPolling()
         lastActiveWindowSnapshot = nil
-        overlays.values.forEach { $0.applyMask(excluding: nil) }
+        overlays.values.forEach { $0.applyMask(regions: []) }
     }
 
     func setClickThrough(_ enabled: Bool) {
@@ -51,7 +51,7 @@ final class OverlayController {
 
         let removedIDs = Set(previous.keys).subtracting(newOverlays.keys)
         for id in removedIDs {
-            previous[id]?.applyMask(excluding: nil)
+            previous[id]?.applyMask(regions: [])
         }
 
         overlays.values.forEach { $0.setClickThrough(clickThroughEnabled) }
@@ -65,20 +65,20 @@ final class OverlayController {
         lastActiveWindowSnapshot = snapshot
 
         guard let snapshot else {
-            overlays.values.forEach { $0.applyMask(excluding: nil) }
+            overlays.values.forEach { $0.applyMask(regions: []) }
             return
         }
 
         let frame = snapshot.frame
 
         guard let targetDisplayID = screenIdentifier(for: frame) else {
-            overlays.values.forEach { $0.applyMask(excluding: nil) }
+            overlays.values.forEach { $0.applyMask(regions: []) }
             return
         }
 
         for (displayID, window) in overlays {
             guard let contentView = window.contentView else {
-                window.applyMask(excluding: nil)
+                window.applyMask(regions: [])
                 continue
             }
 
@@ -86,12 +86,24 @@ final class OverlayController {
                 let windowRect = window.convertFromScreen(frame)
                 let rectInContent = contentView.convert(windowRect, from: nil)
                 let normalizedRect = rectInContent.intersection(contentView.bounds)
-                window.applyMask(
-                    excluding: normalizedRect.isNull ? nil : normalizedRect,
-                    cornerRadius: snapshot.cornerRadius
-                )
+                var maskRegions: [OverlayWindow.MaskRegion] = []
+
+                if !normalizedRect.isNull {
+                    maskRegions.append(OverlayWindow.MaskRegion(rect: normalizedRect, cornerRadius: snapshot.cornerRadius))
+                }
+
+                // Add any context menus or menu-bar popovers linked to the focused app.
+                for supplementary in snapshot.supplementaryMasks {
+                    let supplementaryWindowRect = window.convertFromScreen(supplementary.frame)
+                    let supplementaryRectInContent = contentView.convert(supplementaryWindowRect, from: nil)
+                    let normalizedSupplementary = supplementaryRectInContent.intersection(contentView.bounds)
+                    guard !normalizedSupplementary.isNull else { continue }
+                    maskRegions.append(OverlayWindow.MaskRegion(rect: normalizedSupplementary, cornerRadius: supplementary.cornerRadius))
+                }
+
+                window.applyMask(regions: maskRegions)
             } else {
-                window.applyMask(excluding: nil)
+                window.applyMask(regions: [])
             }
         }
     }
