@@ -338,11 +338,11 @@ struct PreferencesView: View {
             Picker(
                 localized("App Language"),
                 selection: Binding(
-                    get: { viewModel.selectedLanguageID },
+                    get: { localization.selectedLanguageID },
                     set: { viewModel.setLanguage(id: $0) }
                 )
             ) {
-                ForEach(viewModel.languageOptions) { option in
+                ForEach(localization.languageOptions) { option in
                     Text(option.displayName).tag(option.id)
                 }
             }

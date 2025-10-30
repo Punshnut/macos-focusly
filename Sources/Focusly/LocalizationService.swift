@@ -57,16 +57,21 @@ final class LocalizationService: ObservableObject {
     }
 
     private func updateLocale() {
+        let displayLocale: Locale
         if let identifier = overrideIdentifier,
            let bundle = LocalizationService.bundle(for: identifier) {
             overrideBundle = bundle
-            locale = Locale(identifier: identifier)
+            displayLocale = Locale(identifier: identifier)
         } else {
             overrideBundle = nil
-            locale = .autoupdatingCurrent
+            displayLocale = .autoupdatingCurrent
         }
+
+        let sortingLocale = Locale.autoupdatingCurrent
+        locale = displayLocale
         languageOptions = LocalizationService.makeLanguageOptions(
-            locale: locale,
+            displayLocale: displayLocale,
+            sortingLocale: sortingLocale,
             translator: { [weak self] key, fallback in
                 self?.localized(key, fallback: fallback) ?? (fallback ?? key)
             }
@@ -89,7 +94,8 @@ final class LocalizationService: ObservableObject {
     }
 
     private static func makeLanguageOptions(
-        locale: Locale,
+        displayLocale: Locale,
+        sortingLocale: Locale,
         translator: (String, String?) -> String
     ) -> [LanguageOption] {
         var options: [LanguageOption] = []
@@ -108,19 +114,18 @@ final class LocalizationService: ObservableObject {
         let available = Bundle.module.localizations
             .filter { $0.caseInsensitiveCompare("Base") != .orderedSame }
 
-        let currentLocale = locale
         let collationIdentifier: String?
         if #available(macOS 13, *) {
-            collationIdentifier = currentLocale.collation.identifier
+            collationIdentifier = sortingLocale.collation.identifier
         } else {
-            collationIdentifier = currentLocale.collationIdentifier
+            collationIdentifier = sortingLocale.collationIdentifier
         }
-        let collation = collationIdentifier.flatMap(Locale.init(identifier:)) ?? currentLocale
+        let collation = collationIdentifier.flatMap(Locale.init(identifier:)) ?? sortingLocale
 
         let mapped: [LanguageOption] = available.map { identifier in
             let nativeLocale = Locale(identifier: identifier)
             let primary = nativeLocale.localizedString(forIdentifier: identifier) ?? identifier
-            let localized = currentLocale.localizedString(forIdentifier: identifier) ?? primary
+            let localized = displayLocale.localizedString(forIdentifier: identifier) ?? primary
             let secondary = primary.caseInsensitiveCompare(localized) == .orderedSame ? nil : localized
             return LanguageOption(
                 id: identifier,

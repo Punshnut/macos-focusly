@@ -189,16 +189,7 @@ final class FocuslyAppCoordinator: NSObject {
 
     private func syncLocalization() {
         syncStatusBar()
-        syncPreferencesLanguageOptions()
         refreshOnboardingLocalizationIfNeeded()
-    }
-
-    private func syncPreferencesLanguageOptions() {
-        guard let viewModel = preferencesViewModel else { return }
-        viewModel.updateLanguageOptions(
-            localization.languageOptions,
-            selectedID: localization.selectedLanguageID
-        )
     }
 
     private func refreshOnboardingLocalizationIfNeeded() {
@@ -240,10 +231,6 @@ final class FocuslyAppCoordinator: NSObject {
             preferencesViewModel?.statusIconStyle = statusBarIconStyle
             preferencesViewModel?.availablePresets = PresetLibrary.presets
             preferencesViewModel?.selectedPresetID = profileStore.currentPreset().id
-            preferencesViewModel?.updateLanguageOptions(
-                localization.languageOptions,
-                selectedID: localization.selectedLanguageID
-            )
             controller.updateLocalization(localization: localization)
             syncPreferencesDisplays()
             return
@@ -260,8 +247,6 @@ final class FocuslyAppCoordinator: NSObject {
             availableIconStyles: StatusBarIconStyle.allCases,
             availablePresets: PresetLibrary.presets,
             selectedPresetID: profileStore.currentPreset().id,
-            languageOptions: localization.languageOptions,
-            selectedLanguageID: localization.selectedLanguageID,
             callbacks: PreferencesViewModel.Callbacks(
                 onDisplayChange: { [weak self] displayID, style in
                     guard let self else { return }
