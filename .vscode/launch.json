@@ -6,8 +6,9 @@
             "args": [],
             "cwd": "${workspaceFolder:macos-focusly}",
             "name": "Debug focusly",
-            "program": "${workspaceFolder:macos-focusly}/.build/debug/focusly",
-            "preLaunchTask": "swift: Build Debug focusly"
+            "preLaunchTask": "swift: Build Debug focusly",
+            "target": "focusly",
+            "configuration": "debug"
         },
         {
             "type": "swift",
@@ -15,8 +16,9 @@
             "args": [],
             "cwd": "${workspaceFolder:macos-focusly}",
             "name": "Release focusly",
-            "program": "${workspaceFolder:macos-focusly}/.build/release/focusly",
-            "preLaunchTask": "swift: Build Release focusly"
+            "preLaunchTask": "swift: Build Release focusly",
+            "target": "focusly",
+            "configuration": "release"
         }
     ]
 }

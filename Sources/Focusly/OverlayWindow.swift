@@ -368,8 +368,8 @@ private final class OverlayBlurView: NSVisualEffectView {
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         translatesAutoresizingMaskIntoConstraints = false
-        blendingMode = .withinWindow
-        material = .sidebar
+        blendingMode = .behindWindow       //blur effect adjustment, only .behindWindow works properly
+        material = .hudWindow              //blur effect style, be careful when changing
         state = .active
         wantsLayer = true
         layer?.masksToBounds = false
