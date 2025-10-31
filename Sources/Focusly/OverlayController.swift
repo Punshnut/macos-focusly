@@ -80,12 +80,14 @@ final class OverlayController {
 
     /// Applies the supplied snapshot to all overlays, carving out the focused window and related UI.
     func applyOverlayMask(with snapshot: ActiveWindowSnapshot?) {
-        cachedActiveWindowSnapshot = snapshot
-
         guard let snapshot else {
+            // Keep showing the last snapshot if the resolver temporarily fails so the focused window stays clear.
+            guard cachedActiveWindowSnapshot == nil else { return }
             overlayWindows.values.forEach { $0.applyMask(regions: []) }
             return
         }
+
+        cachedActiveWindowSnapshot = snapshot
 
         let activeFrame = snapshot.frame
 
