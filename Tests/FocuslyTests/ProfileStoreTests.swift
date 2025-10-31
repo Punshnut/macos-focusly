@@ -1,6 +1,7 @@
 import XCTest
 @testable import Focusly
 
+@MainActor
 final class ProfileStoreTests: XCTestCase {
     func testSelectPresetClearsOverrides() {
         let userDefaults = UserDefaults(suiteName: "FocuslyTests.ProfileStore")!
@@ -28,7 +29,8 @@ final class ProfileStoreTests: XCTestCase {
             opacity: 0.61,
             tint: .ember,
             animationDuration: 0.27,
-            colorTreatment: .monochrome
+            colorTreatment: .monochrome,
+            blurRadius: 18
         )
         store?.updateStyle(override, forDisplayID: displayID)
         store = nil
@@ -36,5 +38,6 @@ final class ProfileStoreTests: XCTestCase {
         let newStore = ProfileStore(userDefaults: userDefaults)
         XCTAssertEqual(newStore.style(forDisplayID: displayID).opacity, 0.61, accuracy: 0.001)
         XCTAssertEqual(newStore.style(forDisplayID: displayID).colorTreatment, .monochrome)
+        XCTAssertEqual(newStore.style(forDisplayID: displayID).blurRadius, 18, accuracy: 0.001)
     }
 }

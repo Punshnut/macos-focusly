@@ -1,5 +1,6 @@
 import AppKit
 import QuartzCore
+import CoreImage
 
 /// Full-screen, click-through panel that renders Focusly's blur and tint overlay above a display.
 @MainActor
@@ -34,8 +35,14 @@ final class OverlayWindow: NSPanel {
     /// Toggles whether the blur/tint pipeline is applied or bypassed entirely.
     private var areFiltersEnabled = true {
         didSet {
+            guard areFiltersEnabled != oldValue else { return }
             blurEffectView.setBlurEnabled(areFiltersEnabled)
             tintOverlayView.isHidden = !areFiltersEnabled
+            if areFiltersEnabled {
+                refreshMaskLayers()
+            } else {
+                resetMaskLayers(preserveActiveRegions: true)
+            }
         }
     }
 
@@ -115,12 +122,6 @@ final class OverlayWindow: NSPanel {
     /// Applies multiple carved-out regions so windows, menus, and other UI remain visible.
     func applyMask(regions: [MaskRegion]) {
         guard let contentView else { return }
-
-        guard areFiltersEnabled else {
-            activeMaskRegions = []
-            resetMaskLayers()
-            return
-        }
 
         let bounds = contentView.bounds
         let tolerance = maskTolerance(for: contentView)
@@ -283,6 +284,9 @@ final class OverlayWindow: NSPanel {
             self.tintOverlayView.layer?.backgroundColor = targetColor.cgColor
         }
 
+        blurEffectView.setExtraBlurRadius(CGFloat(max(0, style.blurRadius)))
+        blurEffectView.setColorTreatment(style.colorTreatment)
+
         guard animated else {
             applyValues()
             return
@@ -354,7 +358,7 @@ final class OverlayWindow: NSPanel {
     private func refreshMaskLayers() {
         guard let contentView else { return }
         guard areFiltersEnabled else {
-            resetMaskLayers()
+            resetMaskLayers(preserveActiveRegions: true)
             return
         }
 
@@ -393,12 +397,14 @@ final class OverlayWindow: NSPanel {
     }
 
     /// Clears active masks and releases mask images.
-    private func resetMaskLayers() {
+    private func resetMaskLayers(preserveActiveRegions: Bool = false) {
         tintOverlayView.layer?.mask = nil
         blurEffectView.layer?.mask = nil
         tintMaskingLayer.reset()
         blurMaskingLayer.reset()
-        activeMaskRegions = []
+        if !preserveActiveRegions {
+            activeMaskRegions = []
+        }
     }
 
     /// Determines whether a given rect should be ignored because it covers most of the overlay.
@@ -520,6 +526,8 @@ private final class OverlayMaskLayer: CALayer {
 /// Visual effect view that drives the blur material beneath the tinted overlay.
 private final class OverlayBlurView: NSVisualEffectView {
     private var isBlurEnabled = true
+    private var extraBlurRadius: CGFloat = 35
+    private var colorTreatment: FocusOverlayColorTreatment = .preserveColor
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -528,7 +536,9 @@ private final class OverlayBlurView: NSVisualEffectView {
         material = .hudWindow  // Default material that provides a neutral blur across macOS themes.
         state = .active
         wantsLayer = true
+        layerUsesCoreImageFilters = true
         layer?.masksToBounds = false
+        applyFilters()
     }
 
     convenience init() {
@@ -540,6 +550,11 @@ private final class OverlayBlurView: NSVisualEffectView {
         nil
     }
 
+    override func layout() {
+        super.layout()
+        applyFilters()
+    }
+
     /// Enables or disables the blur effect while keeping the view in place.
     func setBlurEnabled(_ isEnabled: Bool) {
         guard isBlurEnabled != isEnabled else { return }
@@ -548,6 +563,9 @@ private final class OverlayBlurView: NSVisualEffectView {
         isHidden = !isEnabled
         if !isEnabled {
             layer?.mask = nil
+            layer?.backgroundFilters = nil
+        } else {
+            applyFilters()
         }
     }
 
@@ -556,5 +574,46 @@ private final class OverlayBlurView: NSVisualEffectView {
         super.prepareForReuse()
         layer?.removeAllAnimations()
         layer?.mask = nil
+        applyFilters()
+    }
+
+    /// Adjusts the gaussian blur radius used to soften captured content.
+    func setExtraBlurRadius(_ radius: CGFloat) {
+        let clamped = max(0, radius)
+        guard abs(extraBlurRadius - clamped) >= .ulpOfOne else { return }
+        extraBlurRadius = clamped
+        applyFilters()
+    }
+
+    /// Updates the color treatment that should be applied beneath the tint overlay.
+    func setColorTreatment(_ treatment: FocusOverlayColorTreatment) {
+        guard colorTreatment != treatment else { return }
+        colorTreatment = treatment
+        applyFilters()
+    }
+
+    /// Applies an additional gaussian blur so the overall effect appears stronger.
+    private func applyFilters() {
+        guard isBlurEnabled, let layer else {
+            self.layer?.backgroundFilters = nil
+            return
+        }
+
+        var filters: [CIFilter] = []
+
+        let radius = max(0, extraBlurRadius)
+        if radius > 0, let blurFilter = CIFilter(name: "CIGaussianBlur") {
+            blurFilter.setDefaults()
+            blurFilter.setValue(radius, forKey: kCIInputRadiusKey)
+            filters.append(blurFilter)
+        }
+
+        if colorTreatment == .monochrome, let colorFilter = CIFilter(name: "CIColorControls") {
+            colorFilter.setDefaults()
+            colorFilter.setValue(0, forKey: kCIInputSaturationKey)
+            filters.append(colorFilter)
+        }
+
+        layer.backgroundFilters = filters.isEmpty ? nil : filters
     }
 }

@@ -152,6 +152,7 @@ struct PreferencesView: View {
     private func displayDetail(for display: PreferencesViewModel.DisplaySettings) -> some View {
         let liveOpacity = viewModel.displaySettings.first(where: { $0.id == display.id })?.opacity ?? display.opacity
         let liveTint = viewModel.displaySettings.first(where: { $0.id == display.id })?.tint ?? display.tint
+        let liveBlur = viewModel.displaySettings.first(where: { $0.id == display.id })?.blurRadius ?? display.blurRadius
 
         let opacityBinding = Binding(
             get: { viewModel.displaySettings.first(where: { $0.id == display.id })?.opacity ?? display.opacity },
@@ -170,6 +171,16 @@ struct PreferencesView: View {
             }
         )
 
+        let blurBinding = Binding(
+            get: { viewModel.displaySettings.first(where: { $0.id == display.id })?.blurRadius ?? display.blurRadius },
+            set: { viewModel.updateBlur(for: display.id, radius: $0) }
+        )
+
+        let colorTreatmentBinding = Binding(
+            get: { viewModel.displaySettings.first(where: { $0.id == display.id })?.colorTreatment ?? display.colorTreatment },
+            set: { viewModel.updateColorTreatment(for: display.id, treatment: $0) }
+        )
+
         return VStack(alignment: .leading, spacing: 18) {
             HStack(alignment: .firstTextBaseline) {
                 VStack(alignment: .leading, spacing: 2) {
@@ -180,23 +191,6 @@ struct PreferencesView: View {
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
-                Spacer(minLength: 12)
-                Menu {
-                    Button(localized("Reset This Display")) {
-                        viewModel.resetDisplay(display.id)
-                    }
-                    if viewModel.displaySettings.count > 1 {
-                        Button(localized("Copy settings to other displays")) {
-                            viewModel.syncDisplaySettings(from: display.id)
-                        }
-                    }
-                } label: {
-                    Label(localized("Options"), systemImage: "ellipsis.circle")
-                        .labelStyle(.iconOnly)
-                        .imageScale(.large)
-                        .padding(6)
-                }
-                .menuStyle(.borderlessButton)
             }
 
             RoundedRectangle(cornerRadius: 12, style: .continuous)
@@ -208,43 +202,100 @@ struct PreferencesView: View {
                 )
                 .accessibilityLabel(Text(localized("Overlay preview")))
 
-            VStack(alignment: .leading, spacing: 14) {
-                VStack(alignment: .leading, spacing: 6) {
+            GroupBox {
+                VStack(alignment: .leading, spacing: 12) {
                     HStack {
-                        Text(localized("Color Filter"))
+                        Text(localized("Blur Radius"))
                             .font(.caption)
                             .foregroundColor(.secondary)
                         Spacer()
-                        Text(opacityLabel(for: liveOpacity))
+                        Text(String(format: "%.0f", liveBlur))
                             .font(.caption)
                             .foregroundColor(.secondary)
                             .monospacedDigit()
                     }
-                    Slider(value: opacityBinding, in: 0.35...1.0, step: 0.01)
-                }
-
-                VStack(alignment: .leading, spacing: 8) {
-                    Text(localized("Tint"))
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    ColorPicker(
-                        localized("Overlay Tint"),
-                        selection: tintBinding,
-                        supportsOpacity: true
-                    )
-                    .labelsHidden()
-                    RoundedRectangle(cornerRadius: 6, style: .continuous)
-                        .fill(Color(nsColor: liveTint).opacity(liveOpacity))
-                        .frame(height: 22)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                                .stroke(Color.primary.opacity(0.08))
-                        )
-                        .accessibilityHidden(true)
-                    Text(localized("Adjust the tint and transparency until it matches your space."))
+                    Slider(value: blurBinding, in: 0...60, step: 1)
+                    Text(localized("Control how strongly Focusly softens background details."))
                         .font(.caption2)
                         .foregroundColor(.secondary)
                 }
+            } label: {
+                Label(localized("Blurring Details"), systemImage: "drop.halffull")
+            }
+
+            GroupBox {
+                VStack(alignment: .leading, spacing: 14) {
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack {
+                            Text(localized("Overlay Strength"))
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                            Spacer()
+                            Text(opacityLabel(for: liveOpacity))
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                                .monospacedDigit()
+                        }
+                        Slider(value: opacityBinding, in: 0.35...1.0, step: 0.01)
+                    }
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(localized("Tint"))
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        ColorPicker(
+                            localized("Overlay Tint"),
+                            selection: tintBinding,
+                            supportsOpacity: true
+                        )
+                        .labelsHidden()
+                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            .fill(Color(nsColor: liveTint).opacity(liveOpacity))
+                            .frame(height: 22)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                    .stroke(Color.primary.opacity(0.08))
+                            )
+                            .accessibilityHidden(true)
+                    }
+
+                    Picker(localized("Color Treatment"), selection: colorTreatmentBinding) {
+                        ForEach(FocusOverlayColorTreatment.allCases, id: \.self) { treatment in
+                            Text(localized(treatment.displayName)).tag(treatment)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+
+                    Text(localized("Dial in the color overlay or switch to monochrome window content."))
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                }
+            } label: {
+                Label(localized("Color Effects"), systemImage: "paintpalette")
+            }
+
+            GroupBox {
+                VStack(alignment: .leading, spacing: 10) {
+                    Button {
+                        viewModel.resetDisplay(display.id)
+                    } label: {
+                        Label(localized("Reset to Preset"), systemImage: "arrow.counterclockwise")
+                    }
+
+                    if viewModel.displaySettings.count > 1 {
+                        Button {
+                            viewModel.syncDisplaySettings(from: display.id)
+                        } label: {
+                            Label(localized("Apply to Other Displays"), systemImage: "square.on.square")
+                        }
+                    }
+
+                    Text(localized("Revert to the preset defaults or copy this look to your other screens."))
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                }
+            } label: {
+                Label(localized("Standard Settings"), systemImage: "slider.horizontal.2.gobackward")
             }
         }
         .padding(16)

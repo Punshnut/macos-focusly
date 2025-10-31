@@ -4,8 +4,11 @@ import CoreGraphics
 /// Resolves the currently focused window snapshot using the most permissive APIs available.
 /// Falls back to accessibility lookups when Core Graphics metadata is not available
 /// (e.g. when an app has no on-screen windows).
-func resolveActiveWindowSnapshot(excluding windowNumbers: Set<Int> = []) -> ActiveWindowSnapshot? {
-    if let frontWindow = cgFrontWindow(excluding: windowNumbers) {
+func resolveActiveWindowSnapshot(
+    excluding windowNumbers: Set<Int> = [],
+    preferredPID: pid_t? = nil
+) -> ActiveWindowSnapshot? {
+    if let frontWindow = cgFrontWindow(excluding: windowNumbers, preferredPID: preferredPID) {
         let radius = axActiveWindowCornerRadius(preferredPID: frontWindow.ownerPID) ?? fallbackCornerRadius(for: frontWindow.frame)
         return ActiveWindowSnapshot(
             frame: frontWindow.frame,
@@ -14,7 +17,7 @@ func resolveActiveWindowSnapshot(excluding windowNumbers: Set<Int> = []) -> Acti
         )
     }
 
-    guard let snapshot = axActiveWindowSnapshot() else {
+    guard let snapshot = axActiveWindowSnapshot(preferredPID: preferredPID) else {
         return nil
     }
 
@@ -31,16 +34,22 @@ func resolveActiveWindowSnapshot(excluding windowNumbers: Set<Int> = []) -> Acti
 /// Resolves the currently focused window frame using the most permissive APIs available.
 /// Falls back to accessibility lookups when Core Graphics metadata is not available
 /// (e.g. when an app has no on-screen windows).
-func resolveActiveWindowFrame(excluding windowNumbers: Set<Int> = []) -> NSRect? {
-    if let frontWindow = cgFrontWindow(excluding: windowNumbers) {
+func resolveActiveWindowFrame(
+    excluding windowNumbers: Set<Int> = [],
+    preferredPID: pid_t? = nil
+) -> NSRect? {
+    if let frontWindow = cgFrontWindow(excluding: windowNumbers, preferredPID: preferredPID) {
         return frontWindow.frame
     }
-    return axActiveWindowSnapshot()?.frame
+    return axActiveWindowSnapshot(preferredPID: preferredPID)?.frame
 }
 
 /// CoreGraphics-only variant to avoid touching the Accessibility APIs.
-func resolveActiveWindowFrameUsingCoreGraphics(excluding windowNumbers: Set<Int> = []) -> NSRect? {
-    cgFrontWindow(excluding: windowNumbers)?.frame
+func resolveActiveWindowFrameUsingCoreGraphics(
+    excluding windowNumbers: Set<Int> = [],
+    preferredPID: pid_t? = nil
+) -> NSRect? {
+    cgFrontWindow(excluding: windowNumbers, preferredPID: preferredPID)?.frame
 }
 
 /// Metadata representing the window currently at the front of the CoreGraphics list.
@@ -52,7 +61,7 @@ private struct CGFrontWindowSnapshot {
 }
 
 /// Uses CoreGraphics to locate the foremost visible window while skipping overlay windows.
-private func cgFrontWindow(excluding windowNumbers: Set<Int>) -> CGFrontWindowSnapshot? {
+private func cgFrontWindow(excluding windowNumbers: Set<Int>, preferredPID: pid_t?) -> CGFrontWindowSnapshot? {
     let options: CGWindowListOption = [.optionOnScreenOnly, .excludeDesktopElements]
 
     guard let fullList = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]], !fullList.isEmpty else {
@@ -60,7 +69,25 @@ private func cgFrontWindow(excluding windowNumbers: Set<Int>) -> CGFrontWindowSn
     }
 
     let shortlist = Array(fullList.prefix(24))
-    let front = findFrontWindow(in: shortlist, excluding: windowNumbers) ?? findFrontWindow(in: fullList, excluding: windowNumbers)
+    if let preferredPID,
+       let preferred = findFrontWindow(in: shortlist, excluding: windowNumbers, preferredPID: preferredPID)
+            ?? findFrontWindow(in: fullList, excluding: windowNumbers, preferredPID: preferredPID) {
+        let supplementary = collectSupplementaryMasks(
+            in: fullList,
+            primaryPID: preferred.ownerPID,
+            excludingNumbers: windowNumbers.union([preferred.windowNumber])
+        )
+
+        return CGFrontWindowSnapshot(
+            frame: preferred.frame,
+            ownerPID: preferred.ownerPID,
+            windowNumber: preferred.windowNumber,
+            supplementaryMasks: supplementary
+        )
+    }
+
+    let front = findFrontWindow(in: shortlist, excluding: windowNumbers, preferredPID: nil)
+        ?? findFrontWindow(in: fullList, excluding: windowNumbers, preferredPID: nil)
 
     guard let resolvedFront = front else {
         return nil
@@ -81,7 +108,13 @@ private func cgFrontWindow(excluding windowNumbers: Set<Int>) -> CGFrontWindowSn
 }
 
 /// Walks window dictionaries looking for the topmost candidate the overlay should carve out.
-private func findFrontWindow(in windows: [[String: Any]], excluding windowNumbers: Set<Int>) -> CGFrontWindowSnapshot? {
+private func findFrontWindow(
+    in windows: [[String: Any]],
+    excluding windowNumbers: Set<Int>,
+    preferredPID: pid_t?
+) -> CGFrontWindowSnapshot? {
+    var fallback: CGFrontWindowSnapshot?
+
     for window in windows {
         guard let number = window[kCGWindowNumber as String] as? Int else { continue }
         if windowNumbers.contains(number) { continue }
@@ -112,14 +145,21 @@ private func findFrontWindow(in windows: [[String: Any]], excluding windowNumber
             height: correctedBounds.size.height
         )
 
-        return CGFrontWindowSnapshot(
+        let snapshot = CGFrontWindowSnapshot(
             frame: frame,
             ownerPID: resolvedPID,
             windowNumber: number,
             supplementaryMasks: []
         )
+
+        if let preferredPID, resolvedPID == preferredPID {
+            return snapshot
+        }
+        if fallback == nil {
+            fallback = snapshot
+        }
     }
-    return nil
+    return fallback
 }
 
 /// Scans the current window list for secondary surfaces tied to the front application

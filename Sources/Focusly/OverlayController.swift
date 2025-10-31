@@ -18,7 +18,9 @@ final class OverlayController {
     private var cachedActiveWindowSnapshot: ActiveWindowSnapshot?
 
     init(
-        activeWindowSnapshotResolver: @escaping (Set<Int>) -> ActiveWindowSnapshot? = resolveActiveWindowSnapshot
+        activeWindowSnapshotResolver: @escaping (Set<Int>) -> ActiveWindowSnapshot? = { windowNumbers in
+            resolveActiveWindowSnapshot(excluding: windowNumbers)
+        }
     ) {
         self.activeWindowSnapshotResolver = activeWindowSnapshotResolver
     }
@@ -30,7 +32,9 @@ final class OverlayController {
         rebuildScreensLookup()
         startPolling()
         applyCachedOverlayMask()
-        refreshActiveWindowSnapshot()
+        if cachedActiveWindowSnapshot == nil {
+            refreshActiveWindowSnapshot()
+        }
     }
 
     /// Stops monitoring and clears active overlay carve-outs.
@@ -46,6 +50,14 @@ final class OverlayController {
     func setClickThrough(_ enabled: Bool) {
         isClickThroughEnabled = enabled
         overlayWindows.values.forEach { $0.setClickThrough(enabled) }
+    }
+
+    /// Seeds the controller with an initial snapshot so overlays can immediately carve it out.
+    func primeOverlayMask(with snapshot: ActiveWindowSnapshot?) {
+        cachedActiveWindowSnapshot = snapshot
+        if isRunning {
+            applyCachedOverlayMask()
+        }
     }
 
     /// Replaces the overlay window map, cleaning up removed displays and applying cached masks.

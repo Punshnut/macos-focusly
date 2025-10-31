@@ -28,6 +28,8 @@ final class FocuslyAppCoordinator: NSObject {
     private var preferencesViewModel: PreferencesViewModel?
     private var displayChangeObserver: NSObjectProtocol?
     private var spaceChangeObserver: NSObjectProtocol?
+    private var appActivationObserver: NSObjectProtocol?
+    private var lastActivatedNonSelfPID: pid_t?
 
     private var areOverlaysEnabled: Bool {
         didSet { persistOverlayActivation() }
@@ -73,6 +75,7 @@ final class FocuslyAppCoordinator: NSObject {
 
         super.init()
 
+        observeApplicationActivation()
         overlayWindowService.delegate = overlayController
         statusBarController.setDelegate(self)
         hotkeyManager.onActivation = { [weak self] in
@@ -108,6 +111,10 @@ final class FocuslyAppCoordinator: NSObject {
         if let spaceChangeObserver {
             appEnvironment.workspace.notificationCenter.removeObserver(spaceChangeObserver)
         }
+        if let appActivationObserver {
+            appEnvironment.workspace.notificationCenter.removeObserver(appActivationObserver)
+            self.appActivationObserver = nil
+        }
     }
 
     // MARK: - Display Coordination
@@ -139,6 +146,13 @@ final class FocuslyAppCoordinator: NSObject {
 
     /// Applies the user-selected overlay state and refreshes dependent systems.
     private func setOverlayActivation(_ isEnabled: Bool) {
+        if isEnabled {
+            let snapshot = resolveActiveWindowSnapshot(
+                excluding: currentApplicationWindowNumbers(),
+                preferredPID: lastActivatedNonSelfPID
+            )
+            overlayController.primeOverlayMask(with: snapshot)
+        }
         areOverlaysEnabled = isEnabled
         appSettings.areFiltersEnabled = isEnabled
         synchronizeOverlayControllerRunningState()
@@ -349,6 +363,43 @@ final class FocuslyAppCoordinator: NSObject {
         preferencesViewModel?.displaySettings = makeDisplaySettings()
     }
 
+    /// Observes frontmost app changes so we can remember the last non-Focusly PID.
+    private func observeApplicationActivation() {
+        let workspace = appEnvironment.workspace
+        updateLastNonSelfPID(with: workspace.frontmostApplication)
+        appActivationObserver = workspace.notificationCenter.addObserver(
+            forName: NSWorkspace.didActivateApplicationNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else {
+                return
+            }
+            Task { @MainActor [weak self] in
+                self?.updateLastNonSelfPID(with: app)
+            }
+        }
+    }
+
+    /// Stores the PID for the most recent app activation outside of Focusly.
+    private func updateLastNonSelfPID(with application: NSRunningApplication?) {
+        guard let application else { return }
+        let currentPID = ProcessInfo.processInfo.processIdentifier
+        if application.processIdentifier != currentPID {
+            lastActivatedNonSelfPID = application.processIdentifier
+        }
+    }
+
+    /// Returns window numbers belonging to Focusly so we can skip them when resolving snapshots.
+    private func currentApplicationWindowNumbers() -> Set<Int> {
+        let windows = NSApp?.windows ?? []
+        return Set(
+            windows
+                .map { $0.windowNumber }
+                .filter { $0 != 0 }
+        )
+    }
+
     /// Builds per-display preference models combining screen metadata and stored profile overrides.
     private func makeDisplaySettings() -> [PreferencesViewModel.DisplaySettings] {
         let displays: [PreferencesViewModel.DisplaySettings] = NSScreen.screens.compactMap { screen -> PreferencesViewModel.DisplaySettings? in
@@ -364,7 +415,8 @@ final class FocuslyAppCoordinator: NSObject {
                 name: name,
                 opacity: style.opacity,
                 tint: tintColor,
-                colorTreatment: style.colorTreatment
+                colorTreatment: style.colorTreatment,
+                blurRadius: style.blurRadius
             )
         }
         return displays.sorted { $0.name < $1.name }

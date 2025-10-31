@@ -11,6 +11,7 @@ final class PreferencesViewModel: ObservableObject {
         var opacity: Double
         var tint: NSColor
         var colorTreatment: FocusOverlayColorTreatment
+        var blurRadius: Double
 
         var tintPreview: NSColor {
             tint
@@ -88,6 +89,20 @@ final class PreferencesViewModel: ObservableObject {
         commit(display: displaySettings[index])
     }
 
+    /// Persists blur radius adjustments for a display and notifies the app.
+    func updateBlur(for displayID: DisplayID, radius: Double) {
+        guard let index = displaySettings.firstIndex(where: { $0.id == displayID }) else { return }
+        displaySettings[index].blurRadius = max(0, radius)
+        commit(display: displaySettings[index])
+    }
+
+    /// Persists color treatment changes for a display and notifies the app.
+    func updateColorTreatment(for displayID: DisplayID, treatment: FocusOverlayColorTreatment) {
+        guard let index = displaySettings.firstIndex(where: { $0.id == displayID }) else { return }
+        displaySettings[index].colorTreatment = treatment
+        commit(display: displaySettings[index])
+    }
+
     /// Reverts a display to its preset defaults.
     func resetDisplay(_ displayID: DisplayID) {
         handlers.onDisplayReset(displayID)
@@ -108,6 +123,7 @@ final class PreferencesViewModel: ObservableObject {
             displaySettings[index].opacity = source.opacity
             displaySettings[index].tint = source.tint
             displaySettings[index].colorTreatment = source.colorTreatment
+            displaySettings[index].blurRadius = source.blurRadius
             commit(display: displaySettings[index])
         }
     }
@@ -179,7 +195,8 @@ final class PreferencesViewModel: ObservableObject {
             opacity: display.opacity,
             tint: tint,
             animationDuration: 0.3,
-            colorTreatment: display.colorTreatment
+            colorTreatment: display.colorTreatment,
+            blurRadius: display.blurRadius
         )
         handlers.onDisplayChange(display.id, style)
     }
