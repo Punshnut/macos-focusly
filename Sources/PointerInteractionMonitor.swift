@@ -42,6 +42,7 @@ final class PointerInteractionMonitor {
         isPointerDown = false
     }
 
+    /// Routes global mouse events into coarse state transitions for the overlay controller.
     private func handle(event: NSEvent) {
         switch event.type {
         case .leftMouseDown, .rightMouseDown, .otherMouseDown:

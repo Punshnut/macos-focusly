@@ -257,6 +257,7 @@ final class PreferencesViewModel: ObservableObject {
 
 /// Minimal key code to character mapper for displaying shortcuts.
 private enum KeyTransformer {
+    /// Human-friendly glyph or label for a given hardware key code.
     static func displayName(for keyCode: UInt32) -> String? {
         switch keyCode {
         case 0: return "A"

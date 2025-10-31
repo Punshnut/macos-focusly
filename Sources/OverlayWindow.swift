@@ -703,6 +703,7 @@ private final class OverlayMaskLayer: CALayer {
         return context.makeImage()
     }
 
+    /// Snaps carve-out rects to the backing pixel grid so masks remain crisp on HiDPI displays.
     private func alignRectToPixelGrid(_ rect: CGRect, scale: CGFloat) -> CGRect {
         guard rect.width > 0, rect.height > 0, scale > 0 else { return rect }
         let scaledMinX = floor(rect.minX * scale)
