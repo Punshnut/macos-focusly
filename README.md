@@ -26,7 +26,7 @@ Focusly tracks the active window (with your permission) so the foreground conten
 - ⌨️ **Global Shortcut** - customizable Carbon-backed hotkey for instant control.  
 - 🚀 **Launch at Login** - integrates with `SMAppService` when running as a bundled `.app`.  
 - 🧭 **Guided Onboarding** - assists with setup, permissions, and language selection.  
-- 🌐 **Localization Ready** - runtime language switching with support for English, Spanish, Simplified Chinese, Ukrainian, and Russian.
+- 🌐 **Localization Ready** - runtime language switching with support for English, Spanish, Spanish (Mexico), French, Italian, Simplified Chinese, Ukrainian, Russian, Japanese, Korean, and Thai.
 
 ---
 
@@ -150,11 +150,17 @@ Available in:
 
 - 🇬🇧 English  
 - 🇪🇸 Español  
+- 🇲🇽 Español (México)  
+- 🇫🇷 Français  
+- 🇮🇹 Italiano  
 - 🇨🇳 中文（简体）  
 - 🇺🇦 Українська  
 - 🇷🇺 Русский  
+- 🇯🇵 日本語  
+- 🇰🇷 한국어 (대한민국)  
+- 🇹🇭 ภาษาไทย  
 
-Additional community docs under `Documentation/<locale>`, including Japanese (`ja`) and Korean (`ko`).
+Additional community docs live under [`Documentation/`](Documentation/), including localized guides.
 
 > _In Spanish, “enfocar” means “to focus” — and yes, Focusly is quite the “enfocador”._
 
