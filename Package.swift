@@ -17,7 +17,7 @@ let package = Package(
     targets: [
         .executableTarget(
             name: "Focusly",
-            path: "Sources/Focusly",
+            path: "Sources",
             resources: [
                 .process("Resources")
             ],

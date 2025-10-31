@@ -21,12 +21,12 @@ This guide walks through the macOS settings window and the first-run tips that h
 - Tip: Reduce opacity on secondary displays to keep reference content visible while still muting distractions.
 
 ### Hotkey
-- Toggle the global shortcut on, then record a key combination (for example, `⌃⌥⌘F`) to quickly toggle overlays.
+- Use the **Enable Overlay Shortcut** toggle, then record a key combination (for example, `⌃⌥⌘F`) to quickly toggle overlays.
 - `Clear` removes the shortcut; disables with the toggle if you need to avoid conflicts.
 - Tip: Choose a combination that is easy to hit with one hand so you can momentarily show the desktop without breaking flow.
 
 ### Launch at Login
-- Enable automatic launch so Focusly starts with macOS. If macOS blocks the setting, a short message explains what to do in System Settings → Users & Groups → Login Items.
+- Enable **Launch Focusly at Login** so overlays start with macOS. If macOS blocks the setting, a short message explains what to do in System Settings → Users & Groups → Login Items.
 - Tip: Launching at login keeps overlays consistent across reboots and external display sessions.
 
 ### Revisit Introduction
@@ -34,7 +34,7 @@ This guide walks through the macOS settings window and the first-run tips that h
 - You can also trigger it from the status bar menu (`Show Introduction…`).
 
 ## First-Startup Tips for Staying Focused
-1. **Switch overlays on**: From the status bar quick menu, enable overlays for each monitor to soften background clutter.
+1. **Switch overlay filters on**: From the status bar quick menu, enable overlays for each monitor to soften background clutter.
 2. **Pick a filter per space**: Blur (Focus) is ideal for neutral focus, Warm suits evening work, Colorful brightens presentations, and Monochrome keeps reference monitors subtle.
 3. **Dial in per-display tuning**: Adjust opacity lower on displays where you keep messaging apps, and increase blur on the main workspace to block busy wallpapers.
 4. **Set your controls**: Capture a global shortcut you can tap whenever you need to reveal your desktop, and enable Launch at Login so Focusly is always ready.
