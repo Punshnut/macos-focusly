@@ -19,6 +19,7 @@ let package = Package(
             name: "Focusly",
             path: "Sources",
             resources: [
+                .process("Focusly_centered.png"),
                 .process("Resources")
             ],
             linkerSettings: [

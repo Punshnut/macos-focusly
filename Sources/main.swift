@@ -6,6 +6,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var appCoordinator: FocuslyAppCoordinator?
     private var overlayController: OverlayController?
     private var localizationSubscription: AnyCancellable?
+    private lazy var appIconImage = Self.loadAppIcon()
 
     private let accessibilityWindowTracker = WindowTracker()
     private var windowTrackerObserver: NSObjectProtocol?
@@ -14,6 +15,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     @MainActor
     func applicationDidFinishLaunching(_ notification: Notification) {
         configureMainMenu()
+
+        if let appIconImage {
+            NSApp.applicationIconImage = appIconImage
+        }
 
         // Prompt for accessibility once so overlays can function after relaunch.
         _ = requestAccessibilityIfNeeded(prompt: true)
@@ -224,22 +229,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let bodyText = [nameLine, nametagLine].joined(separator: "\n")
         credits.append(NSAttributedString(string: bodyText, attributes: bodyTextAttributes))
 
-        // Placeholder icon until a dedicated About PNG is available.
-        let placeholderIconSize = NSSize(width: 160, height: 160)
-        let placeholderAboutIcon = NSImage(size: placeholderIconSize, flipped: false) { rect in
-            NSColor.windowBackgroundColor.setFill()
-            rect.fill()
-            return true
-        }
+        let aboutIcon = appIconImage ?? Self.makePlaceholderAboutIcon()
 
         let panelOptions: [NSApplication.AboutPanelOptionKey: Any] = [
             .applicationName: appName,
             .credits: credits,
-            .applicationIcon: placeholderAboutIcon,
+            .applicationIcon: aboutIcon,
             .version: FocuslyBuildInfo.marketingVersion
         ]
 
         NSApp.orderFrontStandardAboutPanel(options: panelOptions)
+    }
+}
+
+private extension AppDelegate {
+    static func loadAppIcon() -> NSImage? {
+        guard let url = Bundle.module.url(forResource: "Focusly_centered", withExtension: "png"),
+              let image = NSImage(contentsOf: url) else { return nil }
+        image.isTemplate = false
+        return image
+    }
+
+    static func makePlaceholderAboutIcon() -> NSImage {
+        let placeholderIconSize = NSSize(width: 160, height: 160)
+        return NSImage(size: placeholderIconSize, flipped: false) { rect in
+            NSColor.windowBackgroundColor.setFill()
+            rect.fill()
+            return true
+        }
     }
 }
 

@@ -7,6 +7,10 @@
 ![Swift](https://img.shields.io/badge/Swift-5.9-orange)
 ![Status](https://img.shields.io/badge/Stage-Alpha%200.2-yellow)
 
+<p align="center">
+  <img src="Sources/Focusly_Logo.png" alt="Focusly logo" width="260">
+</p>
+
 ---
 
 ## ✨ Overview
