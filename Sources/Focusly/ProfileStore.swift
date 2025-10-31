@@ -21,9 +21,9 @@ final class ProfileStore {
     /// Loads persisted state or seeds defaults when the app runs for the first time.
     init(userDefaults: UserDefaults) {
         self.userDefaults = userDefaults
-        if let data = userDefaults.data(forKey: stateDefaultsKey),
-           let decoded = try? jsonDecoder.decode(State.self, from: data) {
-            profileState = decoded
+        if let persistedData = userDefaults.data(forKey: stateDefaultsKey),
+           let decodedState = try? jsonDecoder.decode(State.self, from: persistedData) {
+            profileState = decodedState
         } else {
             profileState = State(
                 selectedPresetID: PresetLibrary.presets.first?.id ?? "focus",
@@ -60,9 +60,9 @@ final class ProfileStore {
 
     /// Drops overrides for displays that are no longer connected.
     func removeInvalidOverrides(validDisplayIDs: Set<DisplayID>) {
-        let filtered = profileState.displayOverrides.filter { validDisplayIDs.contains($0.key) }
-        if filtered.count != profileState.displayOverrides.count {
-            profileState.displayOverrides = filtered
+        let validOverrides = profileState.displayOverrides.filter { validDisplayIDs.contains($0.key) }
+        if validOverrides.count != profileState.displayOverrides.count {
+            profileState.displayOverrides = validOverrides
         }
     }
 
@@ -73,7 +73,7 @@ final class ProfileStore {
 
     /// Serializes the profile state to user defaults.
     private func persistProfileState() {
-        guard let data = try? jsonEncoder.encode(profileState) else { return }
-        userDefaults.set(data, forKey: stateDefaultsKey)
+        guard let encodedState = try? jsonEncoder.encode(profileState) else { return }
+        userDefaults.set(encodedState, forKey: stateDefaultsKey)
     }
 }

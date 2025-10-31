@@ -34,12 +34,12 @@ final class OverlayService {
         isActive = isEnabled
         if isEnabled {
             refreshDisplays(animated: false, shouldApplyStyles: false)
-            overlayWindows.values.forEach { overlay in
-                overlay.setFiltersEnabled(appSettings.areFiltersEnabled)
-                overlay.prepareForPresentation()
-                overlay.orderFrontRegardless()
-                let style = profileStore.style(forDisplayID: overlay.associatedDisplayIdentifier())
-                overlay.apply(style: style, animated: animated)
+            overlayWindows.values.forEach { overlayWindow in
+                overlayWindow.setFiltersEnabled(appSettings.areFiltersEnabled)
+                overlayWindow.prepareForPresentation()
+                overlayWindow.orderFrontRegardless()
+                let overlayStyle = profileStore.style(forDisplayID: overlayWindow.associatedDisplayIdentifier())
+                overlayWindow.apply(style: overlayStyle, animated: animated)
             }
         } else {
             overlayWindows.values.forEach { $0.hide(animated: animated) }
@@ -49,39 +49,39 @@ final class OverlayService {
 
     /// Reconciles overlay windows with the currently connected displays and updates their frames and styles.
     func refreshDisplays(animated: Bool, shouldApplyStyles: Bool = true) {
-        let screens = NSScreen.screens
-        var connectedDisplayIDs = Set<DisplayID>()
+        let availableScreens = NSScreen.screens
+        var connectedDisplayIdentifiers = Set<DisplayID>()
 
-        for screen in screens {
-            guard let number = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber else {
+        for screen in availableScreens {
+            guard let screenNumberValue = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber else {
                 continue
             }
-            let displayID = DisplayID(truncating: number)
-            connectedDisplayIDs.insert(displayID)
+            let displayIdentifier = DisplayID(truncating: screenNumberValue)
+            connectedDisplayIdentifiers.insert(displayIdentifier)
 
-            if let overlay = overlayWindows[displayID] {
-                overlay.updateFrame(to: screen)
+            if let overlayWindow = overlayWindows[displayIdentifier] {
+                overlayWindow.updateFrame(to: screen)
             } else {
-                let overlay = OverlayWindow(screen: screen, displayIdentifier: displayID)
-                overlay.setFiltersEnabled(appSettings.areFiltersEnabled)
-                overlayWindows[displayID] = overlay
+                let overlayWindow = OverlayWindow(screen: screen, displayIdentifier: displayIdentifier)
+                overlayWindow.setFiltersEnabled(appSettings.areFiltersEnabled)
+                overlayWindows[displayIdentifier] = overlayWindow
                 if isActive {
-                    overlay.orderFrontRegardless()
+                    overlayWindow.orderFrontRegardless()
                 }
             }
 
-            if let overlay = overlayWindows[displayID], isActive, shouldApplyStyles {
-                let style = profileStore.style(forDisplayID: displayID)
-                overlay.apply(style: style, animated: animated)
+            if let overlayWindow = overlayWindows[displayIdentifier], isActive, shouldApplyStyles {
+                let overlayStyle = profileStore.style(forDisplayID: displayIdentifier)
+                overlayWindow.apply(style: overlayStyle, animated: animated)
             }
         }
 
-        profileStore.removeInvalidOverrides(validDisplayIDs: connectedDisplayIDs)
+        profileStore.removeInvalidOverrides(validDisplayIDs: connectedDisplayIdentifiers)
 
-        let disconnectedDisplayIDs = overlayWindows.keys.filter { !connectedDisplayIDs.contains($0) }
-        for displayID in disconnectedDisplayIDs {
-            overlayWindows[displayID]?.orderOut(nil)
-            overlayWindows.removeValue(forKey: displayID)
+        let disconnectedDisplayIdentifiers = overlayWindows.keys.filter { !connectedDisplayIdentifiers.contains($0) }
+        for displayIdentifier in disconnectedDisplayIdentifiers {
+            overlayWindows[displayIdentifier]?.orderOut(nil)
+            overlayWindows.removeValue(forKey: displayIdentifier)
         }
 
         delegate?.overlayService(self, didUpdateOverlays: overlayWindows)
@@ -89,8 +89,8 @@ final class OverlayService {
 
     /// Reapplies the stored style for the specified display.
     func updateStyle(for displayID: DisplayID, animated: Bool) {
-        guard let overlay = overlayWindows[displayID], isActive else { return }
-        overlay.apply(style: profileStore.style(forDisplayID: displayID), animated: animated)
+        guard let overlayWindow = overlayWindows[displayID], isActive else { return }
+        overlayWindow.apply(style: profileStore.style(forDisplayID: displayID), animated: animated)
     }
 
     /// Enables or disables blur/tint filters across all overlay windows.

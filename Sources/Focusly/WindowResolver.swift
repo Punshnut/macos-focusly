@@ -9,10 +9,10 @@ func resolveActiveWindowSnapshot(
     preferredPID: pid_t? = nil
 ) -> ActiveWindowSnapshot? {
     if let frontWindow = cgFrontWindow(excluding: windowNumbers, preferredPID: preferredPID) {
-        let radius = axActiveWindowCornerRadius(preferredPID: frontWindow.ownerPID) ?? fallbackCornerRadius(for: frontWindow.frame)
+        let resolvedCornerRadius = axActiveWindowCornerRadius(preferredPID: frontWindow.ownerPID) ?? fallbackCornerRadius(for: frontWindow.frame)
         return ActiveWindowSnapshot(
             frame: frontWindow.frame,
-            cornerRadius: clampCornerRadius(radius, to: frontWindow.frame),
+            cornerRadius: clampCornerRadius(resolvedCornerRadius, to: frontWindow.frame),
             supplementaryMasks: frontWindow.supplementaryMasks
         )
     }
@@ -64,81 +64,81 @@ private struct CGFrontWindowSnapshot {
 private func cgFrontWindow(excluding windowNumbers: Set<Int>, preferredPID: pid_t?) -> CGFrontWindowSnapshot? {
     let options: CGWindowListOption = [.optionOnScreenOnly, .excludeDesktopElements]
 
-    guard let fullList = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]], !fullList.isEmpty else {
+    guard let completeWindowList = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]], !completeWindowList.isEmpty else {
         return nil
     }
 
-    let shortlist = Array(fullList.prefix(24))
+    let candidateWindowList = Array(completeWindowList.prefix(24))
     if let preferredPID,
-       let preferred = findFrontWindow(in: shortlist, excluding: windowNumbers, preferredPID: preferredPID)
-            ?? findFrontWindow(in: fullList, excluding: windowNumbers, preferredPID: preferredPID) {
-        let supplementary = collectSupplementaryMasks(
-            in: fullList,
-            primaryPID: preferred.ownerPID,
-            excludingNumbers: windowNumbers.union([preferred.windowNumber])
+       let preferredFrontWindow = findFrontWindow(in: candidateWindowList, excluding: windowNumbers, preferredPID: preferredPID)
+            ?? findFrontWindow(in: completeWindowList, excluding: windowNumbers, preferredPID: preferredPID) {
+        let supplementaryRegions = collectSupplementaryMasks(
+            in: completeWindowList,
+            primaryPID: preferredFrontWindow.ownerPID,
+            excludingNumbers: windowNumbers.union([preferredFrontWindow.windowNumber])
         )
 
         return CGFrontWindowSnapshot(
-            frame: preferred.frame,
-            ownerPID: preferred.ownerPID,
-            windowNumber: preferred.windowNumber,
-            supplementaryMasks: supplementary
+            frame: preferredFrontWindow.frame,
+            ownerPID: preferredFrontWindow.ownerPID,
+            windowNumber: preferredFrontWindow.windowNumber,
+            supplementaryMasks: supplementaryRegions
         )
     }
 
-    let front = findFrontWindow(in: shortlist, excluding: windowNumbers, preferredPID: nil)
-        ?? findFrontWindow(in: fullList, excluding: windowNumbers, preferredPID: nil)
+    let candidateFrontWindow = findFrontWindow(in: candidateWindowList, excluding: windowNumbers, preferredPID: nil)
+        ?? findFrontWindow(in: completeWindowList, excluding: windowNumbers, preferredPID: nil)
 
-    guard let resolvedFront = front else {
+    guard let resolvedFrontWindow = candidateFrontWindow else {
         return nil
     }
 
-    let supplementary = collectSupplementaryMasks(
-        in: fullList,
-        primaryPID: resolvedFront.ownerPID,
-        excludingNumbers: windowNumbers.union([resolvedFront.windowNumber])
+    let supplementaryRegions = collectSupplementaryMasks(
+        in: completeWindowList,
+        primaryPID: resolvedFrontWindow.ownerPID,
+        excludingNumbers: windowNumbers.union([resolvedFrontWindow.windowNumber])
     )
 
     return CGFrontWindowSnapshot(
-        frame: resolvedFront.frame,
-        ownerPID: resolvedFront.ownerPID,
-        windowNumber: resolvedFront.windowNumber,
-        supplementaryMasks: supplementary
+        frame: resolvedFrontWindow.frame,
+        ownerPID: resolvedFrontWindow.ownerPID,
+        windowNumber: resolvedFrontWindow.windowNumber,
+        supplementaryMasks: supplementaryRegions
     )
 }
 
 /// Walks window dictionaries looking for the topmost candidate the overlay should carve out.
 private func findFrontWindow(
-    in windows: [[String: Any]],
+    in windowDictionaries: [[String: Any]],
     excluding windowNumbers: Set<Int>,
     preferredPID: pid_t?
 ) -> CGFrontWindowSnapshot? {
-    var fallback: CGFrontWindowSnapshot?
+    var fallbackSnapshot: CGFrontWindowSnapshot?
 
-    for window in windows {
-        guard let number = window[kCGWindowNumber as String] as? Int else { continue }
-        if windowNumbers.contains(number) { continue }
-        guard let layer = window[kCGWindowLayer as String] as? Int, layer == 0 else { continue }
-        if let alpha = window[kCGWindowAlpha as String] as? Double, alpha < 0.05 { continue }
+    for windowDictionary in windowDictionaries {
+        guard let windowNumber = windowDictionary[kCGWindowNumber as String] as? Int else { continue }
+        if windowNumbers.contains(windowNumber) { continue }
+        guard let layerIndex = windowDictionary[kCGWindowLayer as String] as? Int, layerIndex == 0 else { continue }
+        if let alphaValue = windowDictionary[kCGWindowAlpha as String] as? Double, alphaValue < 0.05 { continue }
         guard
-            let boundsDict = window[kCGWindowBounds as String] as? [String: Any],
-            let bounds = CGRect(dictionaryRepresentation: boundsDict as CFDictionary)
+            let boundsDictionary = windowDictionary[kCGWindowBounds as String] as? [String: Any],
+            let coreGraphicsBounds = CGRect(dictionaryRepresentation: boundsDictionary as CFDictionary)
         else {
             continue
         }
-        guard bounds.width >= 4, bounds.height >= 4 else { continue }
+        guard coreGraphicsBounds.width >= 4, coreGraphicsBounds.height >= 4 else { continue }
 
-        let correctedBounds = convertCGWindowBoundsToCocoa(bounds)
-        let resolvedPID: pid_t
-        if let pidValue = window[kCGWindowOwnerPID as String] as? Int {
-            resolvedPID = pid_t(pidValue)
-        } else if let pidValue = window[kCGWindowOwnerPID as String] as? pid_t {
-            resolvedPID = pidValue
+        let correctedBounds = convertCGWindowBoundsToCocoa(coreGraphicsBounds)
+        let resolvedProcessID: pid_t
+        if let pidValue = windowDictionary[kCGWindowOwnerPID as String] as? Int {
+            resolvedProcessID = pid_t(pidValue)
+        } else if let pidValue = windowDictionary[kCGWindowOwnerPID as String] as? pid_t {
+            resolvedProcessID = pidValue
         } else {
             continue
         }
 
-        let frame = NSRect(
+        let cocoaFrame = NSRect(
             x: correctedBounds.origin.x,
             y: correctedBounds.origin.y,
             width: correctedBounds.size.width,
@@ -146,94 +146,94 @@ private func findFrontWindow(
         )
 
         let snapshot = CGFrontWindowSnapshot(
-            frame: frame,
-            ownerPID: resolvedPID,
-            windowNumber: number,
+            frame: cocoaFrame,
+            ownerPID: resolvedProcessID,
+            windowNumber: windowNumber,
             supplementaryMasks: []
         )
 
-        if let preferredPID, resolvedPID == preferredPID {
+        if let preferredPID, resolvedProcessID == preferredPID {
             return snapshot
         }
-        if fallback == nil {
-            fallback = snapshot
+        if fallbackSnapshot == nil {
+            fallbackSnapshot = snapshot
         }
     }
-    return fallback
+    return fallbackSnapshot
 }
 
 /// Scans the current window list for secondary surfaces tied to the front application
 /// (e.g. context menus or menu-bar dropdowns) so we can carve them out of the overlay.
 private func collectSupplementaryMasks(
-    in windows: [[String: Any]],
+    in windowDictionaries: [[String: Any]],
     primaryPID: pid_t?,
     excludingNumbers: Set<Int>
 ) -> [ActiveWindowSnapshot.MaskRegion] {
-    var results: [ActiveWindowSnapshot.MaskRegion] = []
-    var seen: Set<Int> = []
+    var maskRegions: [ActiveWindowSnapshot.MaskRegion] = []
+    var visitedWindowNumbers: Set<Int> = []
 
-    for window in windows {
+    for window in windowDictionaries {
         guard let number = window[kCGWindowNumber as String] as? Int else { continue }
         if excludingNumbers.contains(number) { continue }
-        if seen.contains(number) { continue }
-        guard let layer = window[kCGWindowLayer as String] as? Int else { continue }
-        if let alpha = window[kCGWindowAlpha as String] as? Double, alpha < 0.05 { continue }
+        if visitedWindowNumbers.contains(number) { continue }
+        guard let layerIndex = window[kCGWindowLayer as String] as? Int else { continue }
+        if let alphaValue = window[kCGWindowAlpha as String] as? Double, alphaValue < 0.05 { continue }
         guard
-            let boundsDict = window[kCGWindowBounds as String] as? [String: Any],
-            let bounds = CGRect(dictionaryRepresentation: boundsDict as CFDictionary)
+            let boundsDictionary = window[kCGWindowBounds as String] as? [String: Any],
+            let coreGraphicsBounds = CGRect(dictionaryRepresentation: boundsDictionary as CFDictionary)
         else {
             continue
         }
-        guard bounds.width >= 4, bounds.height >= 4 else { continue }
+        guard coreGraphicsBounds.width >= 4, coreGraphicsBounds.height >= 4 else { continue }
 
-        let resolvedPID: pid_t?
+        let resolvedProcessID: pid_t?
         if let pidValue = window[kCGWindowOwnerPID as String] as? Int {
-            resolvedPID = pid_t(pidValue)
+            resolvedProcessID = pid_t(pidValue)
         } else if let pidValue = window[kCGWindowOwnerPID as String] as? pid_t {
-            resolvedPID = pidValue
+            resolvedProcessID = pidValue
         } else {
-            resolvedPID = nil
+            resolvedProcessID = nil
         }
 
-        let ownerName = window[kCGWindowOwnerName as String] as? String
+        let ownerApplicationName = window[kCGWindowOwnerName as String] as? String
         let matchesPrimary: Bool
         if let primaryPID {
-            matchesPrimary = resolvedPID == primaryPID
+            matchesPrimary = resolvedProcessID == primaryPID
         } else {
             matchesPrimary = false
         }
 
-        guard let purpose = classifyMenuWindow(
-            layer: layer,
+        guard let maskPurpose = classifyMenuWindow(
+            layer: layerIndex,
             name: window[kCGWindowName as String] as? String,
-            ownerName: ownerName,
-            bounds: bounds,
+            ownerName: ownerApplicationName,
+            bounds: coreGraphicsBounds,
             matchesPrimary: matchesPrimary
         ) else {
             continue
         }
 
-        let correctedBounds = convertCGWindowBoundsToCocoa(bounds)
-        let frame = NSRect(
+        let correctedBounds = convertCGWindowBoundsToCocoa(coreGraphicsBounds)
+        let maskFrame = NSRect(
             x: correctedBounds.origin.x,
             y: correctedBounds.origin.y,
             width: correctedBounds.size.width,
             height: correctedBounds.size.height
         )
 
-        let radius = menuCornerRadius(for: frame)
+        let cornerRadius = menuCornerRadius(for: maskFrame)
 
-        results.append(
+        maskRegions.append(
             ActiveWindowSnapshot.MaskRegion(
-                frame: frame,
-                cornerRadius: radius,
-                purpose: purpose
+                frame: maskFrame,
+                cornerRadius: cornerRadius,
+                purpose: maskPurpose
             )
         )
-        seen.insert(number)
+        visitedWindowNumbers.insert(number)
     }
 
-    return results.sorted { lhs, rhs in
+    return maskRegions.sorted { lhs, rhs in
         let lhsOrder = maskPurposeOrder(lhs.purpose)
         let rhsOrder = maskPurposeOrder(rhs.purpose)
         if lhsOrder != rhsOrder {
@@ -254,39 +254,39 @@ private func collectSupplementaryMasks(
 
 /// Standalone helper used by the AX fallback path to still find menus for the front app.
 private func resolveSupplementaryMasks(primaryPID: pid_t?, excludingWindowNumbers: Set<Int>) -> [ActiveWindowSnapshot.MaskRegion] {
-    let options: CGWindowListOption = [.optionOnScreenOnly, .excludeDesktopElements]
-    guard let fullList = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]], !fullList.isEmpty else {
+    let windowListOptions: CGWindowListOption = [.optionOnScreenOnly, .excludeDesktopElements]
+    guard let completeWindowList = CGWindowListCopyWindowInfo(windowListOptions, kCGNullWindowID) as? [[String: Any]], !completeWindowList.isEmpty else {
         return []
     }
-    return collectSupplementaryMasks(in: fullList, primaryPID: primaryPID, excludingNumbers: excludingWindowNumbers)
+    return collectSupplementaryMasks(in: completeWindowList, primaryPID: primaryPID, excludingNumbers: excludingWindowNumbers)
 }
 
 /// Menu surfaces ship with a subtle rounding; we keep it conservative to avoid bleeding into content.
-private func menuCornerRadius(for frame: NSRect) -> CGFloat {
-    clampCornerRadius(8, to: frame)
+private func menuCornerRadius(for maskFrame: NSRect) -> CGFloat {
+    clampCornerRadius(8, to: maskFrame)
 }
 
 /// Heuristically identifies whether a window should be treated as a menu carve-out.
 private func classifyMenuWindow(
-    layer: Int,
-    name: String?,
-    ownerName: String?,
-    bounds: CGRect,
-    matchesPrimary: Bool
+    layer layerIndex: Int,
+    name windowName: String?,
+    ownerName ownerApplicationName: String?,
+    bounds coreGraphicsBounds: CGRect,
+    matchesPrimary matchesPrimaryApplication: Bool
 ) -> ActiveWindowSnapshot.MaskRegion.Purpose? {
-    if matchesPrimary {
+    if matchesPrimaryApplication {
         return .applicationMenu
     }
 
-    if let ownerName, ownerName == "SystemUIServer" {
+    if let ownerApplicationName, ownerApplicationName == "SystemUIServer" {
         return .systemMenu
     }
 
-    let lowercasedName = name?.lowercased() ?? ""
-    let area = bounds.width * bounds.height
-    let height = bounds.height
+    let lowercasedName = windowName?.lowercased() ?? ""
+    let windowArea = coreGraphicsBounds.width * coreGraphicsBounds.height
+    let windowHeight = coreGraphicsBounds.height
 
-    if layer >= 18 {
+    if layerIndex >= 18 {
         return .systemMenu
     }
 
@@ -296,8 +296,8 @@ private func classifyMenuWindow(
         }
     }
 
-    let isCompact = height <= 620 && area <= 520_000
-    if isCompact && layer >= 4 {
+    let isCompactMenu = windowHeight <= 620 && windowArea <= 520_000
+    if isCompactMenu && layerIndex >= 4 {
         return .systemMenu
     }
 

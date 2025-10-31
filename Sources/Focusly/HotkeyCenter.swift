@@ -6,16 +6,20 @@ import Carbon
 final class HotkeyCenter {
     var onActivation: (() -> Void)?
 
-    private var shortcut: HotkeyShortcut? {
+    /// Last requested shortcut definition used to manage Carbon registration.
+    private var registeredShortcut: HotkeyShortcut? {
         didSet { refreshRegistration() }
     }
 
-    private var enabled = false {
+    /// Controls whether the registered shortcut should currently be active.
+    private var isEnabled = false {
         didSet { refreshRegistration() }
     }
 
-    private var hotKeyRef: EventHotKeyRef?
-    private var handlerRef: EventHandlerRef?
+    /// Carbon hotkey token returned during registration.
+    private var registeredHotKeyReference: EventHotKeyRef?
+    /// Carbon event handler token allowing teardown during deinitialization.
+    private var hotKeyHandlerReference: EventHandlerRef?
 
     init() {
         installHandler()
@@ -24,30 +28,30 @@ final class HotkeyCenter {
     @MainActor
     deinit {
         unregister()
-        if let handlerRef {
-            RemoveEventHandler(handlerRef)
+        if let hotKeyHandlerReference {
+            RemoveEventHandler(hotKeyHandlerReference)
         }
     }
 
     /// Registers a new shortcut definition; pass nil to clear the binding.
     func updateShortcut(_ shortcut: HotkeyShortcut?) {
-        self.shortcut = shortcut
+        self.registeredShortcut = shortcut
     }
 
     /// Enables or disables the global hotkey without forgetting the shortcut.
     func setEnabled(_ enabled: Bool) {
-        self.enabled = enabled
+        self.isEnabled = enabled
     }
 
     /// Returns the currently registered shortcut, if any.
     func currentShortcut() -> HotkeyShortcut? {
-        shortcut
+        registeredShortcut
     }
 
     /// Installs the Carbon event handler used to receive hotkey callbacks.
     private func installHandler() {
-        var eventSpec = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
-        let pointer = UnsafeMutableRawPointer(Unmanaged.passUnretained(self).toOpaque())
+        var keyboardEventSpec = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
+        let selfPointer = UnsafeMutableRawPointer(Unmanaged.passUnretained(self).toOpaque())
         InstallEventHandler(GetEventDispatcherTarget(), { _, eventRef, userData in
             guard
                 let userData,
@@ -57,42 +61,42 @@ final class HotkeyCenter {
             let instance = Unmanaged<HotkeyCenter>.fromOpaque(userData).takeUnretainedValue()
             instance.handle(event: eventRef)
             return noErr
-        }, 1, &eventSpec, pointer, &handlerRef)
+        }, 1, &keyboardEventSpec, selfPointer, &hotKeyHandlerReference)
     }
 
     /// Updates the registered hotkey whenever the shortcut or enabled state changes.
     private func refreshRegistration() {
         unregister()
-        guard enabled, let shortcut else { return }
+        guard isEnabled, let registeredShortcut else { return }
 
         // Register the single global hotkey each time modifiers or enabled state changes.
-        let hotKeyID = EventHotKeyID(signature: fourCharCode("FCS1"), id: 1)
-        let status = RegisterEventHotKey(
-            UInt32(shortcut.keyCode),
-            shortcut.carbonModifiers,
-            hotKeyID,
+        let hotKeyIdentifier = EventHotKeyID(signature: fourCharCode("FCS1"), id: 1)
+        let registrationStatus = RegisterEventHotKey(
+            UInt32(registeredShortcut.keyCode),
+            registeredShortcut.carbonModifiers,
+            hotKeyIdentifier,
             GetEventDispatcherTarget(),
             0,
-            &hotKeyRef
+            &registeredHotKeyReference
         )
-        if status != noErr {
-            hotKeyRef = nil
+        if registrationStatus != noErr {
+            registeredHotKeyReference = nil
         }
     }
 
     /// Unregisters the previously registered hotkey, if one exists.
     private func unregister() {
-        if let hotKeyRef {
-            UnregisterEventHotKey(hotKeyRef)
-            self.hotKeyRef = nil
+        if let registeredHotKeyReference {
+            UnregisterEventHotKey(registeredHotKeyReference)
+            self.registeredHotKeyReference = nil
         }
     }
 
     /// Handles carbon callbacks, forwarding matched hotkey presses to the consumer.
     private func handle(event: EventRef) {
-        var hotKeyID = EventHotKeyID()
-        GetEventParameter(event, EventParamName(kEventParamDirectObject), EventParamType(typeEventHotKeyID), nil, MemoryLayout<EventHotKeyID>.size, nil, &hotKeyID)
-        guard hotKeyID.id == 1 else { return }
+        var receivedHotKeyIdentifier = EventHotKeyID()
+        GetEventParameter(event, EventParamName(kEventParamDirectObject), EventParamType(typeEventHotKeyID), nil, MemoryLayout<EventHotKeyID>.size, nil, &receivedHotKeyIdentifier)
+        guard receivedHotKeyIdentifier.id == 1 else { return }
         Task { @MainActor [weak self] in
             guard let self else { return }
             self.onActivation?()
@@ -102,9 +106,9 @@ final class HotkeyCenter {
 
 /// Helper that encodes a string into the four-character code format required by Carbon.
 private func fourCharCode(_ string: String) -> OSType {
-    var value: OSType = 0
+    var encodedValue: OSType = 0
     for character in string.utf16 {
-        value = (value << 8) + OSType(character)
+        encodedValue = (encodedValue << 8) + OSType(character)
     }
-    return value
+    return encodedValue
 }

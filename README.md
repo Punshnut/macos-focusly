@@ -49,6 +49,8 @@ Precompiled alpha binaries are included for quick testing:
 
 > _If your workspace suddenly feels too cozy, that’s Focusly doing its job — or maybe you just need another café solo._
 
+You can always grab the latest `.dmg` for **Alpha 0.2** from [GitHub Releases](https://github.com/your-user/macos-focusly/releases).
+
 ---
 
 ## 🧠 Build from Source (Alpha 0.2)
@@ -80,6 +82,25 @@ The built `.app` will appear under:
 - `./build_app.sh` → Builds an unsigned `Focusly.app` from the latest Swift build.  
 - `./build_dmg.sh` → Packages `Focusly.app` and documentation into a shareable `.dmg`.  
 - Prefer `swift build -c release` before packaging for optimized binaries.
+
+---
+
+## 🔐 Signing the App Bundle
+
+The generated `Focusly.app` ships unsigned, so macOS Gatekeeper will flag it until you apply a signature.
+
+**Quick option via Homebrew cask**
+
+```bash
+brew install --cask alienator88-sentinel
+alienator88-sentinel sign Focusly.app \
+  --identity "Developer ID Application: Your Name (TEAMID)"
+```
+
+- Replace the identity with your Developer ID certificate name (or use `--identity "-"` for ad-hoc signing while testing).  
+- Run `spctl --assess --type exec Focusly.app` to confirm Gatekeeper now trusts the bundle.
+
+Public releases posted to GitHub will ship pre-signed and notarized so Gatekeeper opens them without extra prompts.
 
 ---
 

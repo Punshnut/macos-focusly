@@ -57,9 +57,9 @@ final class WindowTracker {
 
     /// Periodically re-checks accessibility permission so we can downgrade gracefully if revoked.
     private func refreshAccessibilityPermissionIfNeeded() {
-        let now = Date()
-        guard now.timeIntervalSince(lastAccessibilityCheck) >= accessibilityCheckInterval else { return }
+        let currentTimestamp = Date()
+        guard currentTimestamp.timeIntervalSince(lastAccessibilityCheck) >= accessibilityCheckInterval else { return }
         hasAccessibilityPermission = isAccessibilityAccessGranted()
-        lastAccessibilityCheck = now
+        lastAccessibilityCheck = currentTimestamp
     }
 }

@@ -4,8 +4,10 @@ import ApplicationServices
 /// Call once on startup to request AX permission (system will show prompt).
 @discardableResult
 func requestAccessibilityIfNeeded(prompt: Bool = true) -> Bool {
-    let opts: CFDictionary = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: prompt] as CFDictionary
-    return AXIsProcessTrustedWithOptions(opts)
+    let accessibilityOptions: CFDictionary = [
+        kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: prompt
+    ] as CFDictionary
+    return AXIsProcessTrustedWithOptions(accessibilityOptions)
 }
 
 /// Returns whether the app currently has accessibility access without showing a prompt.
@@ -68,21 +70,23 @@ public struct ActiveWindowSnapshot: Equatable {
 
 private let windowCornerRadiusAttribute: CFString = "AXWindowCornerRadius" as CFString
 
+/// Decodes a `CGPoint` from a raw accessibility value.
 private func axPoint(_ value: CFTypeRef?) -> CGPoint? {
-    guard let raw = value, CFGetTypeID(raw) == AXValueGetTypeID() else { return nil }
-    let axValue = raw as! AXValue
-    guard AXValueGetType(axValue) == .cgPoint else { return nil }
-    var p = CGPoint.zero
-    AXValueGetValue(axValue, .cgPoint, &p)
-    return p
+    guard let rawValue = value, CFGetTypeID(rawValue) == AXValueGetTypeID() else { return nil }
+    let accessibilityValue = rawValue as! AXValue
+    guard AXValueGetType(accessibilityValue) == .cgPoint else { return nil }
+    var resolvedPoint = CGPoint.zero
+    AXValueGetValue(accessibilityValue, .cgPoint, &resolvedPoint)
+    return resolvedPoint
 }
+/// Decodes a `CGSize` from a raw accessibility value.
 private func axSize(_ value: CFTypeRef?) -> CGSize? {
-    guard let raw = value, CFGetTypeID(raw) == AXValueGetTypeID() else { return nil }
-    let axValue = raw as! AXValue
-    guard AXValueGetType(axValue) == .cgSize else { return nil }
-    var s = CGSize.zero
-    AXValueGetValue(axValue, .cgSize, &s)
-    return s
+    guard let rawValue = value, CFGetTypeID(rawValue) == AXValueGetTypeID() else { return nil }
+    let accessibilityValue = rawValue as! AXValue
+    guard AXValueGetType(accessibilityValue) == .cgSize else { return nil }
+    var resolvedSize = CGSize.zero
+    AXValueGetValue(accessibilityValue, .cgSize, &resolvedSize)
+    return resolvedSize
 }
 
 /// Active (frontmost) window frame, or nil.
@@ -111,86 +115,90 @@ func axActiveWindowCornerRadius(preferredPID: pid_t? = nil) -> CGFloat? {
 func axEnumerateAllWindows(limitPerApp: Int = 200) -> [AXWindowInfo] {
     guard isAccessibilityAccessGranted() else { return [] }
 
-    var all: [AXWindowInfo] = []
+    var collectedWindowInfos: [AXWindowInfo] = []
 
-    for app in NSWorkspace.shared.runningApplications where app.activationPolicy != .prohibited {
-        let pid = app.processIdentifier
-        let axApp = AXUIElementCreateApplication(pid)
+    for runningApplication in NSWorkspace.shared.runningApplications where runningApplication.activationPolicy != .prohibited {
+        let processID = runningApplication.processIdentifier
+        let accessibilityApplication = AXUIElementCreateApplication(processID)
 
-        var windowsRef: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(axApp, kAXWindowsAttribute as CFString, &windowsRef) == .success,
-              let windows = windowsRef as? [AXUIElement], !windows.isEmpty else { continue }
+        var accessibilityWindowsValue: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(accessibilityApplication, kAXWindowsAttribute as CFString, &accessibilityWindowsValue) == .success,
+              let accessibilityWindows = accessibilityWindowsValue as? [AXUIElement], !accessibilityWindows.isEmpty else { continue }
 
-        var count = 0
-        for w in windows {
-            var titleRef: CFTypeRef?
-            _ = AXUIElementCopyAttributeValue(w, kAXTitleAttribute as CFString, &titleRef)
-            let title = titleRef as? String
+        var processedWindowCount = 0
+        for windowElement in accessibilityWindows {
+            var titleValue: CFTypeRef?
+            _ = AXUIElementCopyAttributeValue(windowElement, kAXTitleAttribute as CFString, &titleValue)
+            let windowTitle = titleValue as? String
 
-            var posRef: CFTypeRef?; var sizeRef: CFTypeRef?
-            _ = AXUIElementCopyAttributeValue(w, kAXPositionAttribute as CFString, &posRef)
-            _ = AXUIElementCopyAttributeValue(w, kAXSizeAttribute as CFString, &sizeRef)
-            guard let p = axPoint(posRef), let s = axSize(sizeRef) else { continue }
+            var positionValue: CFTypeRef?
+            var sizeValue: CFTypeRef?
+            _ = AXUIElementCopyAttributeValue(windowElement, kAXPositionAttribute as CFString, &positionValue)
+            _ = AXUIElementCopyAttributeValue(windowElement, kAXSizeAttribute as CFString, &sizeValue)
+            guard let windowPosition = axPoint(positionValue), let windowSize = axSize(sizeValue) else { continue }
 
-            var minimizedRef: CFTypeRef?; var isMin = false
-            if AXUIElementCopyAttributeValue(w, kAXMinimizedAttribute as CFString, &minimizedRef) == .success,
-               let b = minimizedRef as? Bool { isMin = b }
+            var minimizedValue: CFTypeRef?
+            var isMinimized = false
+            if AXUIElementCopyAttributeValue(windowElement, kAXMinimizedAttribute as CFString, &minimizedValue) == .success,
+               let minimizedFlag = minimizedValue as? Bool { isMinimized = minimizedFlag }
 
-            var mainRef: CFTypeRef?; var isMain = false
-            if AXUIElementCopyAttributeValue(w, kAXMainAttribute as CFString, &mainRef) == .success,
-               let b = mainRef as? Bool { isMain = b }
+            var mainValue: CFTypeRef?
+            var isMainWindow = false
+            if AXUIElementCopyAttributeValue(windowElement, kAXMainAttribute as CFString, &mainValue) == .success,
+               let mainFlag = mainValue as? Bool { isMainWindow = mainFlag }
 
-            var focusedRef: CFTypeRef?; var isFocused = false
-            if AXUIElementCopyAttributeValue(w, kAXFocusedAttribute as CFString, &focusedRef) == .success,
-               let b = focusedRef as? Bool { isFocused = b }
+            var focusedValue: CFTypeRef?
+            var isFocusedWindow = false
+            if AXUIElementCopyAttributeValue(windowElement, kAXFocusedAttribute as CFString, &focusedValue) == .success,
+               let focusedFlag = focusedValue as? Bool { isFocusedWindow = focusedFlag }
 
-            let frame = NSRect(x: p.x, y: p.y, width: s.width, height: s.height)
+            let frame = NSRect(x: windowPosition.x, y: windowPosition.y, width: windowSize.width, height: windowSize.height)
             let info = AXWindowInfo(
-                pid: pid,
-                appName: app.localizedName ?? "(unknown)",
-                windowTitle: title,
+                pid: processID,
+                appName: runningApplication.localizedName ?? "(unknown)",
+                windowTitle: windowTitle,
                 frame: frame,
-                isMinimized: isMin,
-                isMain: isMain,
-                isFocused: isFocused && app.isActive
+                isMinimized: isMinimized,
+                isMain: isMainWindow,
+                isFocused: isFocusedWindow && runningApplication.isActive
             )
-            all.append(info)
+            collectedWindowInfos.append(info)
 
-            count += 1
-            if count >= limitPerApp { break }
+            processedWindowCount += 1
+            if processedWindowCount >= limitPerApp { break }
         }
     }
-    return all
+    return collectedWindowInfos
 }
 
-/// Returns the focused `AXUIElement` for the chosen process or the active application.
+/// Resolves the focused accessibility window element for the requested process or frontmost app.
 private func axFocusedWindowElement(preferredPID: pid_t? = nil) -> AXUIElement? {
     guard isAccessibilityAccessGranted() else { return nil }
-    let resolvedPID: pid_t?
+    let resolvedProcessID: pid_t?
     if let preferredPID {
-        resolvedPID = preferredPID
+        resolvedProcessID = preferredPID
     } else {
-        resolvedPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
+        resolvedProcessID = NSWorkspace.shared.frontmostApplication?.processIdentifier
     }
-    guard let pid = resolvedPID else { return nil }
-    let axApp = AXUIElementCreateApplication(pid)
-    var winRef: CFTypeRef?
-    guard AXUIElementCopyAttributeValue(axApp, kAXFocusedWindowAttribute as CFString, &winRef) == .success,
-          let rawWin = winRef,
-          CFGetTypeID(rawWin) == AXUIElementGetTypeID() else {
+    guard let processID = resolvedProcessID else { return nil }
+    let accessibilityApplicationElement = AXUIElementCreateApplication(processID)
+    var focusedWindowValue: CFTypeRef?
+    guard AXUIElementCopyAttributeValue(accessibilityApplicationElement, kAXFocusedWindowAttribute as CFString, &focusedWindowValue) == .success,
+          let rawFocusedWindow = focusedWindowValue,
+          CFGetTypeID(rawFocusedWindow) == AXUIElementGetTypeID() else {
         return nil
     }
-    return unsafeBitCast(rawWin, to: AXUIElement.self)
+    return unsafeBitCast(rawFocusedWindow, to: AXUIElement.self)
 }
 
-/// Extracts an AppKit-style rect from the accessibility window element.
+/// Extracts the window frame for the supplied accessibility window element.
 private func axFrame(for window: AXUIElement) -> NSRect? {
-    var posRef: CFTypeRef?
-    var sizeRef: CFTypeRef?
-    AXUIElementCopyAttributeValue(window, kAXPositionAttribute as CFString, &posRef)
-    AXUIElementCopyAttributeValue(window, kAXSizeAttribute as CFString, &sizeRef)
-    guard let p = axPoint(posRef), let s = axSize(sizeRef) else { return nil }
-    return NSRect(x: p.x, y: p.y, width: s.width, height: s.height)
+    var positionValue: CFTypeRef?
+    var sizeValue: CFTypeRef?
+    AXUIElementCopyAttributeValue(window, kAXPositionAttribute as CFString, &positionValue)
+    AXUIElementCopyAttributeValue(window, kAXSizeAttribute as CFString, &sizeValue)
+    guard let position = axPoint(positionValue), let size = axSize(sizeValue) else { return nil }
+    return NSRect(x: position.x, y: position.y, width: size.width, height: size.height)
 }
 
 /// Attempts to pull the optional corner radius attribute from a window element.

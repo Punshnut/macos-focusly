@@ -138,14 +138,14 @@ final class StatusBarController: NSObject {
 
     /// Prepares the underlying status item button and initial menus.
     private func configureStatusItem() {
-        guard let button = statusItem.button else { return }
-        button.title = ""
-        button.target = self
-        button.action = #selector(handleClick(_:))
-        button.sendAction(on: [.leftMouseUp, .rightMouseUp])
-        button.imagePosition = .imageOnly
-        button.imageScaling = .scaleProportionallyDown
-        button.toolTip = localized("Focusly")
+        guard let statusButton = statusItem.button else { return }
+        statusButton.title = ""
+        statusButton.target = self
+        statusButton.action = #selector(handleClick(_:))
+        statusButton.sendAction(on: [.leftMouseUp, .rightMouseUp])
+        statusButton.imagePosition = .imageOnly
+        statusButton.imageScaling = .scaleProportionallyDown
+        statusButton.toolTip = localized("Focusly")
         updateMenuTitles()
         rebuildMenus()
     }
@@ -154,56 +154,56 @@ final class StatusBarController: NSObject {
     private func rebuildMenus() {
         updateMenuTitles()
         statusItem.button?.toolTip = localized("Focusly")
-        let tone = resolvedStatusBarIconTone()
-        updateStatusItemIcon(tone: tone)
+        let statusIconTone = resolvedStatusBarIconTone()
+        updateStatusItemIcon(tone: statusIconTone)
 
         mainMenu.removeAllItems()
         mainMenu.addItem(makeVersionMenuItem())
         mainMenu.addItem(.separator())
 
-        let toggleTitle = localized(state.areOverlaysEnabled ? "Disable Overlays" : "Enable Overlays")
-        let toggleItem = NSMenuItem(title: toggleTitle, action: #selector(toggleOverlay), keyEquivalent: "")
-        toggleItem.target = self
-        toggleItem.state = state.areOverlaysEnabled ? .on : .off
-        mainMenu.addItem(toggleItem)
+        let overlayToggleTitle = localized(state.areOverlaysEnabled ? "Disable Overlays" : "Enable Overlays")
+        let overlayToggleItem = NSMenuItem(title: overlayToggleTitle, action: #selector(toggleOverlay), keyEquivalent: "")
+        overlayToggleItem.target = self
+        overlayToggleItem.state = state.areOverlaysEnabled ? .on : .off
+        mainMenu.addItem(overlayToggleItem)
 
         mainMenu.addItem(.separator())
 
         let presetsTitle = localized("Presets")
         let presetsItem = NSMenuItem(title: presetsTitle, action: nil, keyEquivalent: "")
-        let presetsMenu = NSMenu(title: presetsTitle)
+        let presetsSubmenu = NSMenu(title: presetsTitle)
         for preset in state.presetOptions {
-            presetsMenu.addItem(makePresetMenuItem(for: preset))
+            presetsSubmenu.addItem(makePresetMenuItem(for: preset))
         }
-        presetsMenu.addItem(.separator())
+        presetsSubmenu.addItem(.separator())
 
         let preferencesTitle = localized("Preferences…")
-        let customizeItem = NSMenuItem(title: preferencesTitle, action: #selector(openPreferences), keyEquivalent: "")
-        customizeItem.target = self
-        presetsMenu.addItem(customizeItem)
-        presetsItem.submenu = presetsMenu
+        let preferencesMenuItem = NSMenuItem(title: preferencesTitle, action: #selector(openPreferences), keyEquivalent: "")
+        preferencesMenuItem.target = self
+        presetsSubmenu.addItem(preferencesMenuItem)
+        presetsItem.submenu = presetsSubmenu
         mainMenu.addItem(presetsItem)
 
         mainMenu.addItem(.separator())
 
-        let hotkeyTitle = localized(state.areHotkeysEnabled ? "Disable Shortcut" : "Enable Shortcut")
-        let hotkeyItem = NSMenuItem(title: hotkeyTitle, action: #selector(toggleHotkeys), keyEquivalent: "")
-        hotkeyItem.target = self
-        hotkeyItem.state = state.areHotkeysEnabled ? .on : .off
-        hotkeyItem.isEnabled = state.hasShortcut
-        mainMenu.addItem(hotkeyItem)
+        let hotkeyToggleTitle = localized(state.areHotkeysEnabled ? "Disable Shortcut" : "Enable Shortcut")
+        let hotkeyToggleMenuItem = NSMenuItem(title: hotkeyToggleTitle, action: #selector(toggleHotkeys), keyEquivalent: "")
+        hotkeyToggleMenuItem.target = self
+        hotkeyToggleMenuItem.state = state.areHotkeysEnabled ? .on : .off
+        hotkeyToggleMenuItem.isEnabled = state.hasShortcut
+        mainMenu.addItem(hotkeyToggleMenuItem)
 
         if state.isLaunchAtLoginAvailable {
-            let loginKey = state.isLaunchAtLoginEnabled ? "Launch at Login ✅" : "Launch at Login ⬜️"
-            let loginTitle = localized(loginKey)
-            let loginItem = NSMenuItem(title: loginTitle, action: #selector(toggleLaunchAtLogin), keyEquivalent: "")
-            loginItem.target = self
-            loginItem.state = state.isLaunchAtLoginEnabled ? .on : .off
-            mainMenu.addItem(loginItem)
+            let launchAtLoginTitleKey = state.isLaunchAtLoginEnabled ? "Launch at Login ✅" : "Launch at Login ⬜️"
+            let launchAtLoginTitle = localized(launchAtLoginTitleKey)
+            let launchAtLoginItem = NSMenuItem(title: launchAtLoginTitle, action: #selector(toggleLaunchAtLogin), keyEquivalent: "")
+            launchAtLoginItem.target = self
+            launchAtLoginItem.state = state.isLaunchAtLoginEnabled ? .on : .off
+            mainMenu.addItem(launchAtLoginItem)
         } else if let message = state.launchAtLoginStatusMessage {
-            let loginItem = NSMenuItem(title: message, action: nil, keyEquivalent: "")
-            loginItem.isEnabled = false
-            mainMenu.addItem(loginItem)
+            let launchAtLoginStatusItem = NSMenuItem(title: message, action: nil, keyEquivalent: "")
+            launchAtLoginStatusItem.isEnabled = false
+            mainMenu.addItem(launchAtLoginStatusItem)
         }
 
         let iconMenuTitle = localized("Status Bar Icon")
@@ -218,7 +218,7 @@ final class StatusBarController: NSObject {
             item.image = StatusBarIconFactory.icon(
                 style: style,
                 isActive: state.areOverlaysEnabled,
-                tone: tone,
+                tone: statusIconTone,
                 template: false
             )
             iconMenu.addItem(item)

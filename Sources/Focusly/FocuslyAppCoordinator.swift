@@ -85,9 +85,9 @@ final class FocuslyAppCoordinator: NSObject {
         hotkeyManager.setEnabled(areHotkeysEnabled && activationShortcut != nil)
 
         localizationSubscription = localizationService.$languageOverrideIdentifier
-            .sink { [weak self] value in
+            .sink { [weak self] languageIdentifier in
                 guard let self else { return }
-                self.persistLanguageOverride(value)
+                self.persistLanguageOverride(languageIdentifier)
                 self.synchronizeLocalization()
             }
     }
@@ -186,9 +186,9 @@ final class FocuslyAppCoordinator: NSObject {
     private func persistHotkeyShortcut() {
         let defaults = appEnvironment.userDefaults
         if let activationShortcut {
-            let encoder = JSONEncoder()
-            if let data = try? encoder.encode(activationShortcut) {
-                defaults.set(data, forKey: UserDefaultsKey.shortcut)
+            let jsonEncoder = JSONEncoder()
+            if let encodedShortcut = try? jsonEncoder.encode(activationShortcut) {
+                defaults.set(encodedShortcut, forKey: UserDefaultsKey.shortcut)
             }
         } else {
             defaults.removeObject(forKey: UserDefaultsKey.shortcut)
@@ -197,8 +197,9 @@ final class FocuslyAppCoordinator: NSObject {
 
     /// Restores a previously persisted hotkey shortcut if one exists.
     private static func loadHotkeyShortcut(from defaults: UserDefaults) -> HotkeyShortcut? {
-        guard let data = defaults.data(forKey: UserDefaultsKey.shortcut) else { return nil }
-        return try? JSONDecoder().decode(HotkeyShortcut.self, from: data)
+        guard let persistedData = defaults.data(forKey: UserDefaultsKey.shortcut) else { return nil }
+        let jsonDecoder = JSONDecoder()
+        return try? jsonDecoder.decode(HotkeyShortcut.self, from: persistedData)
     }
 
     /// Persists the selected status bar icon variant.
@@ -278,7 +279,7 @@ final class FocuslyAppCoordinator: NSObject {
             iconStyleOptions: StatusBarIconStyle.allCases,
             presetOptions: PresetLibrary.presets,
             selectedPresetIdentifier: profileStore.currentPreset().id,
-            handlers: PreferencesViewModel.Callbacks(
+            callbacks: PreferencesViewModel.Callbacks(
                 onDisplayChange: { [weak self] displayID, style in
                     guard let self else { return }
                     self.profileStore.updateStyle(style, forDisplayID: displayID)

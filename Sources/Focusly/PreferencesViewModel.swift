@@ -44,7 +44,8 @@ final class PreferencesViewModel: ObservableObject {
     @Published private(set) var shortcutSummary: String
     @Published var statusIconStyle: StatusBarIconStyle
     private var activeShortcut: HotkeyShortcut?
-    private let handlers: Callbacks
+    /// App coordination closures invoked when preferences mutate shared state.
+    private let callbacks: Callbacks
     let iconStyleOptions: [StatusBarIconStyle]
 
     /// Creates the view model with the current overlay, shortcut, and status bar state.
@@ -59,7 +60,7 @@ final class PreferencesViewModel: ObservableObject {
         iconStyleOptions: [StatusBarIconStyle],
         presetOptions: [FocusPreset],
         selectedPresetIdentifier: String,
-        handlers: Callbacks
+        callbacks: Callbacks
     ) {
         self.displaySettings = displaySettings
         self.presetOptions = presetOptions
@@ -69,43 +70,43 @@ final class PreferencesViewModel: ObservableObject {
         self.isLaunchAtLoginAvailable = isLaunchAtLoginAvailable
         self.launchAtLoginStatusMessage = launchAtLoginStatusMessage
         self.activeShortcut = activeShortcut
-        self.handlers = handlers
+        self.callbacks = callbacks
         self.shortcutSummary = PreferencesViewModel.describeShortcut(activeShortcut)
         self.statusIconStyle = statusIconStyle
         self.iconStyleOptions = iconStyleOptions
     }
 
     /// Persists live opacity changes for a display and notifies the app.
-    func updateOpacity(for displayID: DisplayID, value: Double) {
-        guard let index = displaySettings.firstIndex(where: { $0.id == displayID }) else { return }
-        displaySettings[index].opacity = value
-        commit(display: displaySettings[index])
+    func updateOpacity(for displayID: DisplayID, value updatedOpacity: Double) {
+        guard let settingsIndex = displaySettings.firstIndex(where: { $0.id == displayID }) else { return }
+        displaySettings[settingsIndex].opacity = updatedOpacity
+        commit(displaySettings: displaySettings[settingsIndex])
     }
 
     /// Persists tint adjustments for a display and notifies the app.
-    func updateTint(for displayID: DisplayID, value: NSColor) {
-        guard let index = displaySettings.firstIndex(where: { $0.id == displayID }) else { return }
-        displaySettings[index].tint = value
-        commit(display: displaySettings[index])
+    func updateTint(for displayID: DisplayID, value updatedTint: NSColor) {
+        guard let settingsIndex = displaySettings.firstIndex(where: { $0.id == displayID }) else { return }
+        displaySettings[settingsIndex].tint = updatedTint
+        commit(displaySettings: displaySettings[settingsIndex])
     }
 
     /// Persists blur radius adjustments for a display and notifies the app.
     func updateBlur(for displayID: DisplayID, radius: Double) {
-        guard let index = displaySettings.firstIndex(where: { $0.id == displayID }) else { return }
-        displaySettings[index].blurRadius = max(0, radius)
-        commit(display: displaySettings[index])
+        guard let settingsIndex = displaySettings.firstIndex(where: { $0.id == displayID }) else { return }
+        displaySettings[settingsIndex].blurRadius = max(0, radius)
+        commit(displaySettings: displaySettings[settingsIndex])
     }
 
     /// Persists color treatment changes for a display and notifies the app.
     func updateColorTreatment(for displayID: DisplayID, treatment: FocusOverlayColorTreatment) {
-        guard let index = displaySettings.firstIndex(where: { $0.id == displayID }) else { return }
-        displaySettings[index].colorTreatment = treatment
-        commit(display: displaySettings[index])
+        guard let settingsIndex = displaySettings.firstIndex(where: { $0.id == displayID }) else { return }
+        displaySettings[settingsIndex].colorTreatment = treatment
+        commit(displaySettings: displaySettings[settingsIndex])
     }
 
     /// Reverts a display to its preset defaults.
     func resetDisplay(_ displayID: DisplayID) {
-        handlers.onDisplayReset(displayID)
+        callbacks.onDisplayReset(displayID)
     }
 
     /// Switches to a new preset and informs the coordinator.
@@ -113,43 +114,43 @@ final class PreferencesViewModel: ObservableObject {
         guard selectedPresetIdentifier != id else { return }
         selectedPresetIdentifier = id
         guard let preset = preset(for: id) else { return }
-        handlers.onSelectPreset(preset)
+        callbacks.onSelectPreset(preset)
     }
 
     /// Copies one display's settings across all others.
     func syncDisplaySettings(from displayID: DisplayID) {
-        guard let source = displaySettings.first(where: { $0.id == displayID }) else { return }
-        for index in displaySettings.indices where displaySettings[index].id != displayID {
-            displaySettings[index].opacity = source.opacity
-            displaySettings[index].tint = source.tint
-            displaySettings[index].colorTreatment = source.colorTreatment
-            displaySettings[index].blurRadius = source.blurRadius
-            commit(display: displaySettings[index])
+        guard let sourceDisplaySettings = displaySettings.first(where: { $0.id == displayID }) else { return }
+        for settingsIndex in displaySettings.indices where displaySettings[settingsIndex].id != displayID {
+            displaySettings[settingsIndex].opacity = sourceDisplaySettings.opacity
+            displaySettings[settingsIndex].tint = sourceDisplaySettings.tint
+            displaySettings[settingsIndex].colorTreatment = sourceDisplaySettings.colorTreatment
+            displaySettings[settingsIndex].blurRadius = sourceDisplaySettings.blurRadius
+            commit(displaySettings: displaySettings[settingsIndex])
         }
     }
 
     /// Enables or disables the global hotkey preference.
     func setHotkeysEnabled(_ enabled: Bool) {
         areHotkeysEnabled = enabled
-        handlers.onToggleHotkeys(enabled)
+        callbacks.onToggleHotkeys(enabled)
     }
 
     /// Toggles the launch-at-login setting when the feature is supported.
     func setLaunchAtLoginEnabled(_ enabled: Bool) {
         guard isLaunchAtLoginAvailable else { return }
         isLaunchAtLoginEnabled = enabled
-        handlers.onToggleLaunchAtLogin(enabled)
+        callbacks.onToggleLaunchAtLogin(enabled)
     }
 
     /// Initiates capturing a new shortcut and updates state when recording finishes.
     func beginShortcutCapture() {
         isCapturingShortcut = true
-        handlers.onRequestShortcutCapture { [weak self] shortcut in
+        callbacks.onRequestShortcutCapture { [weak self] shortcut in
             guard let self else { return }
             self.isCapturingShortcut = false
             self.activeShortcut = shortcut
             self.shortcutSummary = PreferencesViewModel.describeShortcut(shortcut)
-            self.handlers.onUpdateShortcut(shortcut)
+            self.callbacks.onUpdateShortcut(shortcut)
         }
     }
 
@@ -157,23 +158,23 @@ final class PreferencesViewModel: ObservableObject {
     func clearShortcut() {
         activeShortcut = nil
         shortcutSummary = "—"
-        handlers.onUpdateShortcut(nil)
+        callbacks.onUpdateShortcut(nil)
     }
 
     /// Persists the status bar icon style choice.
     func updateStatusIconStyle(_ style: StatusBarIconStyle) {
         statusIconStyle = style
-        handlers.onUpdateStatusIconStyle(style)
+        callbacks.onUpdateStatusIconStyle(style)
     }
 
     /// Passes the newly selected localization identifier back to the coordinator.
     func setLanguage(id: String) {
-        handlers.onSelectLanguage(id)
+        callbacks.onSelectLanguage(id)
     }
 
     /// Requests that the onboarding sequence be shown again.
     func showOnboarding() {
-        handlers.onRequestOnboarding()
+        callbacks.onRequestOnboarding()
     }
 
     /// Applies a shortcut received from outside the view model (e.g., persisted state).
@@ -183,22 +184,22 @@ final class PreferencesViewModel: ObservableObject {
     }
 
     /// Converts UI-managed display settings into a `FocusOverlayStyle` and emits callbacks.
-    private func commit(display: DisplaySettings) {
-        let baseColor = display.tint.usingColorSpace(.genericRGB) ?? display.tint
-        let tint = FocusTint(
-            red: Double(baseColor.redComponent),
-            green: Double(baseColor.greenComponent),
-            blue: Double(baseColor.blueComponent),
-            alpha: Double(baseColor.alphaComponent)
+    private func commit(displaySettings: DisplaySettings) {
+        let normalizedTintColor = displaySettings.tint.usingColorSpace(.genericRGB) ?? displaySettings.tint
+        let focusTint = FocusTint(
+            red: Double(normalizedTintColor.redComponent),
+            green: Double(normalizedTintColor.greenComponent),
+            blue: Double(normalizedTintColor.blueComponent),
+            alpha: Double(normalizedTintColor.alphaComponent)
         )
-        let style = FocusOverlayStyle(
-            opacity: display.opacity,
-            tint: tint,
+        let overlayStyle = FocusOverlayStyle(
+            opacity: displaySettings.opacity,
+            tint: focusTint,
             animationDuration: 0.3,
-            colorTreatment: display.colorTreatment,
-            blurRadius: display.blurRadius
+            colorTreatment: displaySettings.colorTreatment,
+            blurRadius: displaySettings.blurRadius
         )
-        handlers.onDisplayChange(display.id, style)
+        callbacks.onDisplayChange(displaySettings.id, overlayStyle)
     }
 
     /// Builds a human-readable representation of a shortcut for UI display.
