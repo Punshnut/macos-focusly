@@ -59,6 +59,14 @@ final class OverlayService {
             let displayIdentifier = DisplayID(truncating: screenNumberValue)
             connectedDisplayIdentifiers.insert(displayIdentifier)
 
+            if overlayProfileStore.isDisplayExcluded(displayIdentifier) {
+                if let existing = overlayWindowsByDisplay[displayIdentifier] {
+                    existing.orderOut(nil)
+                    overlayWindowsByDisplay.removeValue(forKey: displayIdentifier)
+                }
+                continue
+            }
+
             if let overlayWindow = overlayWindowsByDisplay[displayIdentifier] {
                 overlayWindow.updateFrame(to: screen)
             } else {

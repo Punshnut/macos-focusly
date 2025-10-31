@@ -7,6 +7,39 @@ final class ProfileStore {
     struct State: Codable, Equatable {
         var selectedPresetID: String
         var displayOverrides: [DisplayID: FocusOverlayStyle]
+        var excludedDisplays: Set<DisplayID>
+
+        init(
+            selectedPresetID: String,
+            displayOverrides: [DisplayID: FocusOverlayStyle],
+            excludedDisplays: Set<DisplayID> = []
+        ) {
+            self.selectedPresetID = selectedPresetID
+            self.displayOverrides = displayOverrides
+            self.excludedDisplays = excludedDisplays
+        }
+
+        private enum CodingKeys: String, CodingKey {
+            case selectedPresetID
+            case displayOverrides
+            case excludedDisplays
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            selectedPresetID = try container.decode(String.self, forKey: .selectedPresetID)
+            displayOverrides = try container.decode([DisplayID: FocusOverlayStyle].self, forKey: .displayOverrides)
+            excludedDisplays = try container.decodeIfPresent(Set<DisplayID>.self, forKey: .excludedDisplays) ?? []
+        }
+
+        func encode(to encoder: Encoder) throws {
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            try container.encode(selectedPresetID, forKey: .selectedPresetID)
+            try container.encode(displayOverrides, forKey: .displayOverrides)
+            if !excludedDisplays.isEmpty {
+                try container.encode(excludedDisplays, forKey: .excludedDisplays)
+            }
+        }
     }
 
     private let userDefaults: UserDefaults
@@ -27,7 +60,8 @@ final class ProfileStore {
         } else {
             profileState = State(
                 selectedPresetID: PresetLibrary.presets.first?.id ?? "focus",
-                displayOverrides: [:]
+                displayOverrides: [:],
+                excludedDisplays: []
             )
             persistProfileState()
         }
@@ -64,11 +98,29 @@ final class ProfileStore {
         if validOverrides.count != profileState.displayOverrides.count {
             profileState.displayOverrides = validOverrides
         }
+        let validExcluded = profileState.excludedDisplays.filter { validDisplayIDs.contains($0) }
+        if validExcluded.count != profileState.excludedDisplays.count {
+            profileState.excludedDisplays = Set(validExcluded)
+        }
     }
 
     /// Returns the currently selected preset model.
     func currentPreset() -> FocusPreset {
         PresetLibrary.preset(withID: profileState.selectedPresetID)
+    }
+
+    /// Checks whether the supplied display should be excluded from overlay rendering.
+    func isDisplayExcluded(_ displayID: DisplayID) -> Bool {
+        profileState.excludedDisplays.contains(displayID)
+    }
+
+    /// Updates the exclusion flag for a particular display.
+    func setDisplay(_ displayID: DisplayID, excluded: Bool) {
+        if excluded {
+            profileState.excludedDisplays.insert(displayID)
+        } else if profileState.excludedDisplays.contains(displayID) {
+            profileState.excludedDisplays.remove(displayID)
+        }
     }
 
     /// Serializes the profile state to user defaults.

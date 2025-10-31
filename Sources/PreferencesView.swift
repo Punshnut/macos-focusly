@@ -186,6 +186,7 @@ struct PreferencesView: View {
         let liveOpacity = viewModel.displaySettings.first(where: { $0.id == display.id })?.opacity ?? display.opacity
         let liveTint = viewModel.displaySettings.first(where: { $0.id == display.id })?.tint ?? display.tint
         let liveBlur = viewModel.displaySettings.first(where: { $0.id == display.id })?.blurRadius ?? display.blurRadius
+        let isExcluded = viewModel.displaySettings.first(where: { $0.id == display.id })?.isExcluded ?? display.isExcluded
 
         let opacityBinding = Binding(
             get: { viewModel.displaySettings.first(where: { $0.id == display.id })?.opacity ?? display.opacity },
@@ -214,6 +215,11 @@ struct PreferencesView: View {
             set: { viewModel.updateColorTreatment(for: display.id, treatment: $0) }
         )
 
+        let exclusionBinding = Binding(
+            get: { viewModel.displaySettings.first(where: { $0.id == display.id })?.isExcluded ?? display.isExcluded },
+            set: { viewModel.setDisplayExcluded(display.id, excluded: $0) }
+        )
+
         return VStack(alignment: .leading, spacing: 18) {
             HStack(alignment: .firstTextBaseline) {
                 VStack(alignment: .leading, spacing: 2) {
@@ -233,7 +239,32 @@ struct PreferencesView: View {
                     RoundedRectangle(cornerRadius: 12, style: .continuous)
                         .stroke(Color.primary.opacity(0.08), lineWidth: 1)
                 )
+                .overlay {
+                    if isExcluded {
+                        Text(localized("Excluded", fallback: "Excluded"))
+                            .font(.caption)
+                            .fontWeight(.medium)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .background(
+                                Capsule(style: .continuous)
+                                    .fill(.ultraThinMaterial)
+                            )
+                    }
+                }
+                .opacity(isExcluded ? 0.35 : 1)
                 .accessibilityLabel(Text(localized("Overlay preview")))
+
+            Toggle(isOn: exclusionBinding) {
+                Label(localized("Exclude This Display"), systemImage: "eye.slash")
+            }
+            .toggleStyle(.switch)
+
+            if isExcluded {
+                Text(localized("Focusly leaves this display untouched while other screens stay blurred."))
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
 
             GroupBox {
                 VStack(alignment: .leading, spacing: 12) {
@@ -255,6 +286,7 @@ struct PreferencesView: View {
             } label: {
                 Label(localized("Blurring Details"), systemImage: "drop.halffull")
             }
+            .disabled(isExcluded)
 
             GroupBox {
                 VStack(alignment: .leading, spacing: 14) {
@@ -306,6 +338,7 @@ struct PreferencesView: View {
             } label: {
                 Label(localized("Color Effects"), systemImage: "paintpalette")
             }
+            .disabled(isExcluded)
 
             GroupBox {
                 VStack(alignment: .leading, spacing: 10) {
@@ -514,19 +547,46 @@ private struct DisplayChip: View {
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
                         .stroke(Color.primary.opacity(0.08), lineWidth: 1)
                 )
+                .overlay {
+                    if display.isExcluded {
+                        Text("Excluded")
+                            .font(.caption2)
+                            .fontWeight(.semibold)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(
+                                Capsule(style: .continuous)
+                                    .fill(.ultraThinMaterial)
+                            )
+                    }
+                }
+                .opacity(display.isExcluded ? 0.35 : 1)
                 .accessibilityHidden(true)
 
-            HStack(spacing: 12) {
-                HStack(spacing: 4) {
-                    Image(systemName: "circle.lefthalf.filled")
+            if display.isExcluded {
+                HStack(spacing: 6) {
+                    Image(systemName: "eye.slash")
                         .imageScale(.small)
                         .foregroundColor(.secondary)
-                    Text(String(format: "%.0f%%", clampedOpacity * 100))
+                    Text("Overlay Off")
                         .font(.caption2)
                         .foregroundColor(.secondary)
-                        .monospacedDigit()
+                        .fontWeight(.medium)
+                    Spacer(minLength: 0)
                 }
-                Spacer(minLength: 0)
+            } else {
+                HStack(spacing: 12) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "circle.lefthalf.filled")
+                            .imageScale(.small)
+                            .foregroundColor(.secondary)
+                        Text(String(format: "%.0f%%", clampedOpacity * 100))
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                            .monospacedDigit()
+                    }
+                    Spacer(minLength: 0)
+                }
             }
         }
         .padding(12)

@@ -40,4 +40,35 @@ final class ProfileStoreTests: XCTestCase {
         XCTAssertEqual(newStore.style(forDisplayID: displayID).colorTreatment, .monochrome)
         XCTAssertEqual(newStore.style(forDisplayID: displayID).blurRadius, 18, accuracy: 0.001)
     }
+
+    func testDisplayExclusionPersistsBetweenInstances() {
+        let suite = "FocuslyTests.ProfileStoreExclusion"
+        let userDefaults = UserDefaults(suiteName: suite)!
+        userDefaults.removePersistentDomain(forName: suite)
+        defer { userDefaults.removePersistentDomain(forName: suite) }
+
+        var store: ProfileStore? = ProfileStore(userDefaults: userDefaults)
+        let displayID: UInt32 = 27
+        store?.setDisplay(displayID, excluded: true)
+        XCTAssertEqual(store?.isDisplayExcluded(displayID), true)
+        store = nil
+
+        let restoredStore = ProfileStore(userDefaults: userDefaults)
+        XCTAssertTrue(restoredStore.isDisplayExcluded(displayID))
+    }
+
+    func testRemovingInvalidDisplaysClearsExclusions() {
+        let suite = "FocuslyTests.ProfileStoreExclusionCleanup"
+        let userDefaults = UserDefaults(suiteName: suite)!
+        userDefaults.removePersistentDomain(forName: suite)
+        defer { userDefaults.removePersistentDomain(forName: suite) }
+
+        let store = ProfileStore(userDefaults: userDefaults)
+        let displayID: UInt32 = 81
+        store.setDisplay(displayID, excluded: true)
+        XCTAssertTrue(store.isDisplayExcluded(displayID))
+
+        store.removeInvalidOverrides(validDisplayIDs: [])
+        XCTAssertFalse(store.isDisplayExcluded(displayID))
+    }
 }

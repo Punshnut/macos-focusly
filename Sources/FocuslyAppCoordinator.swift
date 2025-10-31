@@ -368,6 +368,12 @@ final class FocuslyAppCoordinator: NSObject {
                 },
                 onUpdateTrackingProfile: { [weak self] profile in
                     self?.globalSettings.windowTrackingProfile = profile
+                },
+                onToggleDisplayExclusion: { [weak self] displayID, isExcluded in
+                    guard let self else { return }
+                    self.overlayProfileStore.setDisplay(displayID, excluded: isExcluded)
+                    self.overlayService.refreshDisplays(animated: true)
+                    self.synchronizePreferencesDisplays()
                 }
             )
         )
@@ -443,7 +449,8 @@ final class FocuslyAppCoordinator: NSObject {
                 opacity: style.opacity,
                 tint: tintColor,
                 colorTreatment: style.colorTreatment,
-                blurRadius: style.blurRadius
+                blurRadius: style.blurRadius,
+                isExcluded: overlayProfileStore.isDisplayExcluded(displayID)
             )
         }
         return displays.sorted { $0.name < $1.name }

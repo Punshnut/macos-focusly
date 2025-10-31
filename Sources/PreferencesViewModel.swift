@@ -12,6 +12,7 @@ final class PreferencesViewModel: ObservableObject {
         var tint: NSColor
         var colorTreatment: FocusOverlayColorTreatment
         var blurRadius: Double
+        var isExcluded: Bool
 
         var tintPreview: NSColor {
             tint
@@ -32,6 +33,7 @@ final class PreferencesViewModel: ObservableObject {
         var onSelectPreset: (FocusPreset) -> Void
         var onSelectLanguage: (String) -> Void
         var onUpdateTrackingProfile: (WindowTrackingProfile) -> Void
+        var onToggleDisplayExclusion: (DisplayID, Bool) -> Void
     }
 
     @Published var displaySettings: [DisplaySettings]
@@ -114,6 +116,13 @@ final class PreferencesViewModel: ObservableObject {
     /// Reverts a display to its preset defaults.
     func resetDisplay(_ displayID: DisplayID) {
         callbacks.onDisplayReset(displayID)
+    }
+
+    /// Marks a display as excluded so overlays skip rendering on it.
+    func setDisplayExcluded(_ displayID: DisplayID, excluded: Bool) {
+        guard let settingsIndex = displaySettings.firstIndex(where: { $0.id == displayID }) else { return }
+        displaySettings[settingsIndex].isExcluded = excluded
+        callbacks.onToggleDisplayExclusion(displayID, excluded)
     }
 
     /// Switches to a new preset and informs the coordinator.
