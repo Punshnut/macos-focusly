@@ -31,6 +31,7 @@ final class PreferencesViewModel: ObservableObject {
         var onUpdateStatusIconStyle: (StatusBarIconStyle) -> Void
         var onSelectPreset: (FocusPreset) -> Void
         var onSelectLanguage: (String) -> Void
+        var onUpdateTrackingProfile: (WindowTrackingProfile) -> Void
     }
 
     @Published var displaySettings: [DisplaySettings]
@@ -43,10 +44,12 @@ final class PreferencesViewModel: ObservableObject {
     @Published var isCapturingShortcut = false
     @Published private(set) var shortcutSummary: String
     @Published var statusIconStyle: StatusBarIconStyle
+    @Published var trackingProfile: WindowTrackingProfile
     private var activeShortcut: HotkeyShortcut?
     /// App coordination closures invoked when preferences mutate shared state.
     private let callbacks: Callbacks
     let iconStyleOptions: [StatusBarIconStyle]
+    let trackingProfileOptions: [WindowTrackingProfile]
 
     /// Creates the view model with the current overlay, shortcut, and status bar state.
     init(
@@ -60,6 +63,8 @@ final class PreferencesViewModel: ObservableObject {
         iconStyleOptions: [StatusBarIconStyle],
         presetOptions: [FocusPreset],
         selectedPresetIdentifier: String,
+        trackingProfile: WindowTrackingProfile,
+        trackingProfileOptions: [WindowTrackingProfile],
         callbacks: Callbacks
     ) {
         self.displaySettings = displaySettings
@@ -74,6 +79,8 @@ final class PreferencesViewModel: ObservableObject {
         self.shortcutSummary = PreferencesViewModel.describeShortcut(activeShortcut)
         self.statusIconStyle = statusIconStyle
         self.iconStyleOptions = iconStyleOptions
+        self.trackingProfile = trackingProfile
+        self.trackingProfileOptions = trackingProfileOptions
     }
 
     /// Persists live opacity changes for a display and notifies the app.
@@ -165,6 +172,13 @@ final class PreferencesViewModel: ObservableObject {
     func updateStatusIconStyle(_ style: StatusBarIconStyle) {
         statusIconStyle = style
         callbacks.onUpdateStatusIconStyle(style)
+    }
+
+    /// Applies the selected window tracking performance profile.
+    func updateTrackingProfile(_ profile: WindowTrackingProfile) {
+        guard trackingProfile != profile else { return }
+        trackingProfile = profile
+        callbacks.onUpdateTrackingProfile(profile)
     }
 
     /// Passes the newly selected localization identifier back to the coordinator.

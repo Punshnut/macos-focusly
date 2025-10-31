@@ -423,18 +423,69 @@ final class OverlayWindow: NSPanel {
     }
 }
 
-/// Helper mask that rasterises carve-outs into a grayscale image (1 = visible, 0 = hidden).
+/// Mask layer that uses a fast vector path when carve-outs are disjoint and falls back to bitmap rasterization when regions overlap.
 private final class OverlayMaskLayer: CALayer {
+    private enum RenderingMode {
+        case none
+        case vector
+        case bitmap
+    }
+
+    private struct HoleRegion {
+        var rect: CGRect
+        var cornerRadius: CGFloat
+    }
+
+    private let vectorMaskLayer: CAShapeLayer = {
+        let layer = CAShapeLayer()
+        layer.anchorPoint = .zero
+        layer.fillRule = .evenOdd
+        layer.fillColor = NSColor.white.cgColor
+        layer.actions = [
+            "path": NSNull(),
+            "bounds": NSNull(),
+            "position": NSNull()
+        ]
+        return layer
+    }()
+
+    private let bitmapMaskLayer: CALayer = {
+        let layer = CALayer()
+        layer.anchorPoint = .zero
+        layer.actions = [
+            "contents": NSNull(),
+            "bounds": NSNull(),
+            "position": NSNull()
+        ]
+        layer.contentsGravity = .resize
+        return layer
+    }()
+
+    private var renderingMode: RenderingMode = .none
+
     override init() {
         super.init()
-        anchorPoint = .zero
-        contentsGravity = .resize
+        configureLayerHierarchy()
     }
 
     override init(layer: Any) {
         super.init(layer: layer)
+        configureLayerHierarchy()
+    }
+
+    private func configureLayerHierarchy() {
         anchorPoint = .zero
-        contentsGravity = .resize
+        backgroundColor = nil
+        masksToBounds = false
+        actions = [
+            "bounds": NSNull(),
+            "position": NSNull()
+        ]
+        sublayers?.forEach { $0.removeFromSuperlayer() }
+        addSublayer(vectorMaskLayer)
+        addSublayer(bitmapMaskLayer)
+        vectorMaskLayer.isHidden = true
+        bitmapMaskLayer.isHidden = true
     }
 
     @available(*, unavailable)
@@ -442,42 +493,172 @@ private final class OverlayMaskLayer: CALayer {
         nil
     }
 
-    /// Rasterises static and dynamic carve-outs into a mask image and applies it to the layer.
+    /// Updates the mask to carve out the supplied static and dynamic regions.
     func configure(
         bounds: CGRect,
         scale: CGFloat,
         staticRects: [CGRect],
         dynamicRegions: [OverlayWindow.MaskRegion]
     ) {
+        guard bounds.width > 0, bounds.height > 0 else {
+            reset()
+            return
+        }
+
+        let resolvedScale = max(scale, 1)
         frame = bounds
-        contentsScale = scale
-        contents = makeMaskImage(
-            bounds: bounds,
-            scale: scale,
-            staticRects: staticRects,
-            dynamicRegions: dynamicRegions
-        )
+        contentsScale = resolvedScale
+        vectorMaskLayer.frame = bounds
+        vectorMaskLayer.contentsScale = resolvedScale
+        bitmapMaskLayer.frame = bounds
+        bitmapMaskLayer.contentsScale = resolvedScale
+
+        let tolerance = max(1.0 / resolvedScale, 0.1)
+        var holeRegions: [HoleRegion] = []
+        holeRegions.reserveCapacity(staticRects.count + dynamicRegions.count)
+
+        for rect in staticRects where rect.width > 0 && rect.height > 0 {
+            appendHole(
+                HoleRegion(rect: rect, cornerRadius: 0),
+                to: &holeRegions,
+                tolerance: tolerance
+            )
+        }
+
+        for region in dynamicRegions {
+            let rect = region.rect
+            guard rect.width > 0, rect.height > 0 else { continue }
+            let radius = min(max(region.cornerRadius, 0), min(rect.width, rect.height) / 2)
+            appendHole(
+                HoleRegion(rect: rect, cornerRadius: radius),
+                to: &holeRegions,
+                tolerance: tolerance
+            )
+        }
+
+        guard !holeRegions.isEmpty else {
+            reset()
+            return
+        }
+
+        if holesOverlap(holeRegions, tolerance: tolerance) {
+            applyBitmapMask(bounds: bounds, scale: resolvedScale, holes: holeRegions)
+        } else {
+            applyVectorMask(bounds: bounds, scale: resolvedScale, holes: holeRegions)
+        }
     }
 
-    /// Releases the current mask image and collapses the layer.
+    /// Releases active masks so the overlay can revert to a solid fill.
     func reset() {
-        contents = nil
+        bitmapMaskLayer.contents = nil
+        bitmapMaskLayer.isHidden = true
+        vectorMaskLayer.path = nil
+        vectorMaskLayer.isHidden = true
         frame = .zero
+        renderingMode = .none
     }
 
-    /// Builds an alpha mask image where white pixels remain visible and transparent pixels punch holes.
-    private func makeMaskImage(
-        bounds: CGRect,
-        scale: CGFloat,
-        staticRects: [CGRect],
-        dynamicRegions: [OverlayWindow.MaskRegion]
-    ) -> CGImage? {
-        let pixelWidth = Int((bounds.width * scale).rounded(.up))
-        let pixelHeight = Int((bounds.height * scale).rounded(.up))
+    private func appendHole(
+        _ candidate: HoleRegion,
+        to holes: inout [HoleRegion],
+        tolerance: CGFloat
+    ) {
+        if let index = holes.firstIndex(where: {
+            NSRect(
+                x: $0.rect.origin.x,
+                y: $0.rect.origin.y,
+                width: $0.rect.width,
+                height: $0.rect.height
+            ).isApproximatelyEqual(
+                to: NSRect(
+                    x: candidate.rect.origin.x,
+                    y: candidate.rect.origin.y,
+                    width: candidate.rect.width,
+                    height: candidate.rect.height
+                ),
+                tolerance: tolerance
+            )
+        }) {
+            holes[index].cornerRadius = max(holes[index].cornerRadius, candidate.cornerRadius)
+        } else {
+            holes.append(candidate)
+        }
+    }
+
+    private func holesOverlap(_ holes: [HoleRegion], tolerance: CGFloat) -> Bool {
+        guard holes.count > 1 else { return false }
+        for index in 0..<(holes.count - 1) {
+            let first = holes[index].rect
+            for comparisonIndex in (index + 1)..<holes.count {
+                let second = holes[comparisonIndex].rect
+                let intersection = first.intersection(second)
+                guard !intersection.isNull else { continue }
+                if (intersection.width * intersection.height) > tolerance {
+                    return true
+                }
+            }
+        }
+        return false
+    }
+
+    private func applyVectorMask(bounds: CGRect, scale: CGFloat, holes: [HoleRegion]) {
+        guard let path = makeVectorMaskPath(bounds: bounds, scale: scale, holes: holes) else {
+            reset()
+            return
+        }
+
+        vectorMaskLayer.path = path
+        vectorMaskLayer.isHidden = false
+        bitmapMaskLayer.contents = nil
+        bitmapMaskLayer.isHidden = true
+        renderingMode = .vector
+    }
+
+    private func applyBitmapMask(bounds: CGRect, scale: CGFloat, holes: [HoleRegion]) {
+        guard let image = makeBitmapMask(bounds: bounds, scale: scale, holes: holes) else {
+            reset()
+            return
+        }
+
+        bitmapMaskLayer.contents = image
+        bitmapMaskLayer.isHidden = false
+        vectorMaskLayer.path = nil
+        vectorMaskLayer.isHidden = true
+        renderingMode = .bitmap
+    }
+
+    private func makeVectorMaskPath(bounds: CGRect, scale: CGFloat, holes: [HoleRegion]) -> CGPath? {
+        guard bounds.width > 0, bounds.height > 0 else { return nil }
+        let path = CGMutablePath()
+        path.addRect(bounds)
+
+        for hole in holes {
+            let rect = alignRectToPixelGrid(hole.rect, scale: scale)
+            guard rect.width > 0, rect.height > 0 else { continue }
+            let radius = min(max(hole.cornerRadius, 0), min(rect.width, rect.height) / 2)
+            if radius > 0 {
+                path.addPath(
+                    CGPath(
+                        roundedRect: rect,
+                        cornerWidth: radius,
+                        cornerHeight: radius,
+                        transform: nil
+                    )
+                )
+            } else {
+                path.addRect(rect)
+            }
+        }
+
+        return path
+    }
+
+    private func makeBitmapMask(bounds: CGRect, scale: CGFloat, holes: [HoleRegion]) -> CGImage? {
+        let pixelWidth = Int(ceil(bounds.width * scale))
+        let pixelHeight = Int(ceil(bounds.height * scale))
         guard pixelWidth > 0, pixelHeight > 0 else { return nil }
 
         let colorSpace = CGColorSpaceCreateDeviceRGB()
-        let bitmapInfo = CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue)
         guard let context = CGContext(
             data: nil,
             width: pixelWidth,
@@ -485,41 +666,58 @@ private final class OverlayMaskLayer: CALayer {
             bitsPerComponent: 8,
             bytesPerRow: 0,
             space: colorSpace,
-            bitmapInfo: bitmapInfo.rawValue
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
         ) else {
             return nil
         }
 
-        context.scaleBy(x: scale, y: scale)
-        context.translateBy(x: -bounds.origin.x, y: -bounds.origin.y)
+        context.setAllowsAntialiasing(true)
+        context.setShouldAntialias(true)
+        context.interpolationQuality = .none
 
         context.setFillColor(red: 1, green: 1, blue: 1, alpha: 1)
-        context.fill(bounds)
+        context.fill(CGRect(x: 0, y: 0, width: CGFloat(pixelWidth), height: CGFloat(pixelHeight)))
 
-        staticRects.forEach { drawHole(in: $0, cornerRadius: 0, using: context) }
-        dynamicRegions.forEach { drawHole(in: $0.rect, cornerRadius: $0.cornerRadius, using: context) }
+        context.scaleBy(x: scale, y: scale)
+        context.setBlendMode(.clear)
 
+        for hole in holes {
+            let rect = alignRectToPixelGrid(hole.rect, scale: scale)
+            guard rect.width > 0, rect.height > 0 else { continue }
+            let radius = min(max(hole.cornerRadius, 0), min(rect.width, rect.height) / 2)
+            if radius > 0 {
+                let path = CGPath(
+                    roundedRect: rect,
+                    cornerWidth: radius,
+                    cornerHeight: radius,
+                    transform: nil
+                )
+                context.addPath(path)
+            } else {
+                context.addRect(rect)
+            }
+            context.fillPath()
+        }
+
+        context.setBlendMode(.normal)
         return context.makeImage()
     }
 
-    /// Cuts a transparent hole either as a rounded rectangle or a hard rectangle inside the mask image.
-    private func drawHole(in rect: CGRect, cornerRadius: CGFloat, using context: CGContext) {
-        guard rect.width > 0, rect.height > 0 else { return }
-        let radius = min(max(cornerRadius, 0), min(rect.width, rect.height) / 2)
-        context.setBlendMode(.clear)
-        if radius > 0 {
-            let path = CGPath(
-                roundedRect: rect,
-                cornerWidth: radius,
-                cornerHeight: radius,
-                transform: nil
-            )
-            context.addPath(path)
-            context.fillPath()
-        } else {
-            context.fill(rect)
-        }
-        context.setBlendMode(.normal)
+    private func alignRectToPixelGrid(_ rect: CGRect, scale: CGFloat) -> CGRect {
+        guard rect.width > 0, rect.height > 0, scale > 0 else { return rect }
+        let scaledMinX = floor(rect.minX * scale)
+        let scaledMinY = floor(rect.minY * scale)
+        let scaledMaxX = ceil(rect.maxX * scale)
+        let scaledMaxY = ceil(rect.maxY * scale)
+        let width = max(0, scaledMaxX - scaledMinX)
+        let height = max(0, scaledMaxY - scaledMinY)
+        guard width > 0, height > 0 else { return .zero }
+        return CGRect(
+            x: scaledMinX / scale,
+            y: scaledMinY / scale,
+            width: width / scale,
+            height: height / scale
+        )
     }
 }
 

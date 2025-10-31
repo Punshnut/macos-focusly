@@ -18,6 +18,10 @@ struct PreferencesView: View {
 
                 Divider()
 
+                trackingSection
+
+                Divider()
+
                 displaysSection
 
                 Divider()
@@ -90,6 +94,35 @@ struct PreferencesView: View {
 
             Text(localized("Choose how Focusly appears in the menu bar."))
                 .font(.caption)
+                .foregroundColor(.secondary)
+        }
+    }
+
+    /// Performance options that tune how quickly the overlay follows moved windows.
+    private var trackingSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(localized("Window Tracking Performance"))
+                .font(.headline)
+
+            Picker(
+                localized("Window Tracking Performance"),
+                selection: Binding(
+                    get: { viewModel.trackingProfile },
+                    set: { viewModel.updateTrackingProfile($0) }
+                )
+            ) {
+                ForEach(viewModel.trackingProfileOptions, id: \.self) { profile in
+                    Text(localized(profile.titleLocalizationKey, fallback: profile.titleFallback)).tag(profile)
+                }
+            }
+            .pickerStyle(.segmented)
+
+            Text(localized("WindowTrackingProfile.Description.General", fallback: "Adjust how quickly Focusly tracks windows while you move or resize them."))
+                .font(.caption)
+                .foregroundColor(.secondary)
+
+            Text(localized(viewModel.trackingProfile.descriptionLocalizationKey, fallback: viewModel.trackingProfile.descriptionFallback))
+                .font(.caption2)
                 .foregroundColor(.secondary)
         }
     }
@@ -423,8 +456,8 @@ struct PreferencesView: View {
     }
 
     /// Convenience wrapper so the view reads from the localization service.
-    private func localized(_ key: String) -> String {
-        localization.localized(key, fallback: key)
+    private func localized(_ key: String, fallback: String? = nil) -> String {
+        localization.localized(key, fallback: fallback ?? key)
     }
 
 }

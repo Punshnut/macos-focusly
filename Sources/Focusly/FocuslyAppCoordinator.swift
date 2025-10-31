@@ -11,6 +11,7 @@ final class FocuslyAppCoordinator: NSObject {
         static let onboardingCompleted = "Focusly.OnboardingCompleted"
         static let statusIconStyle = "Focusly.StatusIconStyle"
         static let languageOverride = "Focusly.LanguageOverride"
+        static let trackingProfile = "Focusly.WindowTrackingProfile"
     }
 
     private let appEnvironment: FocuslyEnvironment
@@ -23,6 +24,7 @@ final class FocuslyAppCoordinator: NSObject {
     private var onboardingWindowController: OnboardingWindowController? // Retain the welcome flow while it is onscreen.
     private let localizationService: LocalizationService
     private var localizationSubscription: AnyCancellable?
+    private var trackingProfileSubscription: AnyCancellable?
 
     private var preferencesWindowController: PreferencesWindowController?
     private var preferencesViewModel: PreferencesViewModel?
@@ -72,11 +74,16 @@ final class FocuslyAppCoordinator: NSObject {
         if let storedLanguage = defaults.string(forKey: UserDefaultsKey.languageOverride) {
             localizationService.languageOverrideIdentifier = storedLanguage
         }
+        if let storedTrackingProfile = defaults.string(forKey: UserDefaultsKey.trackingProfile),
+           let decodedProfile = WindowTrackingProfile(rawValue: storedTrackingProfile) {
+            appSettings.windowTrackingProfile = decodedProfile
+        }
 
         super.init()
 
         observeApplicationActivation()
         overlayWindowService.delegate = overlayController
+        overlayController.updateTrackingProfile(appSettings.windowTrackingProfile)
         statusBarController.setDelegate(self)
         hotkeyManager.onActivation = { [weak self] in
             self?.toggleOverlayActivation()
@@ -89,6 +96,14 @@ final class FocuslyAppCoordinator: NSObject {
                 guard let self else { return }
                 self.persistLanguageOverride(languageIdentifier)
                 self.synchronizeLocalization()
+            }
+
+        trackingProfileSubscription = appSettings.$windowTrackingProfile
+            .removeDuplicates()
+            .sink { [weak self] profile in
+                guard let self else { return }
+                self.overlayController.updateTrackingProfile(profile)
+                self.persistTrackingProfile(profile)
             }
     }
 
@@ -195,6 +210,11 @@ final class FocuslyAppCoordinator: NSObject {
         }
     }
 
+    /// Persists the selected window tracking profile.
+    private func persistTrackingProfile(_ profile: WindowTrackingProfile) {
+        appEnvironment.userDefaults.set(profile.rawValue, forKey: UserDefaultsKey.trackingProfile)
+    }
+
     /// Restores a previously persisted hotkey shortcut if one exists.
     private static func loadHotkeyShortcut(from defaults: UserDefaults) -> HotkeyShortcut? {
         guard let persistedData = defaults.data(forKey: UserDefaultsKey.shortcut) else { return nil }
@@ -263,6 +283,7 @@ final class FocuslyAppCoordinator: NSObject {
             preferencesViewModel?.statusIconStyle = statusBarIconStyle
             preferencesViewModel?.presetOptions = PresetLibrary.presets
             preferencesViewModel?.selectedPresetIdentifier = profileStore.currentPreset().id
+            preferencesViewModel?.trackingProfile = appSettings.windowTrackingProfile
             controller.updateLocalization(localization: localizationService)
             synchronizePreferencesDisplays()
             return
@@ -279,6 +300,8 @@ final class FocuslyAppCoordinator: NSObject {
             iconStyleOptions: StatusBarIconStyle.allCases,
             presetOptions: PresetLibrary.presets,
             selectedPresetIdentifier: profileStore.currentPreset().id,
+            trackingProfile: appSettings.windowTrackingProfile,
+            trackingProfileOptions: WindowTrackingProfile.allCases,
             callbacks: PreferencesViewModel.Callbacks(
                 onDisplayChange: { [weak self] displayID, style in
                     guard let self else { return }
@@ -342,6 +365,9 @@ final class FocuslyAppCoordinator: NSObject {
                 },
                 onSelectLanguage: { [weak self] identifier in
                     self?.localizationService.selectLanguage(id: identifier)
+                },
+                onUpdateTrackingProfile: { [weak self] profile in
+                    self?.appSettings.windowTrackingProfile = profile
                 }
             )
         )

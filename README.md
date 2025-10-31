@@ -20,13 +20,20 @@ Focusly tracks the active window (with your permission) so the foreground conten
 ## ⚡️ Feature Highlights
 
 - 🎛️ **Instant Menu Bar Control** - toggle overlays, switch presets, and update preferences in a click.  
-- 🖥️ **Per-Display Ambience** - individual tint, opacity, and color for every monitor.  
 - 🪟 **Context-Aware Focus Masking** - keeps the active window clear while softening the background.  
 - 🎨 **Preset Library** - Focus, Warm, Colorful, and Monochrome looks, powered by `PresetLibrary` and `ProfileStore`.  
+- 🖥️ **Per-Display Ambience** - individual tint, opacity, and color for every monitor.  
 - ⌨️ **Global Shortcut** - customizable Carbon-backed hotkey for instant control.  
 - 🚀 **Launch at Login** - integrates with `SMAppService` when running as a bundled `.app`.  
 - 🧭 **Guided Onboarding** - assists with setup, permissions, and language selection.  
 - 🌐 **Localization Ready** - runtime language switching with support for English, Spanish, Spanish (Mexico), French, Italian, Simplified Chinese, Ukrainian, Russian, Japanese, Korean, and Thai.
+
+---
+
+## upcoming features
+
+- **Overlay Performance** - higher refresh rates through gpu acceleration
+- **Settings Menu** - rework of the settings window
 
 ---
 

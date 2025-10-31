@@ -1,6 +1,10 @@
 import AppKit
 import CoreGraphics
 
+private let popUpMenuWindowLevel = Int(CGWindowLevelForKey(.popUpMenuWindow))
+private let floatingAccessoryWindowLevel = Int(CGWindowLevelForKey(.floatingWindow))
+private let menuKeywordSet: Set<String> = ["menu", "popover", "context"]
+
 /// Resolves the currently focused window snapshot using the most permissive APIs available.
 /// Falls back to accessibility lookups when Core Graphics metadata is not available
 /// (e.g. when an app has no on-screen windows).
@@ -282,21 +286,40 @@ private func classifyMenuWindow(
         return .systemMenu
     }
 
+    let lowercasedOwnerName = ownerApplicationName?.lowercased() ?? ""
+    if menuKeywordSet.contains(where: { lowercasedOwnerName.contains($0) }) {
+        return .systemMenu
+    }
+
     let lowercasedName = windowName?.lowercased() ?? ""
     let windowArea = coreGraphicsBounds.width * coreGraphicsBounds.height
     let windowHeight = coreGraphicsBounds.height
+    let windowWidth = coreGraphicsBounds.width
+
+    if layerIndex >= popUpMenuWindowLevel && popUpMenuWindowLevel > 0 {
+        return .systemMenu
+    }
 
     if layerIndex >= 18 {
         return .systemMenu
     }
 
-    if !lowercasedName.isEmpty {
-        if lowercasedName.contains("menu") || lowercasedName.contains("popover") || lowercasedName.contains("context") {
-            return .systemMenu
-        }
+    if !lowercasedName.isEmpty, menuKeywordSet.contains(where: { lowercasedName.contains($0) }) {
+        return .systemMenu
     }
 
     let isCompactMenu = windowHeight <= 620 && windowArea <= 520_000
+    let isTallNarrowMenu = windowArea <= 900_000 && windowWidth <= 420
+    let compactWindowOnFloatingLayer = layerIndex >= max(2, floatingAccessoryWindowLevel)
+
+    if (isCompactMenu || isTallNarrowMenu) && compactWindowOnFloatingLayer {
+        return .systemMenu
+    }
+
+    if (isCompactMenu || isTallNarrowMenu), lowercasedOwnerName.isEmpty, layerIndex == 0 {
+        return .systemMenu
+    }
+
     if isCompactMenu && layerIndex >= 4 {
         return .systemMenu
     }
