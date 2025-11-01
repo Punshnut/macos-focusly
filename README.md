@@ -25,7 +25,7 @@ Focusly tracks the active window (with your permission) so the foreground conten
 
 - 🎛️ **Instant Menu Bar Control** - toggle overlays, switch presets, and update preferences in a click.  
 - 🪟 **Context-Aware Focus Masking** - keeps the active window clear while softening the background.  
-- 🎨 **Preset Library** - Focus, Warm, Colorful, and Monochrome looks, powered by `PresetLibrary` and `ProfileStore`.  
+- 🎨 **Preset Library** - Focus, Warm, Colorful, and Monochrome looks 
 - 🖥️ **Per-Display Ambience** - individual tint, opacity, and color for every monitor.  
 - ⌨️ **Global Shortcut** - customizable Carbon-backed hotkey for instant control.  
 - 🚀 **Launch at Login** - integrates with `SMAppService` when running as a bundled `.app`.  
@@ -104,6 +104,10 @@ The generated `Focusly.app` ships unsigned, so macOS Gatekeeper will flag it unt
 
 ```bash
 brew install --cask alienator88-sentinel
+```
+drop .app in Sentinel Window or
+
+```bash
 alienator88-sentinel sign Focusly.app \
   --identity "Developer ID Application: Your Name (TEAMID)"
 ```
