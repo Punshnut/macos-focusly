@@ -68,6 +68,7 @@ private struct CGFrontWindowSnapshot {
 }
 
 /// Uses CoreGraphics to locate the foremost visible window while skipping overlay windows.
+@MainActor
 private func cgFrontWindow(excluding windowNumbers: Set<Int>, preferredPID: pid_t?) -> CGFrontWindowSnapshot? {
     let options: CGWindowListOption = [.optionOnScreenOnly, .excludeDesktopElements]
 
@@ -171,6 +172,7 @@ private func findFrontWindow(
 
 /// Scans the current window list for secondary surfaces tied to the front application
 /// (e.g. context menus or menu-bar dropdowns) so we can carve them out of the overlay.
+@MainActor
 private func collectSupplementaryMasks(
     in windowDictionaries: [[String: Any]],
     primaryPID: pid_t?,
@@ -178,6 +180,7 @@ private func collectSupplementaryMasks(
 ) -> [ActiveWindowSnapshot.MaskRegion] {
     var maskRegions: [ActiveWindowSnapshot.MaskRegion] = []
     var visitedWindowNumbers: Set<Int> = []
+    var cornerSnapshotCache: [pid_t: [AXWindowCornerSnapshot]] = [:]
 
     for window in windowDictionaries {
         guard let number = window[kCGWindowNumber as String] as? Int else { continue }
@@ -228,12 +231,22 @@ private func collectSupplementaryMasks(
             height: correctedBounds.size.height
         )
 
-        let cornerRadius = menuCornerRadius(for: maskFrame)
+        let resolvedCornerRadius: CGFloat
+        if let resolvedProcessID,
+           let matchedRadius = resolveCornerRadiusForWindow(
+               pid: resolvedProcessID,
+               frame: maskFrame,
+               cache: &cornerSnapshotCache
+           ) {
+            resolvedCornerRadius = clampCornerRadius(matchedRadius, to: maskFrame)
+        } else {
+            resolvedCornerRadius = menuCornerRadius(for: maskFrame)
+        }
 
         maskRegions.append(
             ActiveWindowSnapshot.MaskRegion(
                 frame: maskFrame,
-                cornerRadius: cornerRadius,
+                cornerRadius: resolvedCornerRadius,
                 purpose: maskPurpose
             )
         )
@@ -259,7 +272,30 @@ private func collectSupplementaryMasks(
     }
 }
 
+/// Resolves a close-match corner radius for a supplementary window by caching AX window snapshots.
+@MainActor
+private func resolveCornerRadiusForWindow(
+    pid: pid_t,
+    frame: NSRect,
+    cache: inout [pid_t: [AXWindowCornerSnapshot]]
+) -> CGFloat? {
+    let snapshots: [AXWindowCornerSnapshot]
+    if let cachedSnapshots = cache[pid] {
+        snapshots = cachedSnapshots
+    } else {
+        let fetchedSnapshots = axWindowCornerSnapshots(for: pid)
+        cache[pid] = fetchedSnapshots
+        snapshots = fetchedSnapshots
+    }
+
+    guard let match = snapshots.first(where: { $0.frame.isApproximatelyEqual(to: frame, tolerance: 1.5) }) else {
+        return nil
+    }
+    return match.cornerRadius
+}
+
 /// Standalone helper used by the AX fallback path to still find menus for the front app.
+@MainActor
 private func resolveSupplementaryMasks(primaryPID: pid_t?, excludingWindowNumbers: Set<Int>) -> [ActiveWindowSnapshot.MaskRegion] {
     let windowListOptions: CGWindowListOption = [.optionOnScreenOnly, .excludeDesktopElements]
     guard let completeWindowList = CGWindowListCopyWindowInfo(windowListOptions, kCGNullWindowID) as? [[String: Any]], !completeWindowList.isEmpty else {

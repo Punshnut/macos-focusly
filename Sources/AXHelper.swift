@@ -30,6 +30,12 @@ public struct AXWindowInfo: Hashable, Sendable {
     public let isFocused: Bool
 }
 
+/// Snapshot of an application's accessibility windows including corner radius metadata.
+struct AXWindowCornerSnapshot: Sendable {
+    let frame: NSRect
+    let cornerRadius: CGFloat?
+}
+
 /// Snapshot of the currently focused window including carve-outs for related UI.
 public struct ActiveWindowSnapshot: Equatable, Sendable {
     /// Describes a rect that needs to be carved out from the overlay (menus, context menus, etc.).
@@ -177,6 +183,31 @@ func axEnumerateAllWindows(limitPerApp: Int = 200) -> [AXWindowInfo] {
         }
     }
     return collectedWindowInfos
+}
+
+/// Returns all accessibility windows for the supplied process along with their corner radii.
+@MainActor
+func axWindowCornerSnapshots(for pid: pid_t) -> [AXWindowCornerSnapshot] {
+    guard isAccessibilityAccessGranted() else { return [] }
+
+    let applicationElement = AXUIElementCreateApplication(pid)
+    var windowsValue: CFTypeRef?
+    guard AXUIElementCopyAttributeValue(applicationElement, kAXWindowsAttribute as CFString, &windowsValue) == .success,
+          let accessibilityWindows = windowsValue as? [AXUIElement],
+          !accessibilityWindows.isEmpty else {
+        return []
+    }
+
+    var snapshots: [AXWindowCornerSnapshot] = []
+    snapshots.reserveCapacity(accessibilityWindows.count)
+
+    for windowElement in accessibilityWindows {
+        guard let frame = axFrame(for: windowElement) else { continue }
+        let radius = axWindowCornerRadius(for: windowElement)
+        snapshots.append(AXWindowCornerSnapshot(frame: frame, cornerRadius: radius))
+    }
+
+    return snapshots
 }
 
 /// Resolves the focused accessibility window element for the requested process or frontmost app.
