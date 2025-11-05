@@ -46,7 +46,7 @@ Focusly tracks the active window (with your permission) so the foreground conten
 
 ---
 
-## upcoming features
+## ☀️ Upcoming Features
 
 - **Overlay Performance** - higher refresh rates through gpu acceleration
 - **Settings Menu** - rework of the settings window

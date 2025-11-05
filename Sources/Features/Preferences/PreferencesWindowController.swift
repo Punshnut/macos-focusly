@@ -18,10 +18,12 @@ final class PreferencesWindowController: NSWindowController {
         self.localization = localization
         let preferencesView = PreferencesView(viewModel: viewModel).environmentObject(localization)
         let hostingController = NSHostingController(rootView: preferencesView)
+        hostingController.view.wantsLayer = true
+        hostingController.view.layer?.backgroundColor = NSColor.clear.cgColor
         let layout = PreferencesWindowController.windowLayout(for: viewModel.displaySettings.count)
         let window = NSWindow(
             contentRect: NSRect(origin: .zero, size: layout.initialSize),
-            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
@@ -29,6 +31,15 @@ final class PreferencesWindowController: NSWindowController {
             "Focusly Preferences",
             fallback: "Focusly Preferences"
         )
+        window.titlebarAppearsTransparent = true
+        window.titleVisibility = .hidden
+        window.isMovableByWindowBackground = true
+        window.isOpaque = false
+        window.backgroundColor = .clear
+        window.toolbarStyle = .unifiedCompact
+        window.standardWindowButton(.closeButton)?.isHidden = true
+        window.standardWindowButton(.miniaturizeButton)?.isHidden = true
+        window.standardWindowButton(.zoomButton)?.isHidden = true
         window.isReleasedWhenClosed = false
         window.contentMinSize = layout.minimumSize
         window.center()
@@ -142,11 +153,29 @@ final class PreferencesWindowController: NSWindowController {
 
     /// Returns recommended window sizes based on how many display cards will be shown.
     private static func windowLayout(for displayCount: Int) -> (initialSize: NSSize, minimumSize: NSSize) {
-        let multipleDisplays = displayCount > 1
-        let initialWidth: CGFloat = multipleDisplays ? 640 : 520
-        let minimumWidth: CGFloat = multipleDisplays ? 560 : 460
-        let initialHeight: CGFloat = 640
-        let minimumHeight: CGFloat = 520
+        let initialWidth: CGFloat
+        let minimumWidth: CGFloat
+        let initialHeight: CGFloat
+        let minimumHeight: CGFloat
+
+        switch displayCount {
+        case ..<2:
+            initialWidth = 620
+            minimumWidth = 540
+            initialHeight = 640
+            minimumHeight = 520
+        case 2:
+            initialWidth = 760
+            minimumWidth = 660
+            initialHeight = 680
+            minimumHeight = 560
+        default:
+            initialWidth = 860
+            minimumWidth = 720
+            initialHeight = 720
+            minimumHeight = 580
+        }
+
         return (
             initialSize: NSSize(width: initialWidth, height: initialHeight),
             minimumSize: NSSize(width: minimumWidth, height: minimumHeight)
