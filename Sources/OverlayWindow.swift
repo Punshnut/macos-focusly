@@ -247,6 +247,10 @@ final class OverlayWindow: NSPanel {
         tintOverlayView.layer?.removeAllAnimations()
         blurEffectView.prepareForReuse()
         contentView?.layer?.removeAllAnimations()
+        if let targetScreen = attachedScreen ?? screen {
+            recalculateStaticExclusions(for: targetScreen)
+        }
+        refreshMaskLayers()
     }
 
     /// Hides the overlay, optionally animating the fade-out.
