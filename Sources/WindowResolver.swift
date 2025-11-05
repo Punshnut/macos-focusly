@@ -8,6 +8,7 @@ private let menuKeywordSet: Set<String> = ["menu", "popover", "context"]
 /// Resolves the currently focused window snapshot using the most permissive APIs available.
 /// Falls back to accessibility lookups when Core Graphics metadata is not available
 /// (e.g. when an app has no on-screen windows).
+@MainActor
 func resolveActiveWindowSnapshot(
     excluding windowNumbers: Set<Int> = [],
     preferredPID: pid_t? = nil
@@ -38,6 +39,7 @@ func resolveActiveWindowSnapshot(
 /// Resolves the currently focused window frame using the most permissive APIs available.
 /// Falls back to accessibility lookups when Core Graphics metadata is not available
 /// (e.g. when an app has no on-screen windows).
+@MainActor
 func resolveActiveWindowFrame(
     excluding windowNumbers: Set<Int> = [],
     preferredPID: pid_t? = nil
@@ -49,6 +51,7 @@ func resolveActiveWindowFrame(
 }
 
 /// CoreGraphics-only variant to avoid touching the Accessibility APIs.
+@MainActor
 func resolveActiveWindowFrameUsingCoreGraphics(
     excluding windowNumbers: Set<Int> = [],
     preferredPID: pid_t? = nil

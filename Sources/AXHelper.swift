@@ -1,22 +1,26 @@
 import Cocoa
-import ApplicationServices
+@preconcurrency import ApplicationServices
+
+private let axTrustedCheckPromptKey = "AXTrustedCheckOptionPrompt"
 
 /// Call once on startup to request AX permission (system will show prompt).
 @discardableResult
+@MainActor
 func requestAccessibilityIfNeeded(prompt: Bool = true) -> Bool {
     let accessibilityOptions: CFDictionary = [
-        kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: prompt
+        axTrustedCheckPromptKey: prompt
     ] as CFDictionary
     return AXIsProcessTrustedWithOptions(accessibilityOptions)
 }
 
 /// Returns whether the app currently has accessibility access without showing a prompt.
+@MainActor
 func isAccessibilityAccessGranted() -> Bool {
     AXIsProcessTrusted()
 }
 
 /// Typed window info we expose to the app.
-public struct AXWindowInfo: Hashable {
+public struct AXWindowInfo: Hashable, Sendable {
     public let pid: pid_t
     public let appName: String
     public let windowTitle: String?
@@ -27,10 +31,10 @@ public struct AXWindowInfo: Hashable {
 }
 
 /// Snapshot of the currently focused window including carve-outs for related UI.
-public struct ActiveWindowSnapshot: Equatable {
+public struct ActiveWindowSnapshot: Equatable, Sendable {
     /// Describes a rect that needs to be carved out from the overlay (menus, context menus, etc.).
-    public struct MaskRegion: Equatable {
-        public enum Purpose: Equatable {
+    public struct MaskRegion: Equatable, Sendable {
+        public enum Purpose: Equatable, Sendable {
             case applicationWindow
             case applicationMenu
             case systemMenu
@@ -68,7 +72,7 @@ public struct ActiveWindowSnapshot: Equatable {
     }
 }
 
-private let windowCornerRadiusAttribute: CFString = "AXWindowCornerRadius" as CFString
+private let windowCornerRadiusAttribute = "AXWindowCornerRadius"
 
 /// Decodes a `CGPoint` from a raw accessibility value.
 private func axPoint(_ value: CFTypeRef?) -> CGPoint? {
@@ -90,11 +94,13 @@ private func axSize(_ value: CFTypeRef?) -> CGSize? {
 }
 
 /// Active (frontmost) window frame, or nil.
+@MainActor
 func axActiveWindowFrame(preferredPID: pid_t? = nil) -> NSRect? {
     axActiveWindowSnapshot(preferredPID: preferredPID)?.frame
 }
 
 /// Returns the currently focused window description, preferring a given PID if supplied.
+@MainActor
 func axActiveWindowSnapshot(preferredPID: pid_t? = nil) -> ActiveWindowSnapshot? {
     guard let window = axFocusedWindowElement(preferredPID: preferredPID), let frame = axFrame(for: window) else {
         return nil
@@ -105,6 +111,7 @@ func axActiveWindowSnapshot(preferredPID: pid_t? = nil) -> ActiveWindowSnapshot?
 }
 
 /// Resolves the corner radius for the focused window if available.
+@MainActor
 func axActiveWindowCornerRadius(preferredPID: pid_t? = nil) -> CGFloat? {
     guard let window = axFocusedWindowElement(preferredPID: preferredPID) else { return nil }
     return axWindowCornerRadius(for: window)
@@ -112,6 +119,7 @@ func axActiveWindowCornerRadius(preferredPID: pid_t? = nil) -> CGFloat? {
 
 /// Enumerate windows for all GUI apps (best-effort; requires AX permission).
 /// Collects metadata for visible windows across all running GUI apps, capped per process.
+@MainActor
 func axEnumerateAllWindows(limitPerApp: Int = 200) -> [AXWindowInfo] {
     guard isAccessibilityAccessGranted() else { return [] }
 
@@ -172,6 +180,7 @@ func axEnumerateAllWindows(limitPerApp: Int = 200) -> [AXWindowInfo] {
 }
 
 /// Resolves the focused accessibility window element for the requested process or frontmost app.
+@MainActor
 private func axFocusedWindowElement(preferredPID: pid_t? = nil) -> AXUIElement? {
     guard isAccessibilityAccessGranted() else { return nil }
     let resolvedProcessID: pid_t?
@@ -188,7 +197,7 @@ private func axFocusedWindowElement(preferredPID: pid_t? = nil) -> AXUIElement? 
           CFGetTypeID(rawFocusedWindow) == AXUIElementGetTypeID() else {
         return nil
     }
-    return unsafeBitCast(rawFocusedWindow, to: AXUIElement.self)
+    return unsafeDowncast(rawFocusedWindow as AnyObject, to: AXUIElement.self)
 }
 
 /// Extracts the window frame for the supplied accessibility window element.
@@ -202,9 +211,10 @@ private func axFrame(for window: AXUIElement) -> NSRect? {
 }
 
 /// Attempts to pull the optional corner radius attribute from a window element.
+@MainActor
 private func axWindowCornerRadius(for window: AXUIElement) -> CGFloat? {
     var radiusRef: CFTypeRef?
-    guard AXUIElementCopyAttributeValue(window, windowCornerRadiusAttribute, &radiusRef) == .success else {
+    guard AXUIElementCopyAttributeValue(window, windowCornerRadiusAttribute as CFString, &radiusRef) == .success else {
         return nil
     }
     if let number = radiusRef as? NSNumber {

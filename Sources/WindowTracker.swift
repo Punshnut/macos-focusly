@@ -2,9 +2,10 @@ import Cocoa
 
 /// Posts updates with the current active window frame and a snapshot of all windows.
 /// Polling avoids per-app AX observers and is robust enough for overlays.
+@MainActor
 final class WindowTracker {
     /// Notification payload describing window state at a particular moment.
-    struct Snapshot {
+    struct Snapshot: Sendable {
         let timestamp: Date
         let activeFrame: NSRect?
         let allWindows: [AXWindowInfo]
@@ -26,7 +27,9 @@ final class WindowTracker {
     func start() {
         stop()
         pollingTimer = Timer.scheduledTimer(withTimeInterval: pollingInterval, repeats: true) { [weak self] _ in
-            self?.handleTimerTick()
+            Task { @MainActor [weak self] in
+                self?.handleTimerTick()
+            }
         }
         guard let pollingTimer else { return }
         RunLoop.main.add(pollingTimer, forMode: .common)

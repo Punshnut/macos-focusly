@@ -2,6 +2,7 @@ import AppKit
 import Combine
 
 /// AppKit delegate that wires together the coordinator, menus, and optional debug tooling.
+@MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var appCoordinator: FocuslyAppCoordinator?
     private var overlayController: OverlayController?

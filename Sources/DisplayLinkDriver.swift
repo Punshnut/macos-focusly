@@ -56,6 +56,7 @@ final class DisplayLinkDriver {
         isRunning = false
     }
 
+    @MainActor
     deinit {
         if isRunning, let link = displayLink {
             CVDisplayLinkStop(link)

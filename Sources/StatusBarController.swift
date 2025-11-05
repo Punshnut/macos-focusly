@@ -554,6 +554,7 @@ enum StatusBarIconTone: Hashable {
 }
 
 /// Draws custom menu bar icons and caches them per appearance tone.
+@MainActor
 enum StatusBarIconFactory {
     private static let iconSize: CGFloat = 18
     private static let canvasSize = NSSize(width: iconSize, height: iconSize)
