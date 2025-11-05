@@ -342,6 +342,7 @@ final class OverlayWindow: NSPanel {
             self.tintOverlayView.layer?.backgroundColor = targetColor.cgColor
         }
 
+        blurEffectView.setMaterial(style.blurMaterial.visualEffectMaterial)
         blurEffectView.setExtraBlurRadius(CGFloat(max(0, style.blurRadius)))
         blurEffectView.setColorTreatment(style.colorTreatment)
 
@@ -790,12 +791,14 @@ private final class OverlayBlurView: NSVisualEffectView {
     private var isBlurEnabled = true
     private var extraBlurRadius: CGFloat = 35
     private var colorTreatment: FocusOverlayColorTreatment = .preserveColor
+    private var appliedMaterial: NSVisualEffectView.Material = .hudWindow
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         translatesAutoresizingMaskIntoConstraints = false
         blendingMode = .behindWindow  // Only this mode keeps background blur intact for full-screen overlays.
         material = .hudWindow  // Default material that provides a neutral blur across macOS themes.
+        appliedMaterial = .hudWindow
         state = .active
         wantsLayer = true
         layerUsesCoreImageFilters = true
@@ -827,6 +830,7 @@ private final class OverlayBlurView: NSVisualEffectView {
             layer?.mask = nil
             layer?.backgroundFilters = nil
         } else {
+            material = appliedMaterial
             applyFilters()
         }
     }
@@ -836,7 +840,15 @@ private final class OverlayBlurView: NSVisualEffectView {
         super.prepareForReuse()
         layer?.removeAllAnimations()
         layer?.mask = nil
+        material = appliedMaterial
         applyFilters()
+    }
+
+    /// Updates the visual effect material backing the overlay blur.
+    func setMaterial(_ material: NSVisualEffectView.Material) {
+        guard appliedMaterial != material else { return }
+        appliedMaterial = material
+        self.material = material
     }
 
     /// Adjusts the gaussian blur radius used to soften captured content.

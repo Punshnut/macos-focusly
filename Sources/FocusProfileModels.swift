@@ -34,12 +34,85 @@ enum FocusOverlayColorTreatment: String, Codable, CaseIterable {
     }
 }
 
+/// Discrete macOS blur materials Focusly can apply behind its tint overlay.
+enum FocusOverlayMaterial: String, Codable, CaseIterable, Equatable {
+    case hudWindow
+    case menu
+    case popover
+    case sidebar
+    case sheet
+    case fullScreenUI
+    case windowBackground
+
+    /// Resolves the underlying `NSVisualEffectView.Material`.
+    var visualEffectMaterial: NSVisualEffectView.Material {
+        switch self {
+        case .hudWindow:
+            return .hudWindow
+        case .menu:
+            return .menu
+        case .popover:
+            return .popover
+        case .sidebar:
+            return .sidebar
+        case .sheet:
+            return .sheet
+        case .fullScreenUI:
+            return .fullScreenUI
+        case .windowBackground:
+            return .windowBackground
+        }
+    }
+
+    /// Spoken label exposed to VoiceOver to describe the current material.
+    var accessibilityDescription: String {
+        switch self {
+        case .hudWindow:
+            return NSLocalizedString(
+                "HUD Window Blur",
+                comment: "Accessibility description for the HUD window blur material option."
+            )
+        case .menu:
+            return NSLocalizedString(
+                "Menu Blur",
+                comment: "Accessibility description for the menu blur material option."
+            )
+        case .popover:
+            return NSLocalizedString(
+                "Popover Blur",
+                comment: "Accessibility description for the popover blur material option."
+            )
+        case .sidebar:
+            return NSLocalizedString(
+                "Sidebar Blur",
+                comment: "Accessibility description for the sidebar blur material option."
+            )
+        case .sheet:
+            return NSLocalizedString(
+                "Sheet Blur",
+                comment: "Accessibility description for the sheet blur material option."
+            )
+        case .fullScreenUI:
+            return NSLocalizedString(
+                "Full Screen Blur",
+                comment: "Accessibility description for the full-screen blur material option."
+            )
+        case .windowBackground:
+            return NSLocalizedString(
+                "Window Background Blur",
+                comment: "Accessibility description for the window background blur material option."
+            )
+        }
+    }
+}
+
 /// Persisted style representation consumed by the overlay renderer.
 struct FocusOverlayStyle: Codable, Equatable {
     var opacity: Double
     var tint: FocusTint
     var animationDuration: TimeInterval
     var colorTreatment: FocusOverlayColorTreatment = .preserveColor
+    var blurMaterial: FocusOverlayMaterial = .hudWindow
     var blurRadius: Double = 35
 
     init(
@@ -47,12 +120,14 @@ struct FocusOverlayStyle: Codable, Equatable {
         tint: FocusTint,
         animationDuration: TimeInterval,
         colorTreatment: FocusOverlayColorTreatment = .preserveColor,
+        blurMaterial: FocusOverlayMaterial = .hudWindow,
         blurRadius: Double = 35
     ) {
         self.opacity = opacity
         self.tint = tint
         self.animationDuration = animationDuration
         self.colorTreatment = colorTreatment
+        self.blurMaterial = blurMaterial
         self.blurRadius = blurRadius
     }
 
@@ -61,6 +136,7 @@ struct FocusOverlayStyle: Codable, Equatable {
         case tint
         case animationDuration
         case colorTreatment
+        case blurMaterial
         case blurRadius // Legacy payloads encoded a blur radius; now respected.
     }
 
@@ -70,6 +146,7 @@ struct FocusOverlayStyle: Codable, Equatable {
         tint = try container.decode(FocusTint.self, forKey: .tint)
         animationDuration = try container.decode(TimeInterval.self, forKey: .animationDuration)
         colorTreatment = try container.decodeIfPresent(FocusOverlayColorTreatment.self, forKey: .colorTreatment) ?? .preserveColor
+        blurMaterial = try container.decodeIfPresent(FocusOverlayMaterial.self, forKey: .blurMaterial) ?? .hudWindow
         blurRadius = try container.decodeIfPresent(Double.self, forKey: .blurRadius) ?? 35
     }
 
@@ -79,6 +156,7 @@ struct FocusOverlayStyle: Codable, Equatable {
         try container.encode(tint, forKey: .tint)
         try container.encode(animationDuration, forKey: .animationDuration)
         try container.encode(colorTreatment, forKey: .colorTreatment)
+        try container.encode(blurMaterial, forKey: .blurMaterial)
         try container.encode(blurRadius, forKey: .blurRadius)
     }
 

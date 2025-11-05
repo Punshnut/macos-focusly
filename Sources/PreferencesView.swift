@@ -189,7 +189,7 @@ struct PreferencesView: View {
     private func displayDetail(for display: PreferencesViewModel.DisplaySettings) -> some View {
         let liveOpacity = viewModel.displaySettings.first(where: { $0.id == display.id })?.opacity ?? display.opacity
         let liveTint = viewModel.displaySettings.first(where: { $0.id == display.id })?.tint ?? display.tint
-        let liveBlur = viewModel.displaySettings.first(where: { $0.id == display.id })?.blurRadius ?? display.blurRadius
+        let liveMaterial = viewModel.displaySettings.first(where: { $0.id == display.id })?.blurMaterial ?? display.blurMaterial
         let isExcluded = viewModel.displaySettings.first(where: { $0.id == display.id })?.isExcluded ?? display.isExcluded
 
         let opacityBinding = Binding(
@@ -209,9 +209,17 @@ struct PreferencesView: View {
             }
         )
 
-        let blurBinding = Binding(
-            get: { viewModel.displaySettings.first(where: { $0.id == display.id })?.blurRadius ?? display.blurRadius },
-            set: { viewModel.updateBlur(for: display.id, radius: $0) }
+        let materialOptions = FocusOverlayMaterial.allCases
+        let materialIndexBinding = Binding(
+            get: {
+                Double(materialOptions.firstIndex(of: liveMaterial) ?? 0)
+            },
+            set: { newValue in
+                guard !materialOptions.isEmpty else { return }
+                let clampedIndex = max(0, min(Int(round(newValue)), materialOptions.count - 1))
+                let selectedMaterial = materialOptions[clampedIndex]
+                viewModel.updateBlurMaterial(for: display.id, material: selectedMaterial)
+            }
         )
 
         let colorTreatmentBinding = Binding(
@@ -272,18 +280,30 @@ struct PreferencesView: View {
 
             GroupBox {
                 VStack(alignment: .leading, spacing: 12) {
-                    HStack {
-                        Text(localized("Blur Radius"))
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                        Spacer()
-                        Text(String(format: "%.0f", liveBlur))
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                            .monospacedDigit()
+                    let selectedMaterialIndex = materialOptions.firstIndex(of: liveMaterial) ?? 0
+                    Text(localized("Blur Style"))
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    Slider(
+                        value: materialIndexBinding,
+                        in: 0...Double(max(materialOptions.count - 1, 1)),
+                        step: 1
+                    )
+                    .labelsHidden()
+                    .accessibilityLabel(Text(localized("Blur Style")))
+                    .accessibilityValue(Text(liveMaterial.accessibilityDescription))
+                    if materialOptions.count > 1 {
+                        HStack(spacing: 4) {
+                            ForEach(Array(materialOptions.enumerated()), id: \.offset) { index, _ in
+                                Capsule()
+                                    .fill(index == selectedMaterialIndex ? Color.accentColor : Color.primary.opacity(0.18))
+                                    .frame(width: index == selectedMaterialIndex ? 16 : 10, height: 3)
+                                    .animation(.easeInOut(duration: 0.2), value: selectedMaterialIndex)
+                                    .accessibilityHidden(true)
+                            }
+                        }
                     }
-                    Slider(value: blurBinding, in: 0...60, step: 1)
-                    Text(localized("Control how strongly Focusly softens background details."))
+                    Text(localized("Sample different macOS blur materials to match your space."))
                         .font(.caption2)
                         .foregroundColor(.secondary)
                 }

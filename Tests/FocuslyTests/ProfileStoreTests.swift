@@ -30,6 +30,7 @@ final class ProfileStoreTests: XCTestCase {
             tint: .ember,
             animationDuration: 0.27,
             colorTreatment: .monochrome,
+            blurMaterial: .menu,
             blurRadius: 18
         )
         store?.updateStyle(override, forDisplayID: displayID)
@@ -39,6 +40,7 @@ final class ProfileStoreTests: XCTestCase {
         XCTAssertEqual(newStore.style(forDisplayID: displayID).opacity, 0.61, accuracy: 0.001)
         XCTAssertEqual(newStore.style(forDisplayID: displayID).colorTreatment, .monochrome)
         XCTAssertEqual(newStore.style(forDisplayID: displayID).blurRadius, 18, accuracy: 0.001)
+        XCTAssertEqual(newStore.style(forDisplayID: displayID).blurMaterial, .menu)
     }
 
     func testDisplayExclusionPersistsBetweenInstances() {

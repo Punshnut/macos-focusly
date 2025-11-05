@@ -11,6 +11,7 @@ final class PreferencesViewModel: ObservableObject {
         var opacity: Double
         var tint: NSColor
         var colorTreatment: FocusOverlayColorTreatment
+        var blurMaterial: FocusOverlayMaterial
         var blurRadius: Double
         var isExcluded: Bool
 
@@ -99,10 +100,11 @@ final class PreferencesViewModel: ObservableObject {
         commit(displaySettings: displaySettings[settingsIndex])
     }
 
-    /// Persists blur radius adjustments for a display and notifies the app.
-    func updateBlur(for displayID: DisplayID, radius: Double) {
+    /// Persists blur material adjustments for a display and notifies the app.
+    func updateBlurMaterial(for displayID: DisplayID, material: FocusOverlayMaterial) {
         guard let settingsIndex = displaySettings.firstIndex(where: { $0.id == displayID }) else { return }
-        displaySettings[settingsIndex].blurRadius = max(0, radius)
+        guard displaySettings[settingsIndex].blurMaterial != material else { return }
+        displaySettings[settingsIndex].blurMaterial = material
         commit(displaySettings: displaySettings[settingsIndex])
     }
 
@@ -140,6 +142,7 @@ final class PreferencesViewModel: ObservableObject {
             displaySettings[settingsIndex].opacity = sourceDisplaySettings.opacity
             displaySettings[settingsIndex].tint = sourceDisplaySettings.tint
             displaySettings[settingsIndex].colorTreatment = sourceDisplaySettings.colorTreatment
+            displaySettings[settingsIndex].blurMaterial = sourceDisplaySettings.blurMaterial
             displaySettings[settingsIndex].blurRadius = sourceDisplaySettings.blurRadius
             commit(displaySettings: displaySettings[settingsIndex])
         }
@@ -220,6 +223,7 @@ final class PreferencesViewModel: ObservableObject {
             tint: focusTint,
             animationDuration: 0.3,
             colorTreatment: displaySettings.colorTreatment,
+            blurMaterial: displaySettings.blurMaterial,
             blurRadius: displaySettings.blurRadius
         )
         callbacks.onDisplayChange(displaySettings.id, overlayStyle)

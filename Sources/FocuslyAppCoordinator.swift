@@ -449,6 +449,7 @@ final class FocuslyAppCoordinator: NSObject {
                 opacity: style.opacity,
                 tint: tintColor,
                 colorTreatment: style.colorTreatment,
+                blurMaterial: style.blurMaterial,
                 blurRadius: style.blurRadius,
                 isExcluded: overlayProfileStore.isDisplayExcluded(displayID)
             )
