@@ -18,6 +18,7 @@ let package = Package(
         .executableTarget(
             name: "Focusly",
             path: "Sources",
+            exclude: ["Focusly_Logo.png"],
             resources: [
                 .process("Focusly_centered.png"),
                 .process("Resources")

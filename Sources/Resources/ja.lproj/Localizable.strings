@@ -10,8 +10,9 @@
 "Apply to Other Displays" = "Apply to Other Displays";
 "Assign a global shortcut and enable Launch at Login in Preferences so Focusly is ready whenever you are." = "Assign a global shortcut and enable Launch at Login in Preferences so Focusly is ready whenever you are.";
 "Back" = "Back";
-"Blur (Focus)" = "Blur (Focus)";
+"Blur (Focus)" = "ぼかし（Focus）";
 "Blur Radius" = "Blur Radius";
+"Built-in retina display" = "内蔵Retinaディスプレイ";
 "Blurring Details" = "Blurring Details";
 "Choose how Focusly appears in the menu bar." = "Choose how Focusly appears in the menu bar.";
 "Choose which language Focusly uses. Switch instantly to test translations." = "Choose which language Focusly uses. Switch instantly to test translations.";
@@ -21,7 +22,7 @@
 "Color Effects" = "Color Effects";
 "Color Filter" = "Color Filter";
 "Color Treatment" = "Color Treatment";
-"Colorful" = "Colorful";
+"Colorful" = "カラフル";
 "Control how strongly Focusly softens background details." = "Control how strongly Focusly softens background details.";
 "Copy settings to other displays" = "Copy settings to other displays";
 "Credits" = "Credits";
@@ -52,7 +53,7 @@
 "Launch at Login ⬜️" = "Launch at Login ⬜️";
 "Launch Focusly at login" = "Launch Focusly at Login";
 "Minimal Dot" = "Minimal Dot";
-"Monochrome" = "Monochrome";
+"Monochrome" = "モノクロ";
 "Nametag: %@" = "Nametag: %@";
 "Next" = "Next";
 "No displays detected. Connect a monitor to adjust overlay styling." = "No displays detected. Connect a monitor to adjust overlay styling.";
@@ -85,7 +86,7 @@
 "Status Bar Icon" = "Status Bar Icon";
 "Switch between saved overlay looks instantly." = "Switch between overlay presets instantly.";
 "Tint" = "Tint";
-"Warm" = "Warm";
+"Warm" = "ウォーム";
 "Welcome to Focusly" = "Welcome to Focusly";
 "Window Tracking Performance" = "Window Tracking Performance";
 "WindowTrackingProfile.Description.General" = "Tune how quickly Focusly tracks windows while you move or resize them.";

@@ -30,7 +30,7 @@ Focusly tracks the active window (with your permission) so the foreground conten
 - ⌨️ **Global Shortcut** - customizable Carbon-backed hotkey for instant control.  
 - 🚀 **Launch at Login** - integrates with `SMAppService` when running as a bundled `.app`.  
 - 🧭 **Guided Onboarding** - assists with setup, permissions, and language selection.  
-- 🌐 **Localization Ready** - runtime language switching with support for English, Spanish, Spanish (Mexico), French, Italian, Simplified Chinese, Ukrainian, Russian, Japanese, Korean, and Thai.
+- 🌐 **Localization Ready** - runtime language switching with support for English, Spanish, Spanish (Mexico), French, Italian, Arabic (Modern Standard), Swahili (Kiswahili), Hausa, Simplified Chinese, Ukrainian, Russian, Japanese, Korean, and Thai.
 
 ---
 
@@ -64,7 +64,7 @@ You can always grab the latest `.dmg` for **Alpha 0.2** from [GitHub Releases](h
 
 ---
 
-## 🧠 Build from Source (Alpha 0.2)
+## 🧠 Build from Source (Alpha 0.3)
 
 To build the latest alpha version directly from source using Xcode:
 
@@ -121,11 +121,11 @@ Public releases posted to GitHub will ship pre-signed and notarized so Gatekeepe
 
 ## 🛠️ Development Notes
 
-- **Accessibility:** Falls back to CoreGraphics polling if permission is denied (masking quality reduced).  
-- **Debug Overlay:** Enable with `FOCUSLY_DEBUG_WINDOW=1` to visualize the window tracker.  
-- **Launch at Login:** Available only when running from a bundled `.app`.  
-- **Localization:** Preferences allow runtime language overrides; translation files live in `Sources/Focusly/Resources/*.lproj`.  
-- **Onboarding:** Reset onboarding in Preferences to rerun the guided setup.
+- **Window Tracking:** `WindowTracker` polls the Accessibility API; it automatically downgrades to CoreGraphics if permission is missing but overlays lose precision.  
+- **Debug Overlay:** Launch with `FOCUSLY_DEBUG_WINDOW=1` or toggle the hidden preference key `FocuslyDebugWindow` to monitor tracked frames.  
+- **Tracking Profiles:** Preferences expose `WindowTrackingProfile` presets (standard, responsive, etc.); polling cadence lives in `OverlayController`.  
+- **Launch at Login:** `LaunchAtLoginManager` requires Focusly to run from a bundled, signed `.app`; CLI targets expose the control but surface a localized warning.  
+- **Localization & Presets:** Translations live under `Sources/Resources/*.lproj`; overlay looks are defined in `PresetLibrary` so new presets can be added alongside localized names.
 
 ---
 
@@ -145,17 +145,16 @@ Further tests will be added as more logic moves outside the UI layer.
 
 ## 🧱 Architecture Overview
 
-| Component | Description |
-|------------|--------------|
-| **FocuslyAppCoordinator** | Coordinates overlays, status bar, preferences, hotkeys, and localization. |
-| **OverlayService** | Manages one `OverlayWindow` per display, syncing frames and styles. |
-| **OverlayController** | Tracks the focused window and applies contextual masks. |
-| **ProfileStore** | Persists presets and per-display overrides in `UserDefaults`. |
-| **PreferencesWindowController** | SwiftUI interface for presets, displays, hotkeys, onboarding, and language. |
-| **StatusBarController** | Builds the menu bar item, actions, and preset menu. |
-| **HotkeyCenter** | Handles Carbon-based global shortcut registration. |
-| **LocalizationService** | Provides runtime language switching and localized string management. |
-| **LaunchAtLoginManager** | Integrates `SMAppService` for login item registration. |
+- **Entry Point & Coordination**  
+  `AppDelegate` (`Sources/main.swift`) bootstraps the app, requests Accessibility permission, and wires up `FocuslyAppCoordinator`. The coordinator receives a `FocuslyEnvironment` that injects `UserDefaults`, notification centers, `NSWorkspace`, and the launch-at-login bridge so services can be swapped for testing.
+- **Overlay Pipeline**  
+  `OverlayService` creates and owns an `OverlayWindow` per connected `NSScreen`, applying styles from `ProfileStore` and `PresetLibrary`. `OverlayController` listens to `WindowTracker` snapshots, calculates carve-out masks, and forwards them to overlay windows while `PointerInteractionMonitor` and `DisplayLinkDriver` smooth cursor interactions and animations.
+- **State & Persistence**  
+  `ProfileStore` serializes the active preset, per-display overrides, and excluded monitors, while `AppSettings` exposes observable flags such as `overlayFiltersActive` and the selected `WindowTrackingProfile`. `FocusProfileModels` defines the Codable overlay style, and `FocuslyBuildInfo` surfaces bundle metadata for UI.
+- **User Interface Surfaces**  
+  `StatusBarController` renders the menu bar item, uses `StatusBarState` to build menus, and delegates actions back to the coordinator. Preferences and onboarding flows are SwiftUI views (`PreferencesView`, `OnboardingView`) hosted inside AppKit window controllers (`PreferencesWindowController`, `OnboardingWindowController`) so the menu bar app can present them on demand.
+- **System Integrations**  
+  `HotkeyCenter` registers global shortcuts via Carbon, `LaunchAtLoginManager` wraps `SMAppService`, `LocalizationService` manages runtime language overrides, and `WindowResolver` plus `DisplayID` utilities bridge the Accessibility API and CoreGraphics display identifiers.
 
 ---
 
@@ -168,6 +167,9 @@ Available in:
 - 🇲🇽 Español (México)  
 - 🇫🇷 Français  
 - 🇮🇹 Italiano  
+- 🇦🇪 العربية (الفصحى الحديثة)  
+- 🇹🇿 Kiswahili  
+- 🇳🇬 Hausa  
 - 🇨🇳 中文（简体）  
 - 🇺🇦 Українська  
 - 🇷🇺 Русский  
@@ -175,7 +177,7 @@ Available in:
 - 🇰🇷 한국어 (대한민국)  
 - 🇹🇭 ภาษาไทย  
 
-Additional community docs live under [`Documentation/`](Documentation/), including localized guides.
+Additional community docs live under [`Documentation/`](Documentation/), including localized guides in Arabic, Kiswahili, and Hausa.
 
 > _In Spanish, “enfocar” means “to focus” — and yes, Focusly is quite the “enfocador”._
 
