@@ -263,5 +263,5 @@ private extension AppDelegate {
 let application = NSApplication.shared
 let appDelegate = AppDelegate()
 application.delegate = appDelegate
-application.setActivationPolicy(.regular)
+application.setActivationPolicy(.accessory) // Hide Dock icon while keeping status item active.
 application.run()
