@@ -177,7 +177,7 @@ Available in:
 - 🇰🇷 한국어 (대한민국)  
 - 🇹🇭 ภาษาไทย  
 
-Additional community docs live under [`Documentation/`](Documentation/), including localized guides in Arabic, Kiswahili, and Hausa.
+Additional docs live under [`Documentation/`](Documentation/), including localized guides in all mentioned languages.
 
 > _In Spanish, “enfocar” means “to focus” — and yes, Focusly is quite the “enfocador”._
 

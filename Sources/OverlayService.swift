@@ -35,10 +35,12 @@ final class OverlayService {
         if isEnabled {
             refreshDisplays(animated: false, shouldApplyStyles: false)
             overlayWindowsByDisplay.values.forEach { overlayWindow in
-                overlayWindow.setFiltersEnabled(globalSettings.overlayFiltersActive)
+                let displayID = overlayWindow.associatedDisplayIdentifier()
+                let overlayStyle = overlayProfileStore.style(forDisplayID: displayID)
+                overlayWindow.setFiltersEnabled(globalSettings.overlayFiltersActive, animated: false)
                 overlayWindow.prepareForPresentation()
                 overlayWindow.orderFrontRegardless()
-                let overlayStyle = overlayProfileStore.style(forDisplayID: overlayWindow.associatedDisplayIdentifier())
+                overlayWindow.animatePresentation(duration: overlayStyle.animationDuration, animated: animated)
                 overlayWindow.apply(style: overlayStyle, animated: animated)
             }
         } else {
@@ -71,7 +73,7 @@ final class OverlayService {
                 overlayWindow.updateFrame(to: screen)
             } else {
                 let overlayWindow = OverlayWindow(screen: screen, displayIdentifier: displayIdentifier)
-                overlayWindow.setFiltersEnabled(globalSettings.overlayFiltersActive)
+                overlayWindow.setFiltersEnabled(globalSettings.overlayFiltersActive, animated: false)
                 overlayWindowsByDisplay[displayIdentifier] = overlayWindow
                 if overlaysActive {
                     overlayWindow.orderFrontRegardless()
@@ -103,6 +105,7 @@ final class OverlayService {
 
     /// Enables or disables blur/tint filters across all overlay windows.
     private func updateFilterActivationState(_ isEnabled: Bool) {
-        overlayWindowsByDisplay.values.forEach { $0.setFiltersEnabled(isEnabled) }
+        let shouldAnimate = overlaysActive && isEnabled
+        overlayWindowsByDisplay.values.forEach { $0.setFiltersEnabled(isEnabled, animated: shouldAnimate) }
     }
 }

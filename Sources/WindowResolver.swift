@@ -14,7 +14,11 @@ func resolveActiveWindowSnapshot(
     preferredPID: pid_t? = nil
 ) -> ActiveWindowSnapshot? {
     if let frontWindow = cgFrontWindow(excluding: windowNumbers, preferredPID: preferredPID) {
-        let resolvedCornerRadius = axActiveWindowCornerRadius(preferredPID: frontWindow.ownerPID) ?? fallbackCornerRadius(for: frontWindow.frame)
+        let resolvedCornerRadius = (
+            frontWindow.cornerRadius ??
+            axActiveWindowCornerRadius(preferredPID: frontWindow.ownerPID) ??
+            fallbackCornerRadius(for: frontWindow.frame)
+        )
         return ActiveWindowSnapshot(
             frame: frontWindow.frame,
             cornerRadius: clampCornerRadius(resolvedCornerRadius, to: frontWindow.frame),
@@ -64,6 +68,7 @@ private struct CGFrontWindowSnapshot {
     let frame: NSRect
     let ownerPID: pid_t
     let windowNumber: Int
+    let cornerRadius: CGFloat?
     let supplementaryMasks: [ActiveWindowSnapshot.MaskRegion]
 }
 
@@ -76,6 +81,8 @@ private func cgFrontWindow(excluding windowNumbers: Set<Int>, preferredPID: pid_
         return nil
     }
 
+    var cornerSnapshotCache: [pid_t: [AXWindowCornerSnapshot]] = [:]
+
     let candidateWindowList = Array(completeWindowList.prefix(24))
     if let preferredPID,
        let preferredFrontWindow = findFrontWindow(in: candidateWindowList, excluding: windowNumbers, preferredPID: preferredPID)
@@ -83,13 +90,21 @@ private func cgFrontWindow(excluding windowNumbers: Set<Int>, preferredPID: pid_
         let supplementaryRegions = collectSupplementaryMasks(
             in: completeWindowList,
             primaryPID: preferredFrontWindow.ownerPID,
-            excludingNumbers: windowNumbers.union([preferredFrontWindow.windowNumber])
+            excludingNumbers: windowNumbers.union([preferredFrontWindow.windowNumber]),
+            cornerSnapshotCache: &cornerSnapshotCache
+        )
+
+        let resolvedCornerRadius = resolveCornerRadiusForWindow(
+            pid: preferredFrontWindow.ownerPID,
+            frame: preferredFrontWindow.frame,
+            cache: &cornerSnapshotCache
         )
 
         return CGFrontWindowSnapshot(
             frame: preferredFrontWindow.frame,
             ownerPID: preferredFrontWindow.ownerPID,
             windowNumber: preferredFrontWindow.windowNumber,
+            cornerRadius: resolvedCornerRadius,
             supplementaryMasks: supplementaryRegions
         )
     }
@@ -104,13 +119,21 @@ private func cgFrontWindow(excluding windowNumbers: Set<Int>, preferredPID: pid_
     let supplementaryRegions = collectSupplementaryMasks(
         in: completeWindowList,
         primaryPID: resolvedFrontWindow.ownerPID,
-        excludingNumbers: windowNumbers.union([resolvedFrontWindow.windowNumber])
+        excludingNumbers: windowNumbers.union([resolvedFrontWindow.windowNumber]),
+        cornerSnapshotCache: &cornerSnapshotCache
+    )
+
+    let resolvedCornerRadius = resolveCornerRadiusForWindow(
+        pid: resolvedFrontWindow.ownerPID,
+        frame: resolvedFrontWindow.frame,
+        cache: &cornerSnapshotCache
     )
 
     return CGFrontWindowSnapshot(
         frame: resolvedFrontWindow.frame,
         ownerPID: resolvedFrontWindow.ownerPID,
         windowNumber: resolvedFrontWindow.windowNumber,
+        cornerRadius: resolvedCornerRadius,
         supplementaryMasks: supplementaryRegions
     )
 }
@@ -157,6 +180,7 @@ private func findFrontWindow(
             frame: cocoaFrame,
             ownerPID: resolvedProcessID,
             windowNumber: windowNumber,
+            cornerRadius: nil,
             supplementaryMasks: []
         )
 
@@ -176,11 +200,11 @@ private func findFrontWindow(
 private func collectSupplementaryMasks(
     in windowDictionaries: [[String: Any]],
     primaryPID: pid_t?,
-    excludingNumbers: Set<Int>
+    excludingNumbers: Set<Int>,
+    cornerSnapshotCache: inout [pid_t: [AXWindowCornerSnapshot]]
 ) -> [ActiveWindowSnapshot.MaskRegion] {
     var maskRegions: [ActiveWindowSnapshot.MaskRegion] = []
     var visitedWindowNumbers: Set<Int> = []
-    var cornerSnapshotCache: [pid_t: [AXWindowCornerSnapshot]] = [:]
 
     for window in windowDictionaries {
         guard let number = window[kCGWindowNumber as String] as? Int else { continue }
@@ -288,10 +312,13 @@ private func resolveCornerRadiusForWindow(
         snapshots = fetchedSnapshots
     }
 
-    guard let match = snapshots.first(where: { $0.frame.isApproximatelyEqual(to: frame, tolerance: 1.5) }) else {
+    guard let match = snapshots.first(where: { $0.frame.isApproximatelyEqual(to: frame, tolerance: 3) }) else {
         return nil
     }
-    return match.cornerRadius
+    if let radius = match.cornerRadius, radius > 0.1 {
+        return radius
+    }
+    return nil
 }
 
 /// Standalone helper used by the AX fallback path to still find menus for the front app.
@@ -301,7 +328,13 @@ private func resolveSupplementaryMasks(primaryPID: pid_t?, excludingWindowNumber
     guard let completeWindowList = CGWindowListCopyWindowInfo(windowListOptions, kCGNullWindowID) as? [[String: Any]], !completeWindowList.isEmpty else {
         return []
     }
-    return collectSupplementaryMasks(in: completeWindowList, primaryPID: primaryPID, excludingNumbers: excludingWindowNumbers)
+    var cornerSnapshotCache: [pid_t: [AXWindowCornerSnapshot]] = [:]
+    return collectSupplementaryMasks(
+        in: completeWindowList,
+        primaryPID: primaryPID,
+        excludingNumbers: excludingWindowNumbers,
+        cornerSnapshotCache: &cornerSnapshotCache
+    )
 }
 
 /// Menu surfaces ship with a subtle rounding; we keep it conservative to avoid bleeding into content.
@@ -421,8 +454,14 @@ private func clampCornerRadius(_ radius: CGFloat, to frame: NSRect) -> CGFloat {
 
 /// Provides a conservative default corner radius for macOS versions that hide the value.
 private func fallbackCornerRadius(for frame: NSRect) -> CGFloat {
+    let minDimension = max(0, min(frame.width, frame.height))
+    guard minDimension > 0 else { return 0 }
+
     if ProcessInfo.processInfo.operatingSystemVersion.majorVersion >= 15 {
-        return 26
+        // macOS Sequoia windows gained a visibly larger radius (approx. 26pt on standard surfaces).
+        return min(26, minDimension / 2)
     }
-    return 0
+
+    // Earlier macOS releases keep a consistent ~12pt rounding across standard document windows.
+    return min(12, minDimension / 2)
 }

@@ -29,22 +29,12 @@ final class OverlayWindow: NSPanel {
     private let blurMaskingLayer = OverlayMaskLayer()
     private var activeStyle: FocusOverlayStyle?
     private var activeMaskRegions: [MaskRegion] = []
-    private var staticExclusionRects: [NSRect] = []
+    private var staticTintExclusionRects: [NSRect] = []
+    private var staticBlurExclusionRects: [NSRect] = []
     private(set) var displayIdentifier: DisplayID
     private weak var attachedScreen: NSScreen?
-    /// Toggles whether the blur/tint pipeline is applied or bypassed entirely.
-    private var filtersAreActive = true {
-        didSet {
-            guard filtersAreActive != oldValue else { return }
-            blurEffectView.setBlurEnabled(filtersAreActive)
-            tintOverlayView.isHidden = !filtersAreActive
-            if filtersAreActive {
-                refreshMaskLayers()
-            } else {
-                resetMaskLayers(preserveActiveRegions: true)
-            }
-        }
-    }
+    /// Tracks whether blur/tint filters should currently be visible.
+    private var filtersAreActive = true
 
     /// Creates a new overlay window that is pinned to the given screen and display identifier.
     init(screen: NSScreen, displayIdentifier: DisplayID) {
@@ -100,9 +90,56 @@ final class OverlayWindow: NSPanel {
         tintOverlayView.layer?.backgroundColor = color.withAlphaComponent(clampedAlpha).cgColor
     }
 
-    /// Toggles whether blur/tint effects should be active.
-    func setFiltersEnabled(_ enabled: Bool) {
+    /// Toggles whether blur/tint effects should be active, optionally animating the transition.
+    func setFiltersEnabled(_ enabled: Bool, animated: Bool = false) {
+        guard filtersAreActive != enabled else { return }
         filtersAreActive = enabled
+
+        let targetOpacity = CGFloat(max(0, min(activeStyle?.opacity ?? 1, 1)))
+        let duration = animated ? max(0, activeStyle?.animationDuration ?? 0.25) : 0
+
+        if enabled {
+            blurEffectView.setBlurEnabled(true)
+            tintOverlayView.isHidden = false
+            refreshMaskLayers()
+
+            guard duration > 0 else {
+                blurEffectView.alphaValue = targetOpacity
+                tintOverlayView.alphaValue = targetOpacity
+                return
+            }
+
+            blurEffectView.alphaValue = 0
+            tintOverlayView.alphaValue = 0
+
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = duration
+                context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                self.blurEffectView.animator().alphaValue = targetOpacity
+                self.tintOverlayView.animator().alphaValue = targetOpacity
+            }
+        } else {
+            let applyDisabledState = {
+                self.blurEffectView.setBlurEnabled(false)
+                self.tintOverlayView.isHidden = true
+                self.resetMaskLayers(preserveActiveRegions: true)
+            }
+
+            guard duration > 0 else {
+                blurEffectView.alphaValue = 0
+                tintOverlayView.alphaValue = 0
+                applyDisabledState()
+                return
+            }
+
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = duration
+                context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                context.completionHandler = applyDisabledState
+                self.blurEffectView.animator().alphaValue = 0
+                self.tintOverlayView.animator().alphaValue = 0
+            }
+        }
     }
 
     /// Updates the underlying `NSVisualEffectView` material used for blurring.
@@ -253,6 +290,23 @@ final class OverlayWindow: NSPanel {
         refreshMaskLayers()
     }
 
+    /// Fades the window in when the overlay is presented on screen.
+    func animatePresentation(duration: TimeInterval, animated: Bool) {
+        let clampedDuration = max(0, duration)
+        guard animated, clampedDuration > 0 else {
+            alphaValue = 1
+            return
+        }
+
+        alphaValue = 0
+
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = clampedDuration
+            context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            self.animator().alphaValue = 1
+        }
+    }
+
     /// Hides the overlay, optionally animating the fade-out.
     func hide(animated: Bool) {
         let duration = activeStyle?.animationDuration ?? 0.25
@@ -325,7 +379,8 @@ final class OverlayWindow: NSPanel {
         if let targetScreen = attachedScreen ?? screen {
             recalculateStaticExclusions(for: targetScreen)
         } else {
-            staticExclusionRects = []
+            staticTintExclusionRects = []
+            staticBlurExclusionRects = []
         }
         refreshMaskLayers()
     }
@@ -333,7 +388,8 @@ final class OverlayWindow: NSPanel {
     /// Calculates static exclusions such as the menu bar so they stay transparent.
     private func recalculateStaticExclusions(for screen: NSScreen) {
         guard let contentView else {
-            staticExclusionRects = []
+            staticTintExclusionRects = []
+            staticBlurExclusionRects = []
             return
         }
 
@@ -342,7 +398,8 @@ final class OverlayWindow: NSPanel {
         let menuBarHeight = max(0, screenFrame.maxY - visibleFrame.maxY)
 
         guard menuBarHeight > 0 else {
-            staticExclusionRects = []
+            staticTintExclusionRects = []
+            staticBlurExclusionRects = []
             return
         }
 
@@ -355,7 +412,8 @@ final class OverlayWindow: NSPanel {
 
         let menuBarRectInWindow = convertFromScreen(menuBarRectInScreen)
         let rectInContent = contentView.convert(menuBarRectInWindow, from: nil)
-        staticExclusionRects = [rectInContent]
+        staticTintExclusionRects = [rectInContent]
+        staticBlurExclusionRects = []
     }
 
     /// Updates CALayer masks to reflect the latest static and dynamic carve-outs.
@@ -368,7 +426,8 @@ final class OverlayWindow: NSPanel {
 
         let bounds = contentView.bounds
         let hasDynamicMask = !activeMaskRegions.isEmpty
-        guard hasDynamicMask || !staticExclusionRects.isEmpty else {
+        let hasStaticMask = !staticTintExclusionRects.isEmpty || !staticBlurExclusionRects.isEmpty
+        guard hasDynamicMask || hasStaticMask else {
             resetMaskLayers()
             return
         }
@@ -380,13 +439,13 @@ final class OverlayWindow: NSPanel {
         tintMaskingLayer.configure(
             bounds: bounds,
             scale: scale,
-            staticRects: staticExclusionRects,
+            staticRects: staticTintExclusionRects,
             dynamicRegions: activeMaskRegions
         )
         blurMaskingLayer.configure(
             bounds: bounds,
             scale: scale,
-            staticRects: staticExclusionRects,
+            staticRects: staticBlurExclusionRects,
             dynamicRegions: activeMaskRegions
         )
 
