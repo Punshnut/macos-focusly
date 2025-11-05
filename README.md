@@ -1,4 +1,4 @@
-# 🌙 Focusly — macOS Ambience & Focus Companion
+# 🌙 Focusly - macOS Ambience & Focus Companion
 
 > 🧪 **Alpha 0.3** - building toward a refined and stable focus experience.
 
