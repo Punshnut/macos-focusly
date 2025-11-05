@@ -39,6 +39,10 @@ struct PreferencesView: View {
                 Divider()
 
                 languageSection
+
+                Divider()
+
+                aboutLink
             }
             .padding(.vertical, 24)
             .padding(.horizontal, 20)
@@ -491,6 +495,35 @@ struct PreferencesView: View {
     /// Convenience wrapper so the view reads from the localization service.
     private func localized(_ key: String, fallback: String? = nil) -> String {
         localization.localized(key, fallback: fallback ?? key)
+    }
+
+    /// Button that opens the standard macOS About panel for the app.
+    private var aboutLink: some View {
+        Button(action: openAboutPanel) {
+            HStack(spacing: 6) {
+                Image(systemName: "info.circle")
+                    .imageScale(.medium)
+                Text(aboutButtonTitle())
+            }
+        }
+        .buttonStyle(.link)
+        .accessibilityHint(localized("Shows the macOS About panel.", fallback: "Shows the macOS About panel."))
+    }
+
+    /// Resolves the localized About button title using the app's display name.
+    private func aboutButtonTitle() -> String {
+        let appName = Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String ?? "Focusly"
+        let template = localized("About %@", fallback: "About %@")
+        return String(format: template, locale: localization.locale, appName)
+    }
+
+    /// Opens the About panel, falling back to the system default if the delegate is unavailable.
+    private func openAboutPanel() {
+        if let delegate = NSApp.delegate as? AppDelegate {
+            delegate.showAboutPanel(nil)
+        } else {
+            NSApp.orderFrontStandardAboutPanel(nil)
+        }
     }
 
 }

@@ -1,11 +1,11 @@
 # 🌙 Focusly — macOS Ambience & Focus Companion
 
-> 🧪 **Alpha 0.2** - building toward a refined and stable focus experience.
+> 🧪 **Alpha 0.3** - building toward a refined and stable focus experience.
 
 ![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)
 ![Platform](https://img.shields.io/badge/platform-macOS-blue)
-![Swift](https://img.shields.io/badge/Swift-5.9-orange)
-![Status](https://img.shields.io/badge/Stage-Alpha%200.2-yellow)
+![Swift](https://img.shields.io/badge/Swift-6.2-orange)
+![Status](https://img.shields.io/badge/Stage-Alpha%200.3-yellow)
 
 <p align="center">
   <img src="Sources/Focusly_Logo.png" alt="Focusly logo" width="260">

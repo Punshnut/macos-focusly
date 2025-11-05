@@ -195,7 +195,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     /// Shows a localized About panel with basic app metadata.
     @MainActor
-    @objc private func showAboutPanel(_ sender: Any?) {
+    @objc func showAboutPanel(_ sender: Any?) {
         let localizationService = LocalizationService.shared
         let appName = Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String ?? "Focusly"
         let creditsHeader = localizationService.localized(
