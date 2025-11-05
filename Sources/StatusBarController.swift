@@ -1,5 +1,6 @@
 import AppKit
 import Combine
+import QuartzCore
 
 private let applicationAppearanceNotificationName = Notification.Name("NSApplicationDidChangeEffectiveAppearanceNotification")
 
@@ -130,8 +131,12 @@ final class StatusBarController: NSObject {
 
     /// Applies new state from the coordinator so menus can refresh.
     func update(state newState: StatusBarState) {
+        let previousState = state
         state = newState
         rebuildMenus()
+        if previousState.overlayFiltersEnabled != newState.overlayFiltersEnabled {
+            animateStatusItemIcon(activating: newState.overlayFiltersEnabled, style: newState.iconStyle)
+        }
     }
 
     // MARK: - Menu Construction
@@ -495,6 +500,93 @@ final class StatusBarController: NSObject {
         let tone = providedTone ?? resolvedStatusBarIconTone()
         button.image = StatusBarIconFactory.icon(style: state.iconStyle, isActive: state.overlayFiltersEnabled, tone: tone)
         button.alternateImage = StatusBarIconFactory.icon(style: state.iconStyle, isActive: true, tone: tone)
+    }
+
+    /// Runs a short Core Animation sequence on the status icon whenever overlay filters toggle.
+    private func animateStatusItemIcon(activating isActivating: Bool, style: StatusBarIconStyle) {
+        guard let button = statusItem.button else { return }
+        if button.layer == nil {
+            button.wantsLayer = true
+        }
+        guard let layer = button.layer else { return }
+
+        let duration: CFTimeInterval = 0.38
+        let scaleValues: [NSNumber]
+        if isActivating {
+            scaleValues = [1.0, 1.16, 0.95, 1.0].map { NSNumber(value: $0) }
+        } else {
+            scaleValues = [1.0, 0.9, 1.04, 1.0].map { NSNumber(value: $0) }
+        }
+
+        let scaleAnimation = CAKeyframeAnimation(keyPath: "transform.scale")
+        scaleAnimation.values = scaleValues
+        scaleAnimation.keyTimes = [0.0, 0.35, 0.7, 1.0].map { NSNumber(value: $0) }
+        scaleAnimation.duration = duration
+        scaleAnimation.timingFunctions = (0..<scaleValues.count - 1).map { _ in CAMediaTimingFunction(name: .easeInEaseOut) }
+        scaleAnimation.isRemovedOnCompletion = true
+        scaleAnimation.fillMode = .forwards
+
+        layer.removeAnimation(forKey: "focusly.status.scale")
+        layer.add(scaleAnimation, forKey: "focusly.status.scale")
+
+        switch style {
+        case .dot:
+            let opacityAnimation = CAKeyframeAnimation(keyPath: "opacity")
+            let opacityValues = isActivating
+                ? [1.0, 1.0, 0.92, 1.0].map { NSNumber(value: $0) }
+                : [1.0, 0.88, 0.98, 1.0].map { NSNumber(value: $0) }
+            opacityAnimation.values = opacityValues
+            opacityAnimation.keyTimes = [0.0, 0.35, 0.7, 1.0].map { NSNumber(value: $0) }
+            opacityAnimation.duration = duration * 0.9
+            opacityAnimation.timingFunctions = (0..<opacityValues.count - 1).map { _ in CAMediaTimingFunction(name: .easeInEaseOut) }
+            opacityAnimation.isRemovedOnCompletion = true
+            opacityAnimation.fillMode = .forwards
+
+            layer.removeAnimation(forKey: "focusly.status.opacity")
+            layer.add(opacityAnimation, forKey: "focusly.status.opacity")
+        case .halo:
+            let rotationAnimation = CAKeyframeAnimation(keyPath: "transform.rotation.z")
+            let rotationValues = isActivating
+                ? [0.0, 0.22, -0.12, 0.0]
+                : [0.0, -0.2, 0.1, 0.0]
+            rotationAnimation.values = rotationValues.map { NSNumber(value: $0) }
+            rotationAnimation.keyTimes = [0.0, 0.3, 0.65, 1.0].map { NSNumber(value: $0) }
+            rotationAnimation.duration = duration * 1.1
+            rotationAnimation.timingFunctions = (0..<rotationValues.count - 1).map { _ in CAMediaTimingFunction(name: .easeInEaseOut) }
+            rotationAnimation.isRemovedOnCompletion = true
+            rotationAnimation.fillMode = .forwards
+
+            layer.removeAnimation(forKey: "focusly.status.rotation")
+            layer.add(rotationAnimation, forKey: "focusly.status.rotation")
+        case .pulse:
+            let translationAnimation = CAKeyframeAnimation(keyPath: "transform.translation.y")
+            let translationValues = isActivating
+                ? [0.0, -1.6, 0.75, 0.0]
+                : [0.0, 1.3, -0.45, 0.0]
+            translationAnimation.values = translationValues.map { NSNumber(value: $0) }
+            translationAnimation.keyTimes = [0.0, 0.3, 0.65, 1.0].map { NSNumber(value: $0) }
+            translationAnimation.duration = duration
+            translationAnimation.timingFunctions = (0..<translationValues.count - 1).map { _ in CAMediaTimingFunction(name: .easeInEaseOut) }
+            translationAnimation.isRemovedOnCompletion = true
+            translationAnimation.fillMode = .forwards
+
+            layer.removeAnimation(forKey: "focusly.status.translation")
+            layer.add(translationAnimation, forKey: "focusly.status.translation")
+
+            let lateralAnimation = CAKeyframeAnimation(keyPath: "transform.translation.x")
+            let lateralValues = isActivating
+                ? [0.0, 0.5, -0.3, 0.0]
+                : [0.0, -0.45, 0.25, 0.0]
+            lateralAnimation.values = lateralValues.map { NSNumber(value: $0) }
+            lateralAnimation.keyTimes = translationAnimation.keyTimes
+            lateralAnimation.duration = duration
+            lateralAnimation.timingFunctions = translationAnimation.timingFunctions
+            lateralAnimation.isRemovedOnCompletion = true
+            lateralAnimation.fillMode = .forwards
+
+            layer.removeAnimation(forKey: "focusly.status.translationX")
+            layer.add(lateralAnimation, forKey: "focusly.status.translationX")
+        }
     }
 
     /// Determines whether the status bar is currently light or dark for icon rendering.
