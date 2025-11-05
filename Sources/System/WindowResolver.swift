@@ -194,8 +194,8 @@ private func findFrontWindow(
     return fallbackSnapshot
 }
 
-/// Scans the current window list for secondary surfaces tied to the front application
-/// (e.g. context menus or menu-bar dropdowns) so we can carve them out of the overlay.
+/// Scans the CoreGraphics window list for secondary surfaces tied to the front application
+/// (e.g. menus, context menus, or popovers) so the overlay can carve them out.
 @MainActor
 private func collectSupplementaryMasks(
     in windowDictionaries: [[String: Any]],

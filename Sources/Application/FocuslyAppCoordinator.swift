@@ -53,7 +53,7 @@ final class FocuslyAppCoordinator: NSObject {
         self.environment = environment
         self.globalSettings = AppSettings()
         self.overlayProfileStore = ProfileStore(userDefaults: environment.userDefaults)
-        self.overlayService = OverlayService(overlayProfileStore: overlayProfileStore, globalSettings: globalSettings)
+        self.overlayService = OverlayService(profileStore: overlayProfileStore, appSettings: globalSettings)
         self.overlayCoordinator = overlayCoordinator
         self.localization = LocalizationService.shared
         self.statusBarController = StatusBarController(localization: localization)
@@ -242,6 +242,7 @@ final class FocuslyAppCoordinator: NSObject {
         refreshOnboardingLocalizationIfNeeded()
     }
 
+    /// Updates onboarding copy when the active localization changes.
     private func refreshOnboardingLocalizationIfNeeded() {
         guard let controller = onboardingWindowController else { return }
         controller.updateLocalization(localization: localization)
@@ -541,10 +542,12 @@ final class FocuslyAppCoordinator: NSObject {
 
 /// Handles menu bar interactions that affect overlays, presets, and preferences.
 extension FocuslyAppCoordinator: StatusBarControllerDelegate {
+    /// Toggles overlay visibility from the status bar switch.
     func statusBarDidToggleEnabled(_ controller: StatusBarController) {
         toggleOverlayActivation()
     }
 
+    /// Applies the selected preset and synchronizes overlays and preferences.
     func statusBar(_ controller: StatusBarController, selectedPreset preset: FocusPreset) {
         overlayProfileStore.selectPreset(preset)
         overlayService.refreshDisplays(animated: true)
@@ -552,6 +555,7 @@ extension FocuslyAppCoordinator: StatusBarControllerDelegate {
         synchronizePreferencesDisplays()
     }
 
+    /// Persists the chosen menu bar icon variant.
     func statusBar(_ controller: StatusBarController, didSelectIconStyle style: StatusBarIconStyle) {
         guard statusItemIconStyle != style else { return }
         statusItemIconStyle = style
@@ -559,14 +563,17 @@ extension FocuslyAppCoordinator: StatusBarControllerDelegate {
         synchronizeStatusBar()
     }
 
+    /// Opens the preferences window when requested from the menu bar.
     func statusBarDidRequestPreferences(_ controller: StatusBarController) {
         presentPreferences()
     }
 
+    /// Replays the onboarding walkthrough at the user's request.
     func statusBarDidRequestOnboarding(_ controller: StatusBarController) {
         presentOnboarding(force: true)
     }
 
+    /// Flips the global hotkey enablement flag.
     func statusBarDidToggleHotkeys(_ controller: StatusBarController) {
         hotkeysEnabled.toggle()
         hotkeyCenter.setShortcutEnabled(hotkeysEnabled && activationHotkey != nil)
@@ -574,6 +581,7 @@ extension FocuslyAppCoordinator: StatusBarControllerDelegate {
         synchronizeStatusBar()
     }
 
+    /// Enables or disables launch-at-login and refreshes related UI state.
     func statusBarDidToggleLaunchAtLogin(_ controller: StatusBarController) {
         guard environment.launchAtLogin.isAvailable else {
             NSSound.beep()
@@ -594,6 +602,7 @@ extension FocuslyAppCoordinator: StatusBarControllerDelegate {
         synchronizeStatusBar()
     }
 
+    /// Terminates the app when the Quit menu item is selected.
     func statusBarDidRequestQuit(_ controller: StatusBarController) {
         NSApp.terminate(nil)
     }
@@ -603,6 +612,7 @@ extension FocuslyAppCoordinator: StatusBarControllerDelegate {
 
 /// Drops references when windows dismiss so they can be recreated later.
 extension FocuslyAppCoordinator: NSWindowDelegate {
+    /// Releases cached window controllers when either preferences or onboarding closes.
     func windowWillClose(_ notification: Notification) {
         if let window = notification.object as? NSWindow, window === preferencesWindow?.window {
             preferencesScreenModel = nil

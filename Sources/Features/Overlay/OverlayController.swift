@@ -7,6 +7,7 @@ import AppKit
 /// Keeps OverlayWindow instances synchronized with the focused window and display configuration.
 @MainActor
 final class OverlayController {
+    /// Groups the idle and interaction intervals used when polling the focused window.
     private struct PollingCadence {
         let idleInterval: TimeInterval
         let interactionInterval: TimeInterval
@@ -17,6 +18,7 @@ final class OverlayController {
         }
     }
 
+    /// Describes a single carve-out request that will be applied to an overlay mask.
     private struct MaskRequest {
         let rect: NSRect
         let cornerRadius: CGFloat
@@ -28,23 +30,23 @@ final class OverlayController {
     private let supplementalSnapshotInterval: TimeInterval = 1.0 / 15.0
     private let activeWindowSnapshotResolver: (Set<Int>) -> ActiveWindowSnapshot?
 
-    private var overlayWindowsByDisplay: [DisplayID: OverlayWindow] = [:]
+    private var overlayWindowsByDisplayID: [DisplayID: OverlayWindow] = [:]
     private var snapshotPollingTimer: Timer?
-    private var activeTrackingProfile: WindowTrackingProfile
-    private var activePollingCadence: PollingCadence
-    private var resolvedPollingInterval: TimeInterval
-    private var interactionBoostDeadline: Date?
-    private var isClickThroughModeEnabled = true
-    private var isMonitoring = false
+    private var currentTrackingProfile: WindowTrackingProfile
+    private var currentPollingCadence: PollingCadence
+    private var currentPollingInterval: TimeInterval
+    private var interactionBoostExpiration: Date?
+    private var isClickThroughEnabled = true
+    private var isMonitoringActive = false
     private var cachedActiveSnapshot: ActiveWindowSnapshot?
-    private var cachedSnapshotsByDisplay: [DisplayID: ActiveWindowSnapshot] = [:]
-    private var currentActiveDisplayID: DisplayID?
-    private var pointerMonitor: PointerInteractionMonitor?
-    private lazy var supplementalDisplayLink = DisplayLinkDriver { [weak self] in
+    private var cachedSnapshotsByDisplayID: [DisplayID: ActiveWindowSnapshot] = [:]
+    private var activeDisplayID: DisplayID?
+    private var pointerInteractionMonitor: PointerInteractionMonitor?
+    private lazy var supplementalSnapshotDisplayLink = DisplayLinkDriver { [weak self] in
         guard let self else { return }
         self.handleDisplayLinkTick()
     }
-    private var isDisplayLinkActive = false
+    private var isDisplayLinkRunning = false
 
     init(
         activeWindowSnapshotResolver: @escaping (Set<Int>) -> ActiveWindowSnapshot? = { windowNumbers in
@@ -52,15 +54,15 @@ final class OverlayController {
         }
     ) {
         self.activeWindowSnapshotResolver = activeWindowSnapshotResolver
-        self.activeTrackingProfile = .standard
-        self.activePollingCadence = PollingCadence(profile: .standard)
-        self.resolvedPollingInterval = activePollingCadence.idleInterval
+        self.currentTrackingProfile = .standard
+        self.currentPollingCadence = PollingCadence(profile: .standard)
+        self.currentPollingInterval = currentPollingCadence.idleInterval
     }
 
     /// Begins monitoring the focused window and updates overlay masks accordingly.
     func start() {
-        guard !isMonitoring else { return }
-        isMonitoring = true
+        guard !isMonitoringActive else { return }
+        isMonitoringActive = true
         configurePointerInteractionMonitoring()
         startPolling()
         applyCachedOverlayMask()
@@ -71,31 +73,31 @@ final class OverlayController {
 
     /// Stops monitoring and clears active overlay carve-outs.
     func stop() {
-        guard isMonitoring else { return }
-        isMonitoring = false
+        guard isMonitoringActive else { return }
+        isMonitoringActive = false
         stopPolling()
         stopPointerInteractionMonitoring()
         stopDisplayLinkIfNeeded()
         cachedActiveSnapshot = nil
-        cachedSnapshotsByDisplay.removeAll()
-        currentActiveDisplayID = nil
-        overlayWindowsByDisplay.values.forEach { $0.applyMask(regions: []) }
+        cachedSnapshotsByDisplayID.removeAll()
+        activeDisplayID = nil
+        overlayWindowsByDisplayID.values.forEach { $0.applyMask(regions: []) }
     }
 
     /// Toggles whether overlay windows forward mouse events to windows underneath.
     func setClickThrough(_ enabled: Bool) {
-        isClickThroughModeEnabled = enabled
-        overlayWindowsByDisplay.values.forEach { $0.setClickThrough(enabled) }
+        isClickThroughEnabled = enabled
+        overlayWindowsByDisplayID.values.forEach { $0.setClickThrough(enabled) }
     }
 
     /// Updates the polling cadence to match the selected tracking profile.
     func updateTrackingProfile(_ profile: WindowTrackingProfile) {
-        guard activeTrackingProfile != profile else { return }
-        activeTrackingProfile = profile
-        activePollingCadence = PollingCadence(profile: profile)
+        guard currentTrackingProfile != profile else { return }
+        currentTrackingProfile = profile
+        currentPollingCadence = PollingCadence(profile: profile)
         let targetInterval = desiredIntervalForCurrentInteractionState()
-        resolvedPollingInterval = targetInterval
-        if isMonitoring {
+        currentPollingInterval = targetInterval
+        if isMonitoringActive {
             schedulePollingTimer(with: targetInterval)
         }
     }
@@ -106,18 +108,18 @@ final class OverlayController {
             cacheActiveSnapshot(snapshot)
         } else {
             cachedActiveSnapshot = nil
-            cachedSnapshotsByDisplay.removeAll()
-            currentActiveDisplayID = nil
+            cachedSnapshotsByDisplayID.removeAll()
+            activeDisplayID = nil
         }
-        if isMonitoring {
+        if isMonitoringActive {
             applyCachedOverlayMask()
         }
     }
 
     /// Replaces the overlay window map, cleaning up removed displays and applying cached masks.
     func refreshOverlayWindows(_ updatedOverlayWindows: [DisplayID: OverlayWindow]) {
-        let previousOverlayWindows = overlayWindowsByDisplay
-        overlayWindowsByDisplay = updatedOverlayWindows
+        let previousOverlayWindows = overlayWindowsByDisplayID
+        overlayWindowsByDisplayID = updatedOverlayWindows
 
         let removedDisplayIDs = Set(previousOverlayWindows.keys).subtracting(updatedOverlayWindows.keys)
         for displayID in removedDisplayIDs {
@@ -125,14 +127,14 @@ final class OverlayController {
         }
 
         let updatedDisplayIDs = Set(updatedOverlayWindows.keys)
-        cachedSnapshotsByDisplay = cachedSnapshotsByDisplay.filter { updatedDisplayIDs.contains($0.key) }
-        if let activeID = currentActiveDisplayID, !updatedDisplayIDs.contains(activeID) {
-            currentActiveDisplayID = nil
+        cachedSnapshotsByDisplayID = cachedSnapshotsByDisplayID.filter { updatedDisplayIDs.contains($0.key) }
+        if let activeID = activeDisplayID, !updatedDisplayIDs.contains(activeID) {
+            activeDisplayID = nil
         }
 
-        overlayWindowsByDisplay.values.forEach { $0.setClickThrough(isClickThroughModeEnabled) }
+        overlayWindowsByDisplayID.values.forEach { $0.setClickThrough(isClickThroughEnabled) }
 
-        if isMonitoring {
+        if isMonitoringActive {
             applyCachedOverlayMask()
         }
     }
@@ -140,8 +142,8 @@ final class OverlayController {
     /// Applies the supplied snapshot to all overlays, carving out the focused window and related UI.
     func applyOverlayMask(with snapshot: ActiveWindowSnapshot?) {
         guard let snapshot else {
-            guard cachedActiveSnapshot == nil, cachedSnapshotsByDisplay.isEmpty else { return }
-            overlayWindowsByDisplay.values.forEach { $0.applyMask(regions: []) }
+            guard cachedActiveSnapshot == nil, cachedSnapshotsByDisplayID.isEmpty else { return }
+            overlayWindowsByDisplayID.values.forEach { $0.applyMask(regions: []) }
             return
         }
 
@@ -152,14 +154,14 @@ final class OverlayController {
     /// Resolves the active window snapshot and updates overlays when it changes.
     /// Starts a repeating timer that samples the focused window position.
     private func startPolling() {
-        schedulePollingTimer(with: resolvedPollingInterval)
+        schedulePollingTimer(with: currentPollingInterval)
     }
 
     /// Stops the polling timer.
     private func stopPolling() {
         snapshotPollingTimer?.invalidate()
         snapshotPollingTimer = nil
-        resolvedPollingInterval = activePollingCadence.idleInterval
+        currentPollingInterval = currentPollingCadence.idleInterval
     }
 
     /// Reapplies the last known snapshot so new overlay windows pick up current carve-outs.
@@ -179,24 +181,24 @@ final class OverlayController {
         }
 
         if let resolvedID {
-            cachedSnapshotsByDisplay[resolvedID] = snapshot
-            currentActiveDisplayID = resolvedID
-        } else if let activeID = currentActiveDisplayID {
-            cachedSnapshotsByDisplay[activeID] = snapshot
+            cachedSnapshotsByDisplayID[resolvedID] = snapshot
+            activeDisplayID = resolvedID
+        } else if let activeID = activeDisplayID {
+            cachedSnapshotsByDisplayID[activeID] = snapshot
         } else {
-            currentActiveDisplayID = nil
+            activeDisplayID = nil
         }
     }
 
     /// Applies cached highlight regions to every overlay window.
     private func applyOverlayMasksFromCache() {
-        guard !overlayWindowsByDisplay.isEmpty else { return }
+        guard !overlayWindowsByDisplayID.isEmpty else { return }
 
         var didApplyMask = false
         var staleDisplayIDs: [DisplayID] = []
 
-        for (displayID, window) in overlayWindowsByDisplay {
-            if let cachedSnapshot = cachedSnapshotsByDisplay[displayID] {
+        for (displayID, window) in overlayWindowsByDisplayID {
+            if let cachedSnapshot = cachedSnapshotsByDisplayID[displayID] {
                 if apply(snapshot: cachedSnapshot, to: window) {
                     didApplyMask = true
                     continue
@@ -207,8 +209,8 @@ final class OverlayController {
 
             if let fallbackSnapshot = cachedActiveSnapshot,
                apply(snapshot: fallbackSnapshot, to: window) {
-                cachedSnapshotsByDisplay[displayID] = fallbackSnapshot
-                currentActiveDisplayID = displayID
+                cachedSnapshotsByDisplayID[displayID] = fallbackSnapshot
+                activeDisplayID = displayID
                 didApplyMask = true
             } else {
                 window.applyMask(regions: [])
@@ -217,15 +219,15 @@ final class OverlayController {
 
         if !staleDisplayIDs.isEmpty {
             for displayID in staleDisplayIDs {
-                cachedSnapshotsByDisplay.removeValue(forKey: displayID)
-                if currentActiveDisplayID == displayID {
-                    currentActiveDisplayID = nil
+                cachedSnapshotsByDisplayID.removeValue(forKey: displayID)
+                if activeDisplayID == displayID {
+                    activeDisplayID = nil
                 }
             }
         }
 
-        if !didApplyMask, cachedSnapshotsByDisplay.isEmpty, cachedActiveSnapshot == nil {
-            overlayWindowsByDisplay.values.forEach { $0.applyMask(regions: []) }
+        if !didApplyMask, cachedSnapshotsByDisplayID.isEmpty, cachedActiveSnapshot == nil {
+            overlayWindowsByDisplayID.values.forEach { $0.applyMask(regions: []) }
         }
     }
 
@@ -296,7 +298,7 @@ final class OverlayController {
     private func resolveDisplayIdentifier(for frame: NSRect) -> DisplayID? {
         var bestCandidate: (id: DisplayID, area: CGFloat)?
 
-        for (displayID, window) in overlayWindowsByDisplay {
+        for (displayID, window) in overlayWindowsByDisplayID {
             let intersection = frame.intersection(window.frame)
             let area = max(intersection.width * intersection.height, 0)
             if area > (bestCandidate?.area ?? 0) {
@@ -356,7 +358,7 @@ final class OverlayController {
     /// Returns window numbers for overlays so they can be ignored when calculating focus.
     private func activeOverlayWindowNumbers() -> Set<Int> {
         Set(
-            overlayWindowsByDisplay.values
+            overlayWindowsByDisplayID.values
                 .map { $0.windowNumber }
                 .filter { $0 != 0 }
         )
@@ -392,8 +394,8 @@ final class OverlayController {
 
     /// Creates and starts a pointer monitor so we can react to drag and resize interactions.
     private func configurePointerInteractionMonitoring() {
-        if pointerMonitor == nil {
-            pointerMonitor = PointerInteractionMonitor { [weak self] state in
+        if pointerInteractionMonitor == nil {
+            pointerInteractionMonitor = PointerInteractionMonitor { [weak self] state in
                 guard let self else { return }
                 switch state {
                 case .began, .dragged:
@@ -403,14 +405,14 @@ final class OverlayController {
                 }
             }
         }
-        pointerMonitor?.start()
+        pointerInteractionMonitor?.start()
     }
 
     /// Tears down the pointer monitor when overlays are inactive.
     private func stopPointerInteractionMonitoring() {
-        pointerMonitor?.stop()
-        pointerMonitor = nil
-        interactionBoostDeadline = nil
+        pointerInteractionMonitor?.stop()
+        pointerInteractionMonitor = nil
+        interactionBoostExpiration = nil
         stopDisplayLinkIfNeeded()
     }
 
@@ -421,13 +423,13 @@ final class OverlayController {
         let timer = Timer(timeInterval: interval, target: self, selector: #selector(handlePollingTimer(_:)), userInfo: nil, repeats: true)
         RunLoop.main.add(timer, forMode: .common)
         snapshotPollingTimer = timer
-        resolvedPollingInterval = interval
+        currentPollingInterval = interval
     }
 
     /// Ensures the timer interval matches the requested cadence.
     private func updatePollingIntervalIfNeeded(_ interval: TimeInterval) {
         guard interval > 0 else { return }
-        if abs(resolvedPollingInterval - interval) <= 0.0005, snapshotPollingTimer != nil {
+        if abs(currentPollingInterval - interval) <= 0.0005, snapshotPollingTimer != nil {
             return
         }
         schedulePollingTimer(with: interval)
@@ -435,61 +437,64 @@ final class OverlayController {
 
     /// Resolves the desired interval based on whether a pointer interaction boost is active.
     private func desiredIntervalForCurrentInteractionState() -> TimeInterval {
-        if let deadline = interactionBoostDeadline, Date() < deadline {
-            if isDisplayLinkActive {
-                return max(activePollingCadence.interactionInterval, supplementalSnapshotInterval)
+        if let deadline = interactionBoostExpiration, Date() < deadline {
+            if isDisplayLinkRunning {
+                return max(currentPollingCadence.interactionInterval, supplementalSnapshotInterval)
             }
-            return activePollingCadence.interactionInterval
+            return currentPollingCadence.interactionInterval
         }
-        return activePollingCadence.idleInterval
+        return currentPollingCadence.idleInterval
     }
 
     /// Keeps the high-frequency polling window alive while interactions are active.
     private func enterInteractionBoost(minimumDuration: TimeInterval) {
         guard minimumDuration > 0 else { return }
         let proposedDeadline = Date().addingTimeInterval(minimumDuration)
-        if let currentDeadline = interactionBoostDeadline {
-            interactionBoostDeadline = max(currentDeadline, proposedDeadline)
+        if let currentDeadline = interactionBoostExpiration {
+            interactionBoostExpiration = max(currentDeadline, proposedDeadline)
         } else {
-            interactionBoostDeadline = proposedDeadline
+            interactionBoostExpiration = proposedDeadline
         }
-        updatePollingIntervalIfNeeded(activePollingCadence.interactionInterval)
+        updatePollingIntervalIfNeeded(currentPollingCadence.interactionInterval)
         startDisplayLinkIfNeeded()
     }
 
     /// Switches back to the idle cadence when interactions have settled for long enough.
     private func evaluateInteractionDeadline() {
-        guard let deadline = interactionBoostDeadline else {
-            if resolvedPollingInterval != activePollingCadence.idleInterval {
-                updatePollingIntervalIfNeeded(activePollingCadence.idleInterval)
+        guard let deadline = interactionBoostExpiration else {
+            if currentPollingInterval != currentPollingCadence.idleInterval {
+                updatePollingIntervalIfNeeded(currentPollingCadence.idleInterval)
             }
             return
         }
 
         if Date() >= deadline {
-            interactionBoostDeadline = nil
-            updatePollingIntervalIfNeeded(activePollingCadence.idleInterval)
+            interactionBoostExpiration = nil
+            updatePollingIntervalIfNeeded(currentPollingCadence.idleInterval)
             stopDisplayLinkIfNeeded()
         } else {
-            updatePollingIntervalIfNeeded(activePollingCadence.interactionInterval)
+            updatePollingIntervalIfNeeded(currentPollingCadence.interactionInterval)
         }
     }
 
+    /// Starts the supplemental display link used during drag interactions.
     private func startDisplayLinkIfNeeded() {
-        guard !isDisplayLinkActive else { return }
-        if supplementalDisplayLink.start() {
-            isDisplayLinkActive = true
+        guard !isDisplayLinkRunning else { return }
+        if supplementalSnapshotDisplayLink.start() {
+            isDisplayLinkRunning = true
         }
     }
 
+    /// Stops the supplemental display link when higher-frequency updates are no longer needed.
     private func stopDisplayLinkIfNeeded() {
-        guard isDisplayLinkActive else { return }
-        supplementalDisplayLink.stop()
-        isDisplayLinkActive = false
+        guard isDisplayLinkRunning else { return }
+        supplementalSnapshotDisplayLink.stop()
+        isDisplayLinkRunning = false
     }
 
+    /// Runs on the supplemental display link to keep mask geometry in sync during active interactions.
     private func handleDisplayLinkTick() {
-        guard isMonitoring else { return }
+        guard isMonitoringActive else { return }
         switch refreshActiveWindowFrameFast() {
         case .updated, .noChange:
             break

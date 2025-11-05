@@ -150,6 +150,7 @@ struct FocusOverlayStyle: Codable, Equatable {
         blurRadius = try container.decodeIfPresent(Double.self, forKey: .blurRadius) ?? 35
     }
 
+    /// Serializes the style so it can be stored alongside presets or per-display overrides.
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(opacity, forKey: .opacity)

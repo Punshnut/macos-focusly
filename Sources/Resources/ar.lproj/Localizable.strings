@@ -61,6 +61,7 @@
 "Options" = "خيارات";
 "Overlay Preset" = "إعداد التراكب";
 "Overlay preview" = "معاينة التراكب";
+"Overlay Off" = "تم إيقاف التراكب";
 "Overlay Strength" = "قوة التراكب";
 "Overlay Tint" = "صبغة التراكب";
 "Pick a screen to fine-tune or copy its look to every monitor." = "اختر شاشة للضبط الدقيق أو لنسخ مظهرها إلى كل الشاشات.";
@@ -96,3 +97,13 @@
 "WindowTrackingProfile.HighPerformance.Title" = "أداء عالٍ (90 هرتز)";
 "WindowTrackingProfile.Standard.Description" = "يحافظ على تزامن التراكبات عند 60 هرتز أثناء تحريك النوافذ.";
 "WindowTrackingProfile.Standard.Title" = "قياسي (60 هرتز)";
+"Blur Style" = "Blur Style";
+"Sample different macOS blur materials to match your space." = "Sample different macOS blur materials to match your space.";
+"Shows the macOS About panel." = "Shows the macOS About panel.";
+"Full Screen Blur" = "Full Screen Blur";
+"HUD Window Blur" = "HUD Window Blur";
+"Menu Blur" = "Menu Blur";
+"Popover Blur" = "Popover Blur";
+"Sheet Blur" = "Sheet Blur";
+"Sidebar Blur" = "Sidebar Blur";
+"Window Background Blur" = "Window Background Blur";

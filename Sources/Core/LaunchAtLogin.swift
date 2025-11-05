@@ -7,7 +7,9 @@ protocol LaunchAtLoginManaging {
     var isAvailable: Bool { get }
     var unavailableReason: String? { get }
 
+    /// Reports whether the login item is currently registered with macOS.
     func isEnabled() -> Bool
+    /// Attempts to enable or disable the login item registration.
     func setEnabled(_ enabled: Bool) throws
 }
 

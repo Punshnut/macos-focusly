@@ -3,9 +3,9 @@ import Cocoa
 
 private let axTrustedCheckPromptKey = "AXTrustedCheckOptionPrompt"
 
-/// Call once on startup to request AX permission (system will show prompt).
 @discardableResult
 @MainActor
+/// Call once on startup to request AX permission (system will show prompt).
 func requestAccessibilityIfNeeded(prompt: Bool = true) -> Bool {
     let accessibilityOptions: CFDictionary = [
         axTrustedCheckPromptKey: prompt

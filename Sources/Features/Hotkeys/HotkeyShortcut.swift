@@ -51,6 +51,7 @@ struct HotkeyShortcut: Codable, Equatable {
         cachedCarbonModifiers = HotkeyShortcut.carbonModifiers(for: normalized)
     }
 
+    /// Persists the shortcut configuration while keeping modifier caches current.
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(keyCode, forKey: .keyCode)

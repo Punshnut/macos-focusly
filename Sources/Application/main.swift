@@ -244,6 +244,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 }
 
 private extension AppDelegate {
+    /// Loads the bundled Focusly icon for use in menus and the About panel.
     static func loadAppIcon() -> NSImage? {
         guard let url = Bundle.module.url(forResource: "Focusly_centered", withExtension: "png"),
               let image = NSImage(contentsOf: url) else { return nil }
@@ -251,6 +252,7 @@ private extension AppDelegate {
         return image
     }
 
+    /// Provides a fallback icon if the bundled image cannot be located.
     static func makePlaceholderAboutIcon() -> NSImage {
         let placeholderIconSize = NSSize(width: 160, height: 160)
         return NSImage(size: placeholderIconSize, flipped: false) { rect in

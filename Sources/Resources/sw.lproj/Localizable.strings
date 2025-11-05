@@ -61,6 +61,7 @@
 "Options" = "Chaguo";
 "Overlay Preset" = "Kiolezo cha tabaka";
 "Overlay preview" = "Mwonekano wa tabaka";
+"Overlay Off" = "Tabaka limezimwa";
 "Overlay Strength" = "Nguvu ya tabaka";
 "Overlay Tint" = "Rangi ya tabaka";
 "Pick a screen to fine-tune or copy its look to every monitor." = "Chagua skrini ili kuisawazisha au kunakili mwonekano wake kwa kila kifuatilia.";
@@ -96,3 +97,13 @@
 "WindowTrackingProfile.HighPerformance.Title" = "Utendaji wa juu (90 Hz)";
 "WindowTrackingProfile.Standard.Description" = "Huweka tabaka yamesawazishwa kwa 60 Hz unapohamisha madirisha.";
 "WindowTrackingProfile.Standard.Title" = "Kiwango (60 Hz)";
+"Blur Style" = "Blur Style";
+"Sample different macOS blur materials to match your space." = "Sample different macOS blur materials to match your space.";
+"Shows the macOS About panel." = "Shows the macOS About panel.";
+"Full Screen Blur" = "Full Screen Blur";
+"HUD Window Blur" = "HUD Window Blur";
+"Menu Blur" = "Menu Blur";
+"Popover Blur" = "Popover Blur";
+"Sheet Blur" = "Sheet Blur";
+"Sidebar Blur" = "Sidebar Blur";
+"Window Background Blur" = "Window Background Blur";

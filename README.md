@@ -8,7 +8,7 @@
 ![Status](https://img.shields.io/badge/Stage-Alpha%200.3-yellow)
 
 <p align="center">
-  <img src="Sources/Focusly_Logo.png" alt="Focusly logo" width="260">
+<img src="Sources/Assets/Focusly_Logo.png" alt="Focusly logo" width="260">
 </p>
 
 ---
@@ -28,9 +28,21 @@ Focusly tracks the active window (with your permission) so the foreground conten
 - 🎨 **Preset Library** - Focus, Warm, Colorful, and Monochrome looks 
 - 🖥️ **Per-Display Ambience** - individual tint, opacity, and color for every monitor.  
 - ⌨️ **Global Shortcut** - customizable Carbon-backed hotkey for instant control.  
+- 🔒 **Local-First Privacy** - no telemetry, accounts, or network dependencies - everything runs on your Mac.  
 - 🚀 **Launch at Login** - integrates with `SMAppService` when running as a bundled `.app`.  
 - 🧭 **Guided Onboarding** - assists with setup, permissions, and language selection.  
 - 🌐 **Localization Ready** - runtime language switching with support for English, Spanish, Spanish (Mexico), French, Italian, Arabic (Modern Standard), Swahili (Kiswahili), Hausa, Simplified Chinese, Ukrainian, Russian, Japanese, Korean, and Thai.
+
+---
+
+## 🔐 Privacy & Security
+
+- **Offline by design** - Focusly ships without networking code or telemetry hooks, so it operates the same way on air-gapped, corporate, or education Macs.  
+- **No screen capture** - overlay masks are rendered from window metadata only; no pixel buffers or screenshots are stored or transmitted.  
+- **Your data stays local** - preferences, presets, and onboarding state live in `UserDefaults` under your macOS account and can be purged at any time.  
+- **Permission aware** - the Accessibility prompt is optional; declining simply falls back to less precise window tracking instead of breaking the app.  
+- **Transparent build pipeline** - everything needed to audit and rebuild the app is in this repository, and distribution scripts produce unsigned artifacts so teams can apply their own certificates.  
+- **Friendly for managed devices** - runs fully offline, plays nicely with Gatekeeper once signed, and respects standard macOS privacy controls, making it safe for home offices, media production bays, or regulated industries needing predictable behavior.
 
 ---
 
@@ -145,16 +157,16 @@ Further tests will be added as more logic moves outside the UI layer.
 
 ## 🧱 Architecture Overview
 
-- **Entry Point & Coordination**  
-  `AppDelegate` (`Sources/main.swift`) bootstraps the app, requests Accessibility permission, and wires up `FocuslyAppCoordinator`. The coordinator receives a `FocuslyEnvironment` that injects `UserDefaults`, notification centers, `NSWorkspace`, and the launch-at-login bridge so services can be swapped for testing.
-- **Overlay Pipeline**  
-  `OverlayService` creates and owns an `OverlayWindow` per connected `NSScreen`, applying styles from `ProfileStore` and `PresetLibrary`. `OverlayController` listens to `WindowTracker` snapshots, calculates carve-out masks, and forwards them to overlay windows while `PointerInteractionMonitor` and `DisplayLinkDriver` smooth cursor interactions and animations.
-- **State & Persistence**  
-  `ProfileStore` serializes the active preset, per-display overrides, and excluded monitors, while `AppSettings` exposes observable flags such as `overlayFiltersActive` and the selected `WindowTrackingProfile`. `FocusProfileModels` defines the Codable overlay style, and `FocuslyBuildInfo` surfaces bundle metadata for UI.
-- **User Interface Surfaces**  
-  `StatusBarController` renders the menu bar item, uses `StatusBarState` to build menus, and delegates actions back to the coordinator. Preferences and onboarding flows are SwiftUI views (`PreferencesView`, `OnboardingView`) hosted inside AppKit window controllers (`PreferencesWindowController`, `OnboardingWindowController`) so the menu bar app can present them on demand.
-- **System Integrations**  
-  `HotkeyCenter` registers global shortcuts via Carbon, `LaunchAtLoginManager` wraps `SMAppService`, `LocalizationService` manages runtime language overrides, and `WindowResolver` plus `DisplayID` utilities bridge the Accessibility API and CoreGraphics display identifiers.
+- **Application shell**  
+  `Sources/Application/main.swift` boots the `AppDelegate`, which wires menus, permissions, and launches `FocuslyAppCoordinator`. The coordinator composes the `FocuslyEnvironment` dependency container and keeps long-lived services like overlays, status menus, hotkeys, and onboarding running.
+- **Overlay engine**  
+  `Sources/Features/Overlay/OverlayService.swift` maintains one `OverlayWindow` per `NSScreen`, while `Sources/Features/Overlay/OverlayController.swift` syncs mask geometry from `WindowTracker` snapshots and a `DisplayLinkDriver` for smooth updates. `PointerInteractionMonitor` handles cursor passthrough when overlays are active.
+- **State & profiles**  
+  `AppSettings`, `ProfileStore`, `PresetLibrary`, and `FocusProfileModels` coordinate persisted styles, per-display overrides, and `WindowTrackingProfile` cadence tweaks stored in `UserDefaults`, exposing Combine publishers to keep the UI and services in lockstep.
+- **Interface surfaces**  
+  `StatusBarController` renders the menu bar app and primary commands, `PreferencesWindowController` hosts the SwiftUI `PreferencesView`, and onboarding flows live in `OnboardingWindowController`/`OnboardingView`, all localized through `LocalizationService`.
+- **System bridges**  
+  `WindowTracker`, `WindowResolver`, `AXHelper`, and `DisplayID` abstract the Accessibility/CoreGraphics APIs; `HotkeyCenter` wraps Carbon for the global shortcut; `LaunchAtLoginManager` integrates with `SMAppService` so the app can opt into login items.
 
 ---
 

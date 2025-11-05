@@ -18,9 +18,9 @@ let package = Package(
         .executableTarget(
             name: "Focusly",
             path: "Sources",
-            exclude: ["Focusly_Logo.png"],
+            exclude: ["Assets/Focusly_Logo.png"],
             resources: [
-                .process("Focusly_centered.png"),
+                .process("Assets/Focusly_centered.png"),
                 .process("Resources")
             ],
             linkerSettings: [

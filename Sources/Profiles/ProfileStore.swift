@@ -32,6 +32,7 @@ final class ProfileStore {
             excludedDisplays = try container.decodeIfPresent(Set<DisplayID>.self, forKey: .excludedDisplays) ?? []
         }
 
+        /// Persists the profile state so it can be restored on the next launch.
         func encode(to encoder: Encoder) throws {
             var container = encoder.container(keyedBy: CodingKeys.self)
             try container.encode(selectedPresetID, forKey: .selectedPresetID)

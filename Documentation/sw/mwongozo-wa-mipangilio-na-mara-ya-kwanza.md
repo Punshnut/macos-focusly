@@ -1,41 +1,52 @@
-# Mwongozo wa Mipangilio ya Focusly na Uanzishaji wa Kwanza
+# Focusly Settings & First-Run Guide
 
-Mwongozo huu unapitia dirisha la mipangilio ya macOS na vidokezo vya kuanza vinavyosaidia Focusly kudhibiti usumbufu usionekane.
+This guide walks through the macOS settings window and the first-run tips that help Focusly keep distractions out of view.
 
-## Kufungua Mipangilio ya Focusly
-- Zindua Focusly na utafute ikoni ya mwambaa wa hali (Dot, Halo, au Equalizer kutegemea mtindo uliochagua).
-- Bofya ikoni na uchague `Settings…`, au bonyeza `⌘,` Focusly ikiwa hai, ili kufungua dirisha la Mapendeleo.
-- Dirisha linasogezeka; sehemu zimepangwa kuanzia mwonekano wa kuona hadi utendakazi wa kiotomatiki.
+## Opening Focusly Settings
+- Launch Focusly and look for the status bar icon (Minimal Dot, Halo, or Equalizer depending on your current style).
+- Click the icon and choose `Preferences…`, or press `⌘,` while Focusly is active, to open the Preferences window.
+- The window is scrollable; sections flow from appearance tweaks to automation and language.
 
-## Ziara ya Kisanduku cha Mipangilio
+## Settings Dialog Tour
 
-### Mwonekano
-- `Overlay Preset`: Chagua Blur (Focus), Warm, Colorful, au Monochrome. Kubadilisha kiolezo huboresha kila skrini papo hapo.
-- `Status Bar Icon`: Chagua umbo la ikoni linaloendana na mwonekano wa mwambaa wa menyu.
-- Kidokezo: Sambaza mpangilio laini na mtindo wa ikoni unaomvutia macho kwa haraka bila kuvuruga mtiririko.
+### Appearance
+- `Overlay Preset`: Pick Blur (Focus), Warm, Colorful, or Monochrome. Switching presets updates every display instantly.
+- `Status Bar Icon`: Toggle between Minimal Dot, Halo, and Equalizer to match your menu bar.
+- Tip: Pair a softer preset with the icon style that is easiest to glance at without pulling focus.
 
-### Skrini
-- Kila skrini inayogunduliwa inaonekana kama kipande. Bofya kipande ili kurekebisha skrini hiyo.
-- Tumia onyesho la moja kwa moja kupima unene (`Color Filter`), upana wa ukungu, na rangi.
-- `Options` → `Reset This Display` hurudisha thamani za vijizeremeta; `Copy settings to other displays` huhifadhi ulinganifu katika usanidi wa skrini nyingi.
-- Kidokezo: Punguza unene kwenye skrini za ziada ili kuweka maudhui ya marejeo yakiwa yanaonekana huku ukipunguza usumbufu.
+### Window Tracking Performance
+- Choose Standard (60 Hz), Energy Saving (30 Hz), or High Performance (90 Hz) to tailor how often Focusly tracks window movement.
+- The caption explains how the selected profile affects responsiveness and battery life.
+- Tip: Standard is a good balance; switch to High Performance when you rely on rapid window rearranging.
 
-### Njia ya Mkato
-- Tumia kidhibiti cha **Enable Overlay Shortcut**, kisha rekodi mchanganyiko wa funguo (kwa mfano `⌃⌥⌘F`) ili kuwasha na kuzima tabaka haraka.
-- `Clear` huondoa njia ya mkato; izime kupitia kidhibiti ikiwa unahitaji kuepuka migongano.
-- Kidokezo: Chagua mchanganyiko unaoweza kubonyezwa kwa mkono mmoja ili kufichua eneo-kazi bila kukatiza umakini.
+### Displays
+- Each detected screen appears as a chip. Click a chip to tune that display.
+- Use `Exclude This Display` when you need Focusly to skip a screen entirely.
+- **Blurring Details**: Drag the `Blur Style` slider to sample macOS materials—HUD Window, Menu, Popover, Sidebar, Sheet, Full Screen, or Window Background—and pick the texture that matches your workspace.
+- **Color Effects**: Adjust `Overlay Strength`, tweak the `Overlay Tint`, and switch between `Preserve Color` and `Monochrome`.
+- **Standard Settings**: `Reset to Preset` reverts the current display; `Apply to Other Displays` copies the look to the rest of your setup.
+- Tip: Reduce opacity on secondary displays to keep reference content visible while still muting distractions.
 
-### Uzinduzi Wakati wa Kuingia
-- Washa **Launch Focusly at Login** ili tabaka zianze pamoja na macOS. Ikiwa macOS inazuia, ujumbe mfupi utaeleza hatua za kufuata kwenye Mipangilio ya Mfumo → Faragha & Usalama → Vitu vya Kuingia.
-- Kidokezo: Kuzindua wakati wa kuingia huhakikisha tabaka zinabaki thabiti kwenye kuwasha upya na unapounganisha skrini za nje.
+### Shortcut
+- Toggle **Enable Focus Toggle Shortcut** to activate the global hotkey.
+- Press **Record** to capture a combination (for example, `⌃⌥⌘F`), and use **Clear** to remove it.
+- Tip: Choose a combination that is easy to hit with one hand so you can momentarily show the desktop without breaking flow.
 
-### Tembelea Tena Utangulizi
-- Bofya `Revisit Introduction…` ili kufungua tena mwongozo wa kuanzisha wakati wowote.
-- Unaweza pia kuiwasha kupitia menyu ya mwambaa wa hali (`Show Introduction…`).
+### Launch at Login
+- Enable **Launch Focusly at login** so overlays start with macOS. If macOS blocks the setting, Focusly shows instructions for resolving it in System Settings → Users & Groups → Login Items.
+- Tip: Launching at login keeps overlays consistent across reboots and external display sessions.
 
-## Vidokezo vya Kuanza ili Kubaki Makini
-1. **Washa vichujio vya tabaka**: Kutoka kwenye menyu ya haraka ya mwambaa wa hali, washia tabaka kwa kila skrini unayotaka kupunguza ili kuzuia vurugu za nyuma.
-2. **Chagua kichujio kwa kila maeneo**: Blur (Focus) ni bora kwa kuzingatia kwa kawaida, Warm ni nzuri kwa kazi za jioni, Colorful huangaza mawasilisho, na Monochrome hudhibiti skrini za marejeo.
-3. **Dhibiti kwa kila skrini**: Punguza unene kwenye skrini unazoweka programu za ujumbe, na ongeza ukungu kwenye eneo la kazi kuu ili kuficha mandhari zenye msongamano.
-4. **Sasisha vidhibiti**: Rekodi njia ya mkato ya ulimwengu unaweza kubonyeza ili kufichua eneo-kazi mara moja, na washia Uzinduzi Wakati wa Kuingia ili Focusly iwe tayari kila wakati.
-5. **Tembelea tena utangulizi baada ya mabadiliko**: Kila unapopanga upya skrini au kubadilisha violezo, anzisha upya utangulizi kutoka kwenye mwambaa wa hali ili kuimarisha njia za haraka katika kumbukumbu ya misuli.
+### App Language
+- Choose **App Language** to override macOS defaults, switch instantly between translations, and preview contributions.
+- Tip: Leave the picker on “Follow macOS Language (Default)” to stay in sync with system preferences.
+
+### Revisit Introduction
+- Click `Revisit Introduction…` to reopen the onboarding walkthrough at any time.
+- You can also trigger it from the status bar menu (`Show Introduction…`).
+
+## First-Startup Tips for Staying Focused
+1. **Switch overlays on**: From the quick menu, toggle `Enable Overlays` for each monitor to soften background clutter.
+2. **Pick a preset per space**: Blur (Focus) is ideal for neutral focus, Warm suits evening work, Colorful brightens presentations, and Monochrome keeps reference monitors subtle.
+3. **Dial in per-display tuning**: Adjust overlay strength lower on displays where you keep messaging apps, and increase blur on the main workspace to block busy wallpapers.
+4. **Set your controls**: Capture a global shortcut you can tap whenever you need to reveal your desktop, and enable Launch at Login so Focusly is always ready.
+5. **Revisit onboarding after changes**: Any time you rearrange displays or swap presets, relaunch the introduction from the status bar to refresh muscle memory for the quickest controls.

@@ -1,41 +1,52 @@
-# Jagorar Saitunan Focusly da Fara Farko
+# Focusly Settings & First-Run Guide
 
-Wannan jagorar yana bi ta taga saitunan macOS da shawarwarin farawa da ke taimaka wa Focusly ya rage abin da ke tayar da hankali daga idanu.
+This guide walks through the macOS settings window and the first-run tips that help Focusly keep distractions out of view.
 
-## Bude Saitunan Focusly
-- Kaddamar da Focusly ka nemi gunkin sandar matsayin (Dot, Halo, ko Equalizer gwargwadon salon da kake amfani da shi).
-- Danna gunkin ka zabi `Settings…`, ko latsa `⌘,` yayin da Focusly ke aiki, domin bude taga Saituna.
-- Taga tana goyon bayan gungura; an tsara sassan daga kamanni zuwa matakan aiki ta atomatik.
+## Opening Focusly Settings
+- Launch Focusly and look for the status bar icon (Minimal Dot, Halo, or Equalizer depending on your current style).
+- Click the icon and choose `Preferences…`, or press `⌘,` while Focusly is active, to open the Preferences window.
+- The window is scrollable; sections flow from appearance tweaks to automation and language.
 
-## Zagayen Maganganun Saituna
+## Settings Dialog Tour
 
-### Kamanni
-- `Overlay Preset`: Zabi Blur (Focus), Warm, Colorful, ko Monochrome. Sauya saitin yana sabunta kowane allo nan take.
-- `Status Bar Icon`: Zabi sifar gunkin da ya fi dacewa da sandar menu naka.
-- Shawara: Hada daidaitacciyar shimfida mai laushi da tsarin gunkin da ya fi saukin gani ba tare da katse hankali ba.
+### Appearance
+- `Overlay Preset`: Pick Blur (Focus), Warm, Colorful, or Monochrome. Switching presets updates every display instantly.
+- `Status Bar Icon`: Toggle between Minimal Dot, Halo, and Equalizer to match your menu bar.
+- Tip: Pair a softer preset with the icon style that is easiest to glance at without pulling focus.
 
-### Alloli
-- Kowane allo da aka gano yana bayyana a matsayin kati. Danna katin domin daidaita wannan allon.
-- Yi amfani da duban kai tsaye don tantance kauri (`Color Filter`), fadin girgije, da inuwa.
-- `Options` → `Reset This Display` yana maido da maballan zamewa; `Copy settings to other displays` yana kiyaye daidaituwa a tsarin alloli da yawa.
-- Shawara: Rage kauri a kan allolin gefe don barin bayanai masu muhimmanci suna bayyane yayin da kake taushin abin da ke tayar da hankali.
+### Window Tracking Performance
+- Choose Standard (60 Hz), Energy Saving (30 Hz), or High Performance (90 Hz) to tailor how often Focusly tracks window movement.
+- The caption explains how the selected profile affects responsiveness and battery life.
+- Tip: Standard is a good balance; switch to High Performance when you rely on rapid window rearranging.
 
-### Gajeriyar Hanya
-- Yi amfani da maballin **Enable Overlay Shortcut**, sannan ka rikoda hadin maballi (misali `⌃⌥⌘F`) don kunna ko kashe layoyi da sauri.
-- `Clear` yana goge gajeriyar hanyar; kashe ta daga maballin idan kana bukatar kauce wa rikici.
-- Shawara: Zabi hadin da za ka iya matsawa da hannu daya domin bayyana tebur cikin hanzari ba tare da karya mayar da hankali ba.
+### Displays
+- Each detected screen appears as a chip. Click a chip to tune that display.
+- Use `Exclude This Display` when you need Focusly to skip a screen entirely.
+- **Blurring Details**: Drag the `Blur Style` slider to sample macOS materials—HUD Window, Menu, Popover, Sidebar, Sheet, Full Screen, or Window Background—and pick the texture that matches your workspace.
+- **Color Effects**: Adjust `Overlay Strength`, tweak the `Overlay Tint`, and switch between `Preserve Color` and `Monochrome`.
+- **Standard Settings**: `Reset to Preset` reverts the current display; `Apply to Other Displays` copies the look to the rest of your setup.
+- Tip: Reduce opacity on secondary displays to keep reference content visible while still muting distractions.
 
-### Fara Lokacin Shiga
-- Kunna **Launch Focusly at Login** domin layoyi su fara aiki tare da macOS. Idan macOS ta hana, sakon gajere zai nuna matakan da za a dauka a System Settings → Privacy & Security → Login Items.
-- Shawara: Fara lokacin shiga yana kiyaye layoyi cikin yanayi daya bayan sake kunnawa ko lokacin hada da na'urorin waje.
+### Shortcut
+- Toggle **Enable Focus Toggle Shortcut** to activate the global hotkey.
+- Press **Record** to capture a combination (for example, `⌃⌥⌘F`), and use **Clear** to remove it.
+- Tip: Choose a combination that is easy to hit with one hand so you can momentarily show the desktop without breaking flow.
 
-### Komawa Gabatarwa
-- Danna `Revisit Introduction…` domin bude sake jagorar farawa a kowane lokaci.
-- Kana iya kunnawa daga menu na sandar matsayin (`Show Introduction…`).
+### Launch at Login
+- Enable **Launch Focusly at login** so overlays start with macOS. If macOS blocks the setting, Focusly shows instructions for resolving it in System Settings → Users & Groups → Login Items.
+- Tip: Launching at login keeps overlays consistent across reboots and external display sessions.
 
-## Shawarwari na Farko don Zama cikin Mayar da Hankali
-1. **Kunna matattarar layoyi**: Daga menu mai sauri na sandar matsayin, kunna layoyi ga kowane allo da kake son laushi domin kawar da hayaniyar baya.
-2. **Zabi tacewa ga kowace fili**: Blur (Focus) ya dace da maida hankali na yau da kullum, Warm yana da kyau ga aikin dare, Colorful yana haskaka gabatarwa, kuma Monochrome yana natsar da allolin bayanai.
-3. **Daidaita ga kowane allo**: Rage kauri a allolin da kake barin sakonni, sannan ka kara girgije a babban wurin aiki don boye bayanan bango masu cunkoso.
-4. **Saita hanyoyin sarrafawa**: Rikoda gajeriyar hanya ta duniya da zaka iya danna don nuna tebur kai tsaye, ka kuma kunna Fara lokacin shiga domin Focusly ya kasance a shirye ko da yaushe.
-5. **Koma ga gabatarwa bayan sauye-sauye**: Duk lokacin da ka sake shirya alloli ko ka sauya saitunan dindindin, kunna gabatarwar daga sandar matsayin domin sabunta hanyoyin saurin sarrafawa a tunanin tsoka.
+### App Language
+- Choose **App Language** to override macOS defaults, switch instantly between translations, and preview contributions.
+- Tip: Leave the picker on “Follow macOS Language (Default)” to stay in sync with system preferences.
+
+### Revisit Introduction
+- Click `Revisit Introduction…` to reopen the onboarding walkthrough at any time.
+- You can also trigger it from the status bar menu (`Show Introduction…`).
+
+## First-Startup Tips for Staying Focused
+1. **Switch overlays on**: From the quick menu, toggle `Enable Overlays` for each monitor to soften background clutter.
+2. **Pick a preset per space**: Blur (Focus) is ideal for neutral focus, Warm suits evening work, Colorful brightens presentations, and Monochrome keeps reference monitors subtle.
+3. **Dial in per-display tuning**: Adjust overlay strength lower on displays where you keep messaging apps, and increase blur on the main workspace to block busy wallpapers.
+4. **Set your controls**: Capture a global shortcut you can tap whenever you need to reveal your desktop, and enable Launch at Login so Focusly is always ready.
+5. **Revisit onboarding after changes**: Any time you rearrange displays or swap presets, relaunch the introduction from the status bar to refresh muscle memory for the quickest controls.

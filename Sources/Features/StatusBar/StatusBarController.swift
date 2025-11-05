@@ -49,13 +49,21 @@ struct StatusBarState {
 /// Receives events triggered from the Focusly status bar menus.
 @MainActor
 protocol StatusBarControllerDelegate: AnyObject {
+    /// User toggled the overlay enablement menu item.
     func statusBarDidToggleEnabled(_ controller: StatusBarController)
+    /// User selected a different preset from the menu.
     func statusBar(_ controller: StatusBarController, selectedPreset preset: FocusPreset)
+    /// User picked a new icon appearance for the status item.
     func statusBar(_ controller: StatusBarController, didSelectIconStyle style: StatusBarIconStyle)
+    /// Preferences window should be shown.
     func statusBarDidRequestPreferences(_ controller: StatusBarController)
+    /// Hotkey enablement switch was toggled.
     func statusBarDidToggleHotkeys(_ controller: StatusBarController)
+    /// Launch-at-login checkbox was toggled.
     func statusBarDidToggleLaunchAtLogin(_ controller: StatusBarController)
+    /// Onboarding flow should be presented again.
     func statusBarDidRequestOnboarding(_ controller: StatusBarController)
+    /// App should terminate in response to the Quit menu item.
     func statusBarDidRequestQuit(_ controller: StatusBarController)
 }
 
@@ -734,6 +742,7 @@ enum StatusBarIconFactory {
             let barWidth = rect.width * 0.18
             let cornerRadius = barWidth / 2
 
+            /// Draws a single equalizer bar at the provided offset and height.
             func drawBar(offset: CGFloat, height: CGFloat) {
                 let barRect = NSRect(
                     x: rect.midX + offset - barWidth / 2,

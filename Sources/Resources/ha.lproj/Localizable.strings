@@ -61,6 +61,7 @@
 "Options" = "Zabubbuka";
 "Overlay Preset" = "Saitin shimfida";
 "Overlay preview" = "Duban shimfida";
+"Overlay Off" = "An kashe layoyi";
 "Overlay Strength" = "Karfin shimfida";
 "Overlay Tint" = "Inuwar shimfida";
 "Pick a screen to fine-tune or copy its look to every monitor." = "Zabi allo don daidaita shi sosai ko kwafi kamanninsa zuwa dukkan allonka.";
@@ -96,3 +97,13 @@
 "WindowTrackingProfile.HighPerformance.Title" = "Babban aiki (90 Hz)";
 "WindowTrackingProfile.Standard.Description" = "Yana kiyaye shimfidodi cikin daidaito a 60 Hz yayin da kake motsa tagogi.";
 "WindowTrackingProfile.Standard.Title" = "Matsakaici (60 Hz)";
+"Blur Style" = "Blur Style";
+"Sample different macOS blur materials to match your space." = "Sample different macOS blur materials to match your space.";
+"Shows the macOS About panel." = "Shows the macOS About panel.";
+"Full Screen Blur" = "Full Screen Blur";
+"HUD Window Blur" = "HUD Window Blur";
+"Menu Blur" = "Menu Blur";
+"Popover Blur" = "Popover Blur";
+"Sheet Blur" = "Sheet Blur";
+"Sidebar Blur" = "Sidebar Blur";
+"Window Background Blur" = "Window Background Blur";

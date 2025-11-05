@@ -1,41 +1,52 @@
-# Focusly 設定 & 初回ガイド
+# Focusly Settings & First-Run Guide
 
-このガイドでは、macOS の設定ウィンドウと Focusly が視界のノイズを抑えるための初回ヒントを順に紹介します。
+This guide walks through the macOS settings window and the first-run tips that help Focusly keep distractions out of view.
 
-## Focusly 設定を開く
-- Focusly を起動し、現在のスタイル（ドット、ハロー、またはイコライザー）に合わせたステータスバーアイコンを探します。
-- アイコンをクリックして `設定…` を選ぶか、Focusly がアクティブな状態で `⌘,` を押して環境設定ウィンドウを開きます。
-- ウィンドウはスクロールできます。セクションは見た目、操作、自動化の順で並んでいます。
+## Opening Focusly Settings
+- Launch Focusly and look for the status bar icon (Minimal Dot, Halo, or Equalizer depending on your current style).
+- Click the icon and choose `Preferences…`, or press `⌘,` while Focusly is active, to open the Preferences window.
+- The window is scrollable; sections flow from appearance tweaks to automation and language.
 
-## 設定ダイアログツアー
+## Settings Dialog Tour
 
-### 外観
-- `オーバーレイプリセット`: ぼかし（フォーカス）、ウォーム、カラフル、モノクロームから選択します。切り替えるとすべてのディスプレイが即座に更新されます。
-- `ステータスバーアイコン`: メニューバーの雰囲気に合うアイコンの形を選びます。
-- ヒント: 遠目に見やすいアイコンと、落ち着いたプリセットを組み合わせると視線移動がぐっと楽になります。
+### Appearance
+- `Overlay Preset`: Pick Blur (Focus), Warm, Colorful, or Monochrome. Switching presets updates every display instantly.
+- `Status Bar Icon`: Toggle between Minimal Dot, Halo, and Equalizer to match your menu bar.
+- Tip: Pair a softer preset with the icon style that is easiest to glance at without pulling focus.
 
-### ディスプレイ
-- 検出された各スクリーンがチップとして表示されます。調整したいディスプレイをクリックします。
-- ライブプレビューを使って不透明度（`カラー フィルタ`）、ぼかし半径、色合いを確認します。
-- `オプション` → `このディスプレイをリセット` でスライダーを初期化し、`他のディスプレイに設定をコピー` でマルチモニターを揃えられます。
-- ヒント: サブディスプレイは不透明度を下げてリファレンス資料を見やすくしつつ、メインディスプレイはぼかしを強めると集中しやすくなります。
+### Window Tracking Performance
+- Choose Standard (60 Hz), Energy Saving (30 Hz), or High Performance (90 Hz) to tailor how often Focusly tracks window movement.
+- The caption explains how the selected profile affects responsiveness and battery life.
+- Tip: Standard is a good balance; switch to High Performance when you rely on rapid window rearranging.
 
-### ホットキー
-- グローバルショートカットを有効化して、たとえば `⌃⌥⌘F` のようなキーを記録すると、オーバーレイを一瞬で切り替えられます。
-- `クリア` でショートカットを削除できます。競合を避けたい場合はトグルをオフにしてください。
-- ヒント: 片手で押しやすい組み合わせを選ぶと、作業の流れを崩さずにデスクトップを表示できます。
+### Displays
+- Each detected screen appears as a chip. Click a chip to tune that display.
+- Use `Exclude This Display` when you need Focusly to skip a screen entirely.
+- **Blurring Details**: Drag the `Blur Style` slider to sample macOS materials—HUD Window, Menu, Popover, Sidebar, Sheet, Full Screen, or Window Background—and pick the texture that matches your workspace.
+- **Color Effects**: Adjust `Overlay Strength`, tweak the `Overlay Tint`, and switch between `Preserve Color` and `Monochrome`.
+- **Standard Settings**: `Reset to Preset` reverts the current display; `Apply to Other Displays` copies the look to the rest of your setup.
+- Tip: Reduce opacity on secondary displays to keep reference content visible while still muting distractions.
 
-### ログイン時に起動
-- 自動起動をオンにして、macOS の起動と同時に Focusly を立ち上げましょう。macOS がブロックした場合は、システム設定 → ユーザとグループ → ログイン項目での対処法が表示されます。
-- ヒント: ログイン時に起動しておけば、再起動や外部ディスプレイの接続後も同じ雰囲気をすぐに再現できます。
+### Shortcut
+- Toggle **Enable Focus Toggle Shortcut** to activate the global hotkey.
+- Press **Record** to capture a combination (for example, `⌃⌥⌘F`), and use **Clear** to remove it.
+- Tip: Choose a combination that is easy to hit with one hand so you can momentarily show the desktop without breaking flow.
 
-### イントロダクションを再表示
-- `イントロダクションを再表示…` をクリックすると、いつでもオンボーディングをやり直せます。
-- ステータスバーのメニューからも `イントロダクションを表示…` で呼び出せます。
+### Launch at Login
+- Enable **Launch Focusly at login** so overlays start with macOS. If macOS blocks the setting, Focusly shows instructions for resolving it in System Settings → Users & Groups → Login Items.
+- Tip: Launching at login keeps overlays consistent across reboots and external display sessions.
 
-## フォーカスを保つための初回ヒント
-1. **オーバーレイをオンにする**: ステータスバーのクイックメニューから、柔らかくしたい各モニターでオーバーレイを有効にします。
-2. **スペースごとにフィルターを選ぶ**: ぼかし（フォーカス）はニュートラルな集中に、ウォームは夜間作業に、カラフルはプレゼンに、モノクロームは参考資料用の画面に最適です。
-3. **ディスプレイごとのチューニング**: メッセージアプリを置く画面は不透明度を下げ、メインワークスペースはぼかしを強めて背景の情報量を抑えましょう。
-4. **操作を整える**: 必要なときにデスクトップを素早く表示できるグローバルショートカットを設定し、ログイン時に起動も有効にしておくと常に準備万端です。
-5. **レイアウト変更後にオンボーディングを再確認**: ディスプレイ構成やプリセットを変えたら、ステータスバーからイントロダクションを再表示して、最速の操作感を再確認しましょう。
+### App Language
+- Choose **App Language** to override macOS defaults, switch instantly between translations, and preview contributions.
+- Tip: Leave the picker on “Follow macOS Language (Default)” to stay in sync with system preferences.
+
+### Revisit Introduction
+- Click `Revisit Introduction…` to reopen the onboarding walkthrough at any time.
+- You can also trigger it from the status bar menu (`Show Introduction…`).
+
+## First-Startup Tips for Staying Focused
+1. **Switch overlays on**: From the quick menu, toggle `Enable Overlays` for each monitor to soften background clutter.
+2. **Pick a preset per space**: Blur (Focus) is ideal for neutral focus, Warm suits evening work, Colorful brightens presentations, and Monochrome keeps reference monitors subtle.
+3. **Dial in per-display tuning**: Adjust overlay strength lower on displays where you keep messaging apps, and increase blur on the main workspace to block busy wallpapers.
+4. **Set your controls**: Capture a global shortcut you can tap whenever you need to reveal your desktop, and enable Launch at Login so Focusly is always ready.
+5. **Revisit onboarding after changes**: Any time you rearrange displays or swap presets, relaunch the introduction from the status bar to refresh muscle memory for the quickest controls.

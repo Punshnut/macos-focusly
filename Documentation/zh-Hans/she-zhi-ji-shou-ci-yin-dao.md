@@ -1,41 +1,52 @@
-# Focusly 设置与首次上手指南
+# Focusly Settings & First-Run Guide
 
-本指南介绍如何浏览 macOS 中的设置窗口，并列出首次启动时帮助 Focusly 隔绝干扰的贴士。
+This guide walks through the macOS settings window and the first-run tips that help Focusly keep distractions out of view.
 
-## 打开 Focusly 设置
-- 启动 Focusly 并寻找状态栏图标（根据当前样式可能是点、光环或均衡器）。
-- 点击图标并选择 `设置…`，或者在 Focusly 活动时按下 `⌘,` 打开偏好设置窗口。
-- 窗口可以滚动；各个部分从视觉外观到自动化依次排列。
+## Opening Focusly Settings
+- Launch Focusly and look for the status bar icon (Minimal Dot, Halo, or Equalizer depending on your current style).
+- Click the icon and choose `Preferences…`, or press `⌘,` while Focusly is active, to open the Preferences window.
+- The window is scrollable; sections flow from appearance tweaks to automation and language.
 
-## 设置窗口导览
+## Settings Dialog Tour
 
-### 外观
-- `Overlay Preset`：选择 Blur (Focus)、Warm、Colorful 或 Monochrome。切换预设会立即更新所有显示器。
-- `Status Bar Icon`：挑选最契合你菜单栏的图标形状。
-- 小贴士：将柔和的预设与最容易瞥见的图标搭配，保持专注不分心。
+### Appearance
+- `Overlay Preset`: Pick Blur (Focus), Warm, Colorful, or Monochrome. Switching presets updates every display instantly.
+- `Status Bar Icon`: Toggle between Minimal Dot, Halo, and Equalizer to match your menu bar.
+- Tip: Pair a softer preset with the icon style that is easiest to glance at without pulling focus.
 
-### 显示器
-- 每个检测到的屏幕都会显示为一个卡片。点击卡片即可调节对应显示器。
-- 预览区域会实时反映不透明度（`Color Filter`）、模糊程度与色调。
-- `Options` → `Reset This Display` 可恢复原始数值；`Copy settings to other displays` 帮你在多屏方案中保持一致。
-- 小贴士：在辅助显示器上降低不透明度，让参考内容保持可见，同时减轻干扰。
+### Window Tracking Performance
+- Choose Standard (60 Hz), Energy Saving (30 Hz), or High Performance (90 Hz) to tailor how often Focusly tracks window movement.
+- The caption explains how the selected profile affects responsiveness and battery life.
+- Tip: Standard is a good balance; switch to High Performance when you rely on rapid window rearranging.
 
-### 快捷键
-- 开启全局快捷键开关，然后录制组合键（例如 `⌃⌥⌘F`），快速切换叠加层。
-- `Clear` 会移除快捷键；如果需要避免冲突，也可直接关闭开关。
-- 小贴士：选择单手就能按下的组合，这样就能迅速露出桌面而不中断节奏。
+### Displays
+- Each detected screen appears as a chip. Click a chip to tune that display.
+- Use `Exclude This Display` when you need Focusly to skip a screen entirely.
+- **Blurring Details**: Drag the `Blur Style` slider to sample macOS materials—HUD Window, Menu, Popover, Sidebar, Sheet, Full Screen, or Window Background—and pick the texture that matches your workspace.
+- **Color Effects**: Adjust `Overlay Strength`, tweak the `Overlay Tint`, and switch between `Preserve Color` and `Monochrome`.
+- **Standard Settings**: `Reset to Preset` reverts the current display; `Apply to Other Displays` copies the look to the rest of your setup.
+- Tip: Reduce opacity on secondary displays to keep reference content visible while still muting distractions.
 
-### 登录时启动
-- 启用自动启动后，Focusly 会随 macOS 一起开启。如果系统阻止了设定，界面会提示前往系统设置 → 用户与群组 → 登录项。
-- 小贴士：登录自启动可在重启或外接显示器时保持叠加层一致。
+### Shortcut
+- Toggle **Enable Focus Toggle Shortcut** to activate the global hotkey.
+- Press **Record** to capture a combination (for example, `⌃⌥⌘F`), and use **Clear** to remove it.
+- Tip: Choose a combination that is easy to hit with one hand so you can momentarily show the desktop without breaking flow.
 
-### 重新查看介绍
-- 点击 `Revisit Introduction…` 随时重新打开引导流程。
-- 也可以在状态栏菜单中选择 `Show Introduction…` 触发。
+### Launch at Login
+- Enable **Launch Focusly at login** so overlays start with macOS. If macOS blocks the setting, Focusly shows instructions for resolving it in System Settings → Users & Groups → Login Items.
+- Tip: Launching at login keeps overlays consistent across reboots and external display sessions.
 
-## 首次启动的专注小贴士
-1. **开启叠加层**：从状态栏的快速菜单，为每个显示器启用叠加层以柔化背景。
-2. **按空间挑选滤镜**：Blur (Focus) 适合保持中性专注，Warm 适合夜间工作，Colorful 能让演示更亮眼，Monochrome 则让参考屏更克制。
-3. **逐屏微调**：在常放消息应用的屏幕降低不透明度，在主工作区增加模糊以遮挡花哨壁纸。
-4. **设置控制方式**：录制一个全局快捷键，并开启登录时启动，让 Focusly 随时响应。
-5. **调整后重温引导**：当你重新布置显示器或更换预设时，从状态栏重启引导，巩固最快的操作路径。
+### App Language
+- Choose **App Language** to override macOS defaults, switch instantly between translations, and preview contributions.
+- Tip: Leave the picker on “Follow macOS Language (Default)” to stay in sync with system preferences.
+
+### Revisit Introduction
+- Click `Revisit Introduction…` to reopen the onboarding walkthrough at any time.
+- You can also trigger it from the status bar menu (`Show Introduction…`).
+
+## First-Startup Tips for Staying Focused
+1. **Switch overlays on**: From the quick menu, toggle `Enable Overlays` for each monitor to soften background clutter.
+2. **Pick a preset per space**: Blur (Focus) is ideal for neutral focus, Warm suits evening work, Colorful brightens presentations, and Monochrome keeps reference monitors subtle.
+3. **Dial in per-display tuning**: Adjust overlay strength lower on displays where you keep messaging apps, and increase blur on the main workspace to block busy wallpapers.
+4. **Set your controls**: Capture a global shortcut you can tap whenever you need to reveal your desktop, and enable Launch at Login so Focusly is always ready.
+5. **Revisit onboarding after changes**: Any time you rearrange displays or swap presets, relaunch the introduction from the status bar to refresh muscle memory for the quickest controls.
