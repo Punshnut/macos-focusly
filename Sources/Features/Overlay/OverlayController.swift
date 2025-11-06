@@ -247,9 +247,11 @@ final class OverlayController {
         let windowScreenFrame = window.frame
         var maskRegions: [OverlayWindow.MaskRegion] = []
 
+        let backingScale = window.backingScaleFactor
+
         for request in maskRequests {
             let expansion = maskExpansion(for: request.purpose)
-            let expandedRect = expansion > 0 ? request.rect.insetBy(dx: -expansion, dy: -expansion) : request.rect
+            let expandedRect = expansion != 0 ? request.rect.insetBy(dx: -expansion, dy: -expansion) : request.rect
             let screenIntersection = expandedRect.intersection(windowScreenFrame)
             guard !screenIntersection.isNull else { continue }
 
@@ -258,10 +260,19 @@ final class OverlayController {
             let normalizedRect = rectInContent.intersection(contentView.bounds)
             guard !normalizedRect.isNull else { continue }
 
+            let shrink = maskShrink(for: request.purpose, rect: normalizedRect)
+            let clampedShrink = min(shrink, max(0, min(normalizedRect.width, normalizedRect.height) / 2))
+            let insetRect = clampedShrink > 0 ? normalizedRect.insetBy(dx: clampedShrink, dy: clampedShrink) : normalizedRect
+            guard insetRect.width > 0, insetRect.height > 0 else { continue }
+
+            let backingAligned = contentView.convertToBacking(insetRect).integral
+            let finalRect = contentView.convertFromBacking(backingAligned)
+            guard finalRect.width > 0, finalRect.height > 0 else { continue }
+
             maskRegions.append(
                 OverlayWindow.MaskRegion(
-                    rect: normalizedRect,
-                    cornerRadius: adjustedCornerRadius(for: request, expansion: expansion)
+                    rect: finalRect,
+                    cornerRadius: adjustedCornerRadius(for: request, expansion: expansion, shrink: clampedShrink, scale: backingScale)
                 )
             )
         }
@@ -376,20 +387,50 @@ final class OverlayController {
     /// Determines how much a given mask should expand to cover drop-shadows and hover states.
     private func maskExpansion(for purpose: ActiveWindowSnapshot.MaskRegion.Purpose?) -> CGFloat {
         switch purpose {
-        case .applicationMenu?, .systemMenu?:
-            return 4
+        case .systemMenu?:
+            return 0.07
+        case .applicationMenu?:
+            return 0.06
         case .applicationWindow?:
-            return 1
+            return 0.1
         case nil:
-            return 1
+            return 0.1
+        }
+    }
+
+    /// Slightly shrinks carved-out menus so their edges remain pixel-tight after rounding.
+    private func maskShrink(for purpose: ActiveWindowSnapshot.MaskRegion.Purpose?, rect: NSRect) -> CGFloat {
+        switch purpose {
+        case .systemMenu?, .applicationMenu?:
+            return min(0.35, min(rect.width, rect.height) * 0.3)
+        case .applicationWindow?, nil:
+            return 0
         }
     }
 
     /// Adjusts the corner radius to match the expanded mask rect.
-    private func adjustedCornerRadius(for request: MaskRequest, expansion: CGFloat) -> CGFloat {
+    private func adjustedCornerRadius(for request: MaskRequest, expansion: CGFloat, shrink: CGFloat, scale: CGFloat) -> CGFloat {
         let baseRadius = max(0, request.cornerRadius)
-        guard expansion > 0 else { return baseRadius }
-        return baseRadius + expansion
+        let expanded = expansion > 0 ? baseRadius + expansion : baseRadius
+        guard shrink > 0 else {
+            return max(0, expanded + cornerRadiusBias(for: request.purpose))
+        }
+
+        let pixelEpsilon = scale > 0 ? (0.5 / scale) : 0
+        let adjusted = max(0, expanded - max(0, shrink - pixelEpsilon))
+        return max(0, adjusted + cornerRadiusBias(for: request.purpose))
+    }
+
+    /// Introduces a subtle bias so menu carve-outs keep their rounded edges distinctive.
+    private func cornerRadiusBias(for purpose: ActiveWindowSnapshot.MaskRegion.Purpose?) -> CGFloat {
+        switch purpose {
+        case .systemMenu?:
+            return -0.12
+        case .applicationMenu?:
+            return -0.08
+        default:
+            return 0
+        }
     }
 
     /// Creates and starts a pointer monitor so we can react to drag and resize interactions.

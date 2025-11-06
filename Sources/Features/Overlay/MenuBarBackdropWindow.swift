@@ -220,17 +220,38 @@ final class MenuBarBackdropWindow: NSPanel {
         ])
     }
 
-    private static func menuBarFrame(for screen: NSScreen) -> NSRect? {
+    static func menuBarFrame(for screen: NSScreen) -> NSRect? {
         let screenFrame = screen.frame
         let visibleFrame = screen.visibleFrame
-        let height = max(0, screenFrame.maxY - visibleFrame.maxY)
-        guard height > 0 else { return nil }
-        return NSRect(
+        let rawHeight = max(0, screenFrame.maxY - visibleFrame.maxY)
+        guard rawHeight > 0 else { return nil }
+
+        let scale = max(screen.backingScaleFactor, 1)
+        let overlap = 1.0 / scale
+
+        let topEdge = screenFrame.maxY
+        let bottomEdge = max(screenFrame.origin.y, (screenFrame.maxY - rawHeight) - overlap)
+
+        var rect = NSRect(
             x: screenFrame.origin.x,
-            y: screenFrame.maxY - height,
+            y: bottomEdge,
             width: screenFrame.width,
-            height: height
+            height: max(0, topEdge - bottomEdge)
         )
+
+        let alignedMinX = floor(rect.minX * scale) / scale
+        let alignedMaxX = ceil(rect.maxX * scale) / scale
+        let alignedMinY = floor(rect.minY * scale) / scale
+        let alignedMaxY = ceil(rect.maxY * scale) / scale
+
+        rect = NSRect(
+            x: alignedMinX,
+            y: alignedMinY,
+            width: max(0, alignedMaxX - alignedMinX),
+            height: max(0, alignedMaxY - alignedMinY)
+        )
+
+        return rect
     }
 
     private static func resolveDisplayIdentifier(for screen: NSScreen) -> DisplayID {

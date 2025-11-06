@@ -394,27 +394,20 @@ final class OverlayWindow: NSPanel {
             return
         }
 
-        let screenFrame = screen.frame
-        let visibleFrame = screen.visibleFrame
-        let menuBarHeight = max(0, screenFrame.maxY - visibleFrame.maxY)
-
-        guard menuBarHeight > 0 else {
+        guard let menuBarRectInScreen = MenuBarBackdropWindow.menuBarFrame(for: screen) else {
             staticTintExclusions = []
             staticBlurExclusions = []
             return
         }
 
-        let menuBarRectInScreen = NSRect(
-            x: screenFrame.origin.x,
-            y: screenFrame.maxY - menuBarHeight,
-            width: screenFrame.width,
-            height: menuBarHeight
-        )
-
         let menuBarRectInWindow = convertFromScreen(menuBarRectInScreen)
         let rectInContent = contentView.convert(menuBarRectInWindow, from: nil)
-        staticTintExclusions = [rectInContent]
-        staticBlurExclusions = []
+
+        let backingRect = contentView.convertToBacking(rectInContent).integral
+        let alignedRect = contentView.convertFromBacking(backingRect)
+
+        staticTintExclusions = [alignedRect]
+        staticBlurExclusions = [alignedRect]
     }
 
     /// Updates CALayer masks to reflect the latest static and dynamic carve-outs.
@@ -498,6 +491,7 @@ private final class OverlayMaskLayer: CALayer {
     private struct HoleRegion {
         var rect: CGRect
         var cornerRadius: CGFloat
+        var alignToPixelGrid: Bool
     }
 
     private let vectorMaskLayer: CAShapeLayer = {
@@ -584,7 +578,7 @@ private final class OverlayMaskLayer: CALayer {
 
         for rect in staticRects where rect.width > 0 && rect.height > 0 {
             appendHole(
-                HoleRegion(rect: rect, cornerRadius: 0),
+                HoleRegion(rect: rect, cornerRadius: 0, alignToPixelGrid: false),
                 to: &holeRegions,
                 tolerance: tolerance
             )
@@ -595,7 +589,7 @@ private final class OverlayMaskLayer: CALayer {
             guard rect.width > 0, rect.height > 0 else { continue }
             let radius = min(max(region.cornerRadius, 0), min(rect.width, rect.height) / 2)
             appendHole(
-                HoleRegion(rect: rect, cornerRadius: radius),
+                HoleRegion(rect: rect, cornerRadius: radius, alignToPixelGrid: true),
                 to: &holeRegions,
                 tolerance: tolerance
             )
@@ -646,6 +640,7 @@ private final class OverlayMaskLayer: CALayer {
             )
         }) {
             holes[index].cornerRadius = max(holes[index].cornerRadius, candidate.cornerRadius)
+            holes[index].alignToPixelGrid = holes[index].alignToPixelGrid && candidate.alignToPixelGrid
         } else {
             holes.append(candidate)
         }
@@ -703,7 +698,7 @@ private final class OverlayMaskLayer: CALayer {
         path.addRect(bounds)
 
         for hole in holes {
-            let rect = alignRectToPixelGrid(hole.rect, scale: scale)
+            let rect = alignRectToPixelGrid(hole.rect, scale: scale, align: hole.alignToPixelGrid)
             guard rect.width > 0, rect.height > 0 else { continue }
             let radius = min(max(hole.cornerRadius, 0), min(rect.width, rect.height) / 2)
             if radius > 0 {
@@ -753,7 +748,7 @@ private final class OverlayMaskLayer: CALayer {
         context.setBlendMode(.clear)
 
         for hole in holes {
-            let rect = alignRectToPixelGrid(hole.rect, scale: scale)
+            let rect = alignRectToPixelGrid(hole.rect, scale: scale, align: hole.alignToPixelGrid)
             guard rect.width > 0, rect.height > 0 else { continue }
             let radius = min(max(hole.cornerRadius, 0), min(rect.width, rect.height) / 2)
             if radius > 0 {
@@ -775,7 +770,8 @@ private final class OverlayMaskLayer: CALayer {
     }
 
     /// Snaps carve-out rects to the backing pixel grid so masks remain crisp on HiDPI displays.
-    private func alignRectToPixelGrid(_ rect: CGRect, scale: CGFloat) -> CGRect {
+    private func alignRectToPixelGrid(_ rect: CGRect, scale: CGFloat, align: Bool) -> CGRect {
+        guard align else { return rect }
         guard rect.width > 0, rect.height > 0, scale > 0 else { return rect }
         let scaledMinX = floor(rect.minX * scale)
         let scaledMinY = floor(rect.minY * scale)
