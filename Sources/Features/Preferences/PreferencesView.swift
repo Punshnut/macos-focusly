@@ -803,21 +803,21 @@ struct PreferencesView: View {
                 icon: "link",
                 titleKey: "Preferences.About.Website",
                 fallbackTitle: "Project Website",
-                urlString: "https://github.com/your-user/macos-focusly"
+                urlString: "https://github.com/Punshnut/macos-focusly"
             )
 
             aboutLinkRow(
                 icon: "sparkle.magnifyingglass",
                 titleKey: "Preferences.About.Issues",
                 fallbackTitle: "Report an Issue",
-                urlString: "https://github.com/your-user/macos-focusly/issues"
+                urlString: "https://github.com/Punshnut/macos-focusly/issues"
             )
 
             aboutLinkRow(
                 icon: "envelope",
                 titleKey: "Preferences.About.Support",
                 fallbackTitle: "Support Email",
-                urlString: "mailto:hello@focusly.app"
+                urlString: "https://github.com/Punshnut/macos-focusly"
             )
         }
     }
@@ -850,14 +850,14 @@ struct PreferencesView: View {
     private var aboutActions: some View {
         HStack(spacing: 14) {
             Button(action: openAboutPanel) {
-                Label(localized("Standard About Panel", fallback: "Standard About Panel"), systemImage: "macwindow")
+                Label(localized("Standard About Panel", fallback: "macOS About Panel"), systemImage: "macwindow")
             }
             .buttonStyle(.bordered)
 
             Spacer()
 
             Button {
-                if let url = URL(string: "https://github.com/your-user/macos-focusly") {
+                if let url = URL(string: "https://github.com/Punshnut/macos-focusly") {
                     NSWorkspace.shared.open(url)
                 }
             } label: {

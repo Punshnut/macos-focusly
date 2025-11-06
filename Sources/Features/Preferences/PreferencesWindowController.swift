@@ -1,5 +1,6 @@
 import AppKit
 import Combine
+import CoreGraphics
 import SwiftUI
 
 /// Hosts the SwiftUI preferences view inside an AppKit window and handles shortcut capture.
@@ -40,6 +41,8 @@ final class PreferencesWindowController: NSWindowController {
         window.isOpaque = false
         window.backgroundColor = .clear
         window.toolbarStyle = .unifiedCompact
+        let screenSaverLevel = Int(CGWindowLevelForKey(.screenSaverWindow))
+        window.level = NSWindow.Level(screenSaverLevel + 1) // Keep preferences above overlay masks.
         window.standardWindowButton(.closeButton)?.isHidden = true
         window.standardWindowButton(.miniaturizeButton)?.isHidden = true
         window.standardWindowButton(.zoomButton)?.isHidden = true
