@@ -680,12 +680,12 @@ struct PreferencesView: View {
                 .font(.caption)
                 .foregroundColor(.secondary)
 
-            Slider(
+            WindowDragSafeSlider(
                 value: materialIndexBinding,
-                in: 0...Double(max(materialOptions.count - 1, 1)),
+                range: 0...Double(max(materialOptions.count - 1, 1)),
                 step: 1
             )
-            .labelsHidden()
+            .frame(height: 22)
             .accessibilityLabel(Text(localized("Blur Style")))
             .accessibilityValue(Text(currentMaterial.accessibilityDescription))
 
@@ -743,7 +743,13 @@ struct PreferencesView: View {
                     .monospacedDigit()
             }
 
-            Slider(value: opacityBinding, in: 0.35...1.0, step: 0.01)
+            WindowDragSafeSlider(
+                value: opacityBinding,
+                range: 0.35...1.0,
+                step: 0.01
+            )
+            .frame(height: 22)
+            .accessibilityLabel(Text(localized("Overlay Strength")))
 
             VStack(alignment: .leading, spacing: 8) {
                 Text(localized("Tint"))
@@ -1319,32 +1325,131 @@ private struct HostingWindowFinder: NSViewRepresentable {
 private struct ResponsiveDisplayLayout<Selector: View, Inspector: View>: View {
     let selector: Selector
     let inspector: Inspector
+    @State private var availableWidth: CGFloat = 0
 
     var body: some View {
-        GeometryReader { proxy in
-            let width = proxy.size.width
-            let shouldStack = width < 640
-            let selectorWidth = min(width * 0.42, 320)
+        let width = availableWidth
+        let shouldStack = width <= 0 || width < 640
+        let selectorWidth = width > 0 ? min(width * 0.42, 320) : 320
 
-            Group {
-                if shouldStack {
-                    VStack(spacing: 16) {
-                        selector
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                        inspector
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                } else {
-                    HStack(alignment: .top, spacing: 18) {
-                        selector
-                            .frame(maxWidth: selectorWidth, alignment: .leading)
-                        inspector
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
+        Group {
+            if shouldStack {
+                VStack(spacing: 16) {
+                    selector
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    inspector
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            } else {
+                HStack(alignment: .top, spacing: 18) {
+                    selector
+                        .frame(maxWidth: selectorWidth, alignment: .leading)
+                    inspector
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
-            .frame(width: width, alignment: .leading)
         }
-        .frame(minHeight: 0)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            GeometryReader { proxy in
+                Color.clear
+                    .preference(key: ResponsiveLayoutWidthPreferenceKey.self, value: proxy.size.width)
+            }
+        )
+        .onPreferenceChange(ResponsiveLayoutWidthPreferenceKey.self) { width in
+            if availableWidth != width {
+                availableWidth = width
+            }
+        }
+    }
+}
+
+private struct ResponsiveLayoutWidthPreferenceKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
+    }
+}
+
+/// NSSlider wrapper that keeps window dragging enabled elsewhere while allowing knob dragging.
+private struct WindowDragSafeSlider: NSViewRepresentable {
+    @Binding var value: Double
+    let range: ClosedRange<Double>
+    let step: Double?
+    let isContinuous: Bool
+
+    init(
+        value: Binding<Double>,
+        range: ClosedRange<Double>,
+        step: Double? = nil,
+        isContinuous: Bool = true
+    ) {
+        _value = value
+        self.range = range
+        self.step = step
+        self.isContinuous = isContinuous
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(parent: self)
+    }
+
+    func makeNSView(context: Context) -> DragSafeNSSlider {
+        let slider = DragSafeNSSlider()
+        slider.target = context.coordinator
+        slider.action = #selector(Coordinator.valueChanged(_:))
+        slider.isContinuous = isContinuous
+        slider.minValue = range.lowerBound
+        slider.maxValue = range.upperBound
+        slider.doubleValue = value
+        slider.allowsTickMarkValuesOnly = false
+        slider.translatesAutoresizingMaskIntoConstraints = false
+        return slider
+    }
+
+    func updateNSView(_ nsView: DragSafeNSSlider, context: Context) {
+        context.coordinator.parent = self
+        if nsView.minValue != range.lowerBound {
+            nsView.minValue = range.lowerBound
+        }
+        if nsView.maxValue != range.upperBound {
+            nsView.maxValue = range.upperBound
+        }
+        nsView.isContinuous = isContinuous
+        if abs(nsView.doubleValue - value) > .ulpOfOne {
+            nsView.doubleValue = value
+        }
+    }
+
+    @MainActor
+    final class Coordinator: NSObject {
+        var parent: WindowDragSafeSlider
+
+        init(parent: WindowDragSafeSlider) {
+            self.parent = parent
+        }
+
+        @objc func valueChanged(_ sender: NSSlider) {
+            var newValue = sender.doubleValue
+            if let step = parent.step, step > 0 {
+                let lower = parent.range.lowerBound
+                let upper = parent.range.upperBound
+                newValue = ((newValue - lower) / step).rounded() * step + lower
+                newValue = min(max(newValue, lower), upper)
+                if abs(newValue - sender.doubleValue) > .ulpOfOne {
+                    sender.doubleValue = newValue
+                }
+            }
+
+            if abs(parent.value - newValue) > .ulpOfOne {
+                parent.value = newValue
+            }
+        }
+    }
+}
+
+private final class DragSafeNSSlider: NSSlider {
+    override var mouseDownCanMoveWindow: Bool {
+        false
     }
 }

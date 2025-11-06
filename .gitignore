@@ -23,3 +23,6 @@ Focusly.app/
 Focusly.dmg
 build_app.sh
 build_dmg.sh
+
+# Codex CLI sandbox artifacts
+.sandbox-home/
