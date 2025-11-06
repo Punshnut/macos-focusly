@@ -12,6 +12,7 @@ final class FocuslyAppCoordinator: NSObject {
         static let statusIconStyle = "Focusly.StatusIconStyle"
         static let languageOverride = "Focusly.LanguageOverride"
         static let trackingProfile = "Focusly.WindowTrackingProfile"
+        static let preferencesWindowGlassy = "Focusly.Preferences.GlassyChrome"
     }
 
     private let environment: FocuslyEnvironment
@@ -25,6 +26,7 @@ final class FocuslyAppCoordinator: NSObject {
     private let localization: LocalizationService
     private var localizationCancellable: AnyCancellable?
     private var trackingProfileCancellable: AnyCancellable?
+    private var preferencesWindowAppearanceCancellable: AnyCancellable?
 
     private var preferencesWindow: PreferencesWindowController?
     private var preferencesScreenModel: PreferencesViewModel?
@@ -78,6 +80,9 @@ final class FocuslyAppCoordinator: NSObject {
            let decodedProfile = WindowTrackingProfile(rawValue: storedTrackingProfile) {
             globalSettings.windowTrackingProfile = decodedProfile
         }
+        if let storedGlassyPreference = defaults.object(forKey: UserDefaultsKey.preferencesWindowGlassy) as? Bool {
+            globalSettings.preferencesWindowGlassy = storedGlassyPreference
+        }
 
         super.init()
 
@@ -104,6 +109,14 @@ final class FocuslyAppCoordinator: NSObject {
                 guard let self else { return }
                 self.overlayCoordinator.updateTrackingProfile(profile)
                 self.persistTrackingProfile(profile)
+            }
+
+        preferencesWindowAppearanceCancellable = globalSettings.$preferencesWindowGlassy
+            .removeDuplicates()
+            .sink { [weak self] isGlassy in
+                guard let self else { return }
+                self.persistPreferencesWindowAppearance(isGlassy)
+                self.preferencesScreenModel?.preferencesWindowGlassy = isGlassy
             }
     }
 
@@ -215,6 +228,11 @@ final class FocuslyAppCoordinator: NSObject {
         environment.userDefaults.set(profile.rawValue, forKey: UserDefaultsKey.trackingProfile)
     }
 
+    /// Saves the user's preferred preferences window material.
+    private func persistPreferencesWindowAppearance(_ isGlassy: Bool) {
+        environment.userDefaults.set(isGlassy, forKey: UserDefaultsKey.preferencesWindowGlassy)
+    }
+
     /// Restores a previously persisted hotkey shortcut if one exists.
     private static func loadHotkeyShortcut(from defaults: UserDefaults) -> HotkeyShortcut? {
         guard let persistedData = defaults.data(forKey: UserDefaultsKey.shortcut) else { return nil }
@@ -285,6 +303,7 @@ final class FocuslyAppCoordinator: NSObject {
             preferencesScreenModel?.presetOptions = PresetLibrary.presets
             preferencesScreenModel?.selectedPresetIdentifier = overlayProfileStore.currentPreset().id
             preferencesScreenModel?.trackingProfile = globalSettings.windowTrackingProfile
+            preferencesScreenModel?.preferencesWindowGlassy = globalSettings.preferencesWindowGlassy
             controller.updateLocalization(localization: localization)
             synchronizePreferencesDisplays()
             return
@@ -303,6 +322,7 @@ final class FocuslyAppCoordinator: NSObject {
             selectedPresetIdentifier: overlayProfileStore.currentPreset().id,
             trackingProfile: globalSettings.windowTrackingProfile,
             trackingProfileOptions: WindowTrackingProfile.allCases,
+            preferencesWindowGlassy: globalSettings.preferencesWindowGlassy,
             callbacks: PreferencesViewModel.Callbacks(
                 onDisplayChange: { [weak self] displayID, style in
                     guard let self else { return }
@@ -375,6 +395,9 @@ final class FocuslyAppCoordinator: NSObject {
                     self.overlayProfileStore.setDisplay(displayID, excluded: isExcluded)
                     self.overlayService.refreshDisplays(animated: true)
                     self.synchronizePreferencesDisplays()
+                },
+                onTogglePreferencesWindowGlassy: { [weak self] isGlassy in
+                    self?.globalSettings.preferencesWindowGlassy = isGlassy
                 }
             )
         )

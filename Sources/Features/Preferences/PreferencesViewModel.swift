@@ -35,6 +35,7 @@ final class PreferencesViewModel: ObservableObject {
         var onSelectLanguage: (String) -> Void
         var onUpdateTrackingProfile: (WindowTrackingProfile) -> Void
         var onToggleDisplayExclusion: (DisplayID, Bool) -> Void
+        var onTogglePreferencesWindowGlassy: (Bool) -> Void
     }
 
     @Published var displaySettings: [DisplaySettings]
@@ -48,6 +49,7 @@ final class PreferencesViewModel: ObservableObject {
     @Published private(set) var shortcutSummary: String
     @Published var statusIconStyle: StatusBarIconStyle
     @Published var trackingProfile: WindowTrackingProfile
+    @Published var preferencesWindowGlassy: Bool
     private var activeShortcut: HotkeyShortcut?
     /// App coordination closures invoked when preferences mutate shared state.
     private let callbacks: Callbacks
@@ -68,6 +70,7 @@ final class PreferencesViewModel: ObservableObject {
         selectedPresetIdentifier: String,
         trackingProfile: WindowTrackingProfile,
         trackingProfileOptions: [WindowTrackingProfile],
+        preferencesWindowGlassy: Bool,
         callbacks: Callbacks
     ) {
         self.displaySettings = displaySettings
@@ -84,6 +87,7 @@ final class PreferencesViewModel: ObservableObject {
         self.iconStyleOptions = iconStyleOptions
         self.trackingProfile = trackingProfile
         self.trackingProfileOptions = trackingProfileOptions
+        self.preferencesWindowGlassy = preferencesWindowGlassy
     }
 
     /// Persists live opacity changes for a display and notifies the app.
@@ -196,6 +200,13 @@ final class PreferencesViewModel: ObservableObject {
     /// Passes the newly selected localization identifier back to the coordinator.
     func setLanguage(id: String) {
         callbacks.onSelectLanguage(id)
+    }
+
+    /// Toggles whether the preferences window should keep the glassy material.
+    func setPreferencesWindowGlassy(_ isGlassy: Bool) {
+        guard preferencesWindowGlassy != isGlassy else { return }
+        preferencesWindowGlassy = isGlassy
+        callbacks.onTogglePreferencesWindowGlassy(isGlassy)
     }
 
     /// Requests that the onboarding sequence be shown again.

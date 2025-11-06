@@ -3,10 +3,10 @@ import CoreGraphics
 
 private let focuslyOverlayBaseLevel = Int(CGWindowLevelForKey(.screenSaverWindow))
 
-/// Centralized window level definitions so Focusly windows consistently appear above overlay masks.
+/// Centralized window level definitions for Focusly-hosted windows.
 enum FocuslyWindowLevels {
-    /// Keeps the preferences window visible above the blur overlay.
-    static let overlayBypass = NSWindow.Level(focuslyOverlayBaseLevel + 1)
-    /// Ensures the macOS About panel also floats above the preferences window.
+    /// Keep the preferences window at a standard level so overlay masking can track it.
+    static let overlayBypass: NSWindow.Level = .normal
+    /// Ensure the macOS About panel still floats above overlay content.
     static let aboutPanel = NSWindow.Level(focuslyOverlayBaseLevel + 2)
 }

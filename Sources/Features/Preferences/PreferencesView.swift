@@ -58,9 +58,7 @@ struct PreferencesView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            windowControls
-                .padding(.top, 8)
-                .padding(.horizontal, 16)
+            topChromeSpacer
             tabBar
             Divider()
                 .opacity(0.08)
@@ -76,22 +74,31 @@ struct PreferencesView: View {
         }
         .frame(minWidth: 500)
         .background(
-            FrostedBackgroundView(material: .hudWindow)
+            FrostedBackgroundView(material: backgroundMaterial)
                 .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
         )
         .overlay(
             RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .stroke(Color.white.opacity(0.12), lineWidth: 1)
+                .stroke(borderStrokeColor, lineWidth: 1)
                 .allowsHitTesting(false)
         )
         .overlay(
             HostingWindowFinder { window in
                 hostingWindow = window
+                updateWindowChrome(for: window)
             }
             .allowsHitTesting(false)
         )
         .padding(.horizontal, 6)
         .padding(.bottom, 6)
+        .padding(.top, 6)
+        .overlay(alignment: .topLeading) {
+            windowControls
+                .padding(.top, topChromeControlInset)
+                .padding(.leading, 22)
+                .padding(.trailing, 22)
+        }
+        .background(outerBackgroundView)
         .onAppear {
             if selectedDisplayID == nil {
                 selectedDisplayID = viewModel.displaySettings.first?.id
@@ -115,6 +122,14 @@ struct PreferencesView: View {
         .onChange(of: activeTab) { tab in
             tabChangeRelay?.notify(tab)
         }
+        .onChange(of: viewModel.preferencesWindowGlassy) { _ in
+            updateWindowChrome(for: hostingWindow)
+        }
+    }
+
+    private var topChromeSpacer: some View {
+        Color.clear
+            .frame(height: topChromeHeight)
     }
 
     private var windowControls: some View {
@@ -126,6 +141,7 @@ struct PreferencesView: View {
             }
             Spacer()
         }
+        .frame(height: 24, alignment: .leading)
     }
 
     private var tabBar: some View {
@@ -206,6 +222,16 @@ struct PreferencesView: View {
             }
 
             settingsPanel(
+                icon: "paintpalette",
+                titleKey: "Preferences.General.Appearance",
+                fallbackTitle: "Appearance",
+                subtitleKey: "Preferences.General.Appearance.Description",
+                subtitleFallback: "Adjust how the preferences window itself is styled."
+            ) {
+                appearanceControls
+            }
+
+            settingsPanel(
                 icon: "menubar.rectangle",
                 titleKey: "Preferences.General.MenuBar",
                 fallbackTitle: "Menu Bar Presence",
@@ -280,6 +306,27 @@ struct PreferencesView: View {
     private var hotkeyControls: some View {
         hotkeySection
             .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var appearanceControls: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Toggle(
+                isOn: Binding(
+                    get: { viewModel.preferencesWindowGlassy },
+                    set: { viewModel.setPreferencesWindowGlassy($0) }
+                )
+            ) {
+                Text(localized("Preferences.General.Appearance.Toggle", fallback: "Keep the preferences window glassy"))
+                    .font(.subheadline)
+                    .fontWeight(.semibold)
+            }
+            .toggleStyle(.switch)
+
+            Text(localized("Preferences.General.Appearance.Toggle.Description", fallback: "Enable to restore the original translucent styling."))
+                .font(.caption)
+                .foregroundColor(.secondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var statusIconControls: some View {
@@ -995,6 +1042,40 @@ struct PreferencesView: View {
             window.performMiniaturize(nil)
         case .zoom:
             window.performZoom(nil)
+        }
+    }
+
+    private var backgroundMaterial: NSVisualEffectView.Material {
+        .hudWindow
+    }
+
+    private var borderStrokeColor: Color {
+        Color.white.opacity(viewModel.preferencesWindowGlassy ? 0.12 : 0.08)
+    }
+
+    private func updateWindowChrome(for window: NSWindow?) {
+        guard let window else { return }
+        window.isOpaque = false
+        window.backgroundColor = .clear
+    }
+
+    private var topChromeHeight: CGFloat {
+        34
+    }
+
+    private var topChromeControlInset: CGFloat {
+        12
+    }
+
+    @ViewBuilder
+    private var outerBackgroundView: some View {
+        let cornerRadius: CGFloat = 32
+        if viewModel.preferencesWindowGlassy {
+            Color.clear
+        } else {
+            FrostedBackgroundView(material: .hudWindow)
+                .overlay(Color.white.opacity(0.06))
+                .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
         }
     }
 

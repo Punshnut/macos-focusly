@@ -21,8 +21,6 @@ final class PreferencesWindowController: NSWindowController {
         let preferencesView = PreferencesView(viewModel: viewModel, tabChangeRelay: tabRelay)
             .environmentObject(localization)
         let hostingController = NSHostingController(rootView: preferencesView)
-        hostingController.view.wantsLayer = true
-        hostingController.view.layer?.backgroundColor = NSColor.clear.cgColor
         let initialScreenHeight = NSScreen.main?.visibleFrame.height ?? NSScreen.main?.frame.height ?? 900
         let layout = PreferencesWindowController.windowLayout(
             for: viewModel.displaySettings.count,
@@ -43,9 +41,8 @@ final class PreferencesWindowController: NSWindowController {
         window.titleVisibility = .hidden
         window.isMovableByWindowBackground = true
         window.isOpaque = false
-        window.backgroundColor = .clear
         window.toolbarStyle = .unifiedCompact
-        window.level = FocuslyWindowLevels.overlayBypass // Keep preferences above overlay masks.
+        window.level = FocuslyWindowLevels.overlayBypass // Standard level ensures overlay masking recognizes the window.
         window.standardWindowButton(.closeButton)?.isHidden = true
         window.standardWindowButton(.miniaturizeButton)?.isHidden = true
         window.standardWindowButton(.zoomButton)?.isHidden = true
@@ -54,6 +51,7 @@ final class PreferencesWindowController: NSWindowController {
         window.center()
         window.contentViewController = hostingController
         super.init(window: window)
+        applyWindowAppearance(glassy: viewModel.preferencesWindowGlassy)
         tabRelay.handler = { [weak self] tab in
             self?.handleTabSelectionChange(tab)
         }
@@ -72,6 +70,13 @@ final class PreferencesWindowController: NSWindowController {
             .sink { [weak self] _ in
                 self?.updateWindowTitle()
             }
+
+        viewModel.$preferencesWindowGlassy
+            .removeDuplicates()
+            .sink { [weak self] isGlassy in
+                self?.applyWindowAppearance(glassy: isGlassy)
+            }
+            .store(in: &subscriptions)
     }
 
     @available(*, unavailable)
@@ -168,6 +173,12 @@ final class PreferencesWindowController: NSWindowController {
             "Focusly Preferences",
             fallback: "Focusly Preferences"
         )
+    }
+
+    private func applyWindowAppearance(glassy: Bool) {
+        guard let window else { return }
+        window.isOpaque = false
+        window.backgroundColor = .clear
     }
 
     private func handleTabSelectionChange(_ tab: PreferencesTab) {
