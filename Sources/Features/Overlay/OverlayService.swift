@@ -15,6 +15,7 @@ final class OverlayService {
     private let appSettings: AppSettings
     private var overlayFiltersSubscription: AnyCancellable?
     private var overlayWindowsByDisplayID: [DisplayID: OverlayWindow] = [:]
+    private var menuBarWindowsByDisplayID: [DisplayID: MenuBarBackdropWindow] = [:]
     private var areOverlaysActive = false
     weak var delegate: OverlayServiceDelegate?
 
@@ -44,8 +45,18 @@ final class OverlayService {
                 overlayWindow.animatePresentation(duration: overlayStyle.animationDuration, animated: animated)
                 overlayWindow.apply(style: overlayStyle, animated: animated)
             }
+            menuBarWindowsByDisplayID.values.forEach { backdropWindow in
+                let displayID = backdropWindow.associatedDisplayID()
+                let overlayStyle = profileStore.style(forDisplayID: displayID)
+                backdropWindow.setFiltersEnabled(appSettings.overlayFiltersActive, animated: false)
+                backdropWindow.prepareForPresentation()
+                backdropWindow.orderFrontRegardless()
+                backdropWindow.animatePresentation(duration: overlayStyle.animationDuration, animated: animated)
+                backdropWindow.apply(style: overlayStyle, animated: animated)
+            }
         } else {
             overlayWindowsByDisplayID.values.forEach { $0.hide(animated: animated) }
+            menuBarWindowsByDisplayID.values.forEach { $0.hide(animated: animated) }
         }
         delegate?.overlayService(self, didUpdateOverlays: overlayWindowsByDisplayID)
     }
@@ -67,6 +78,10 @@ final class OverlayService {
                     existing.orderOut(nil)
                     overlayWindowsByDisplayID.removeValue(forKey: displayID)
                 }
+                if let backdrop = menuBarWindowsByDisplayID[displayID] {
+                    backdrop.orderOut(nil)
+                    menuBarWindowsByDisplayID.removeValue(forKey: displayID)
+                }
                 continue
             }
 
@@ -85,6 +100,30 @@ final class OverlayService {
                 let overlayStyle = profileStore.style(forDisplayID: displayID)
                 overlayWindow.apply(style: overlayStyle, animated: animated)
             }
+
+            let screenFrame = screen.frame
+            let visibleFrame = screen.visibleFrame
+            let menuBarHeight = max(0, screenFrame.maxY - visibleFrame.maxY)
+
+            if menuBarHeight > 0 {
+                if let backdropWindow = menuBarWindowsByDisplayID[displayID] {
+                    backdropWindow.updateFrame(to: screen)
+                } else {
+                    let backdropWindow = MenuBarBackdropWindow(screen: screen, displayID: displayID)
+                    backdropWindow.setFiltersEnabled(appSettings.overlayFiltersActive, animated: false)
+                    menuBarWindowsByDisplayID[displayID] = backdropWindow
+                    if areOverlaysActive {
+                        backdropWindow.orderFrontRegardless()
+                    }
+                }
+
+                if let backdropWindow = menuBarWindowsByDisplayID[displayID], areOverlaysActive, shouldApplyStyles {
+                    let overlayStyle = profileStore.style(forDisplayID: displayID)
+                    backdropWindow.apply(style: overlayStyle, animated: animated)
+                }
+            } else if let backdropWindow = menuBarWindowsByDisplayID.removeValue(forKey: displayID) {
+                backdropWindow.orderOut(nil)
+            }
         }
 
         profileStore.removeInvalidOverrides(validDisplayIDs: activeDisplayIDs)
@@ -93,6 +132,9 @@ final class OverlayService {
         for displayID in disconnectedDisplayIDs {
             overlayWindowsByDisplayID[displayID]?.orderOut(nil)
             overlayWindowsByDisplayID.removeValue(forKey: displayID)
+            if let backdropWindow = menuBarWindowsByDisplayID.removeValue(forKey: displayID) {
+                backdropWindow.orderOut(nil)
+            }
         }
 
         delegate?.overlayService(self, didUpdateOverlays: overlayWindowsByDisplayID)
@@ -100,13 +142,16 @@ final class OverlayService {
 
     /// Reapplies the stored style for the specified display.
     func updateStyle(for displayID: DisplayID, animated: Bool) {
-        guard let overlayWindow = overlayWindowsByDisplayID[displayID], areOverlaysActive else { return }
-        overlayWindow.apply(style: profileStore.style(forDisplayID: displayID), animated: animated)
+        guard areOverlaysActive else { return }
+        let overlayStyle = profileStore.style(forDisplayID: displayID)
+        overlayWindowsByDisplayID[displayID]?.apply(style: overlayStyle, animated: animated)
+        menuBarWindowsByDisplayID[displayID]?.apply(style: overlayStyle, animated: animated)
     }
 
     /// Enables or disables blur/tint filters across all overlay windows.
     private func updateFilterActivationState(_ isEnabled: Bool) {
         let shouldAnimate = areOverlaysActive && isEnabled
         overlayWindowsByDisplayID.values.forEach { $0.setFiltersEnabled(isEnabled, animated: shouldAnimate) }
+        menuBarWindowsByDisplayID.values.forEach { $0.setFiltersEnabled(isEnabled, animated: shouldAnimate) }
     }
 }

@@ -794,7 +794,7 @@ private final class OverlayMaskLayer: CALayer {
 }
 
 /// Visual effect view that drives the blur material beneath the tinted overlay.
-private final class OverlayBlurView: NSVisualEffectView {
+final class OverlayBlurView: NSVisualEffectView {
     private var isBlurEnabled = true
     private var extraBlurRadius: CGFloat = 35
     private var colorTreatment: FocusOverlayColorTreatment = .preserveColor

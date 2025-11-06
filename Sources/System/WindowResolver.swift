@@ -339,7 +339,29 @@ private func resolveSupplementaryMasks(primaryPID: pid_t?, excludingWindowNumber
 
 /// Menu surfaces ship with a subtle rounding; we keep it conservative to avoid bleeding into content.
 private func menuCornerRadius(for maskFrame: NSRect) -> CGFloat {
-    clampCornerRadius(8, to: maskFrame)
+    guard let screen = screenMatching(maskFrame) else {
+        return clampCornerRadius(8, to: maskFrame)
+    }
+
+    let menuBarHeight = max(0, screen.frame.maxY - screen.visibleFrame.maxY)
+    guard menuBarHeight > 0 else {
+        return clampCornerRadius(8, to: maskFrame)
+    }
+
+    let topAlignmentTolerance: CGFloat = 2
+    let widthTolerance: CGFloat = 8
+    let heightTolerance: CGFloat = 6
+
+    let isTopAligned = abs(maskFrame.maxY - screen.frame.maxY) <= topAlignmentTolerance
+    let isLeftAligned = abs(maskFrame.minX - screen.frame.minX) <= topAlignmentTolerance
+    let isRightAligned = abs(maskFrame.maxX - screen.frame.maxX) <= topAlignmentTolerance || maskFrame.width >= screen.frame.width - widthTolerance
+    let matchesHeight = abs(maskFrame.height - menuBarHeight) <= heightTolerance || maskFrame.height >= menuBarHeight - heightTolerance
+
+    if isTopAligned && isLeftAligned && isRightAligned && matchesHeight {
+        return 0
+    }
+
+    return clampCornerRadius(8, to: maskFrame)
 }
 
 /// Heuristically identifies whether a window should be treated as a menu carve-out.
