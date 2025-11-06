@@ -31,7 +31,7 @@ Focusly tracks the active window (with your permission) so the foreground conten
 - 🔒 **Local-First Privacy** - no telemetry, accounts, or network dependencies - everything runs on your Mac.  
 - 🚀 **Launch at Login** - integrates with `SMAppService` when running as a bundled `.app`.  
 - 🧭 **Guided Onboarding** - assists with setup, permissions, and language selection.  
-- 🌐 **Localization Ready** - runtime language switching with support for English, Spanish, Spanish (Mexico), French, Italian, Arabic (Modern Standard), Swahili (Kiswahili), Hausa, Simplified Chinese, Ukrainian, Russian, Japanese, Korean, and Thai.
+- 🌐 **Localization Ready** - runtime language switching with support for English, Spanish, Spanish (Mexico), French, Italian, German, Portuguese (Portugal), Portuguese (Brazil), Arabic (Modern Standard), Swahili (Kiswahili), Hausa, Simplified Chinese, Ukrainian, Russian, Japanese, Korean, Thai, and Turkish.
 
 ---
 
@@ -88,7 +88,7 @@ xcodebuild -scheme Focusly -configuration Release
 
 Or open the project manually:
 
-1. Launch **Xcode 15+**  
+1. Launch **Xcode 16+**  
 2. Open `Package.swift`  
 3. Select the **Focusly** scheme  
 4. Hit **⌘R** to build and run  
@@ -175,10 +175,13 @@ Further tests will be added as more logic moves outside the UI layer.
 Available in:
 
 - 🇬🇧 English  
+- 🇩🇪 Deutsch  
 - 🇪🇸 Español  
 - 🇲🇽 Español (México)  
 - 🇫🇷 Français  
 - 🇮🇹 Italiano  
+- 🇵🇹 Português (Portugal)  
+- 🇧🇷 Português (Brasil)  
 - 🇦🇪 العربية (الفصحى الحديثة)  
 - 🇹🇿 Kiswahili  
 - 🇳🇬 Hausa  
@@ -188,6 +191,7 @@ Available in:
 - 🇯🇵 日本語  
 - 🇰🇷 한국어 (대한민국)  
 - 🇹🇭 ภาษาไทย  
+- 🇹🇷 Türkçe  
 
 Additional docs live under [`Documentation/`](Documentation/), including localized guides in all mentioned languages.
 

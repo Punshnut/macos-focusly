@@ -890,12 +890,43 @@ private final class OverlayBlurView: NSVisualEffectView {
             filters.append(blurFilter)
         }
 
-        if colorTreatment == .monochrome, let colorFilter = CIFilter(name: "CIColorControls") {
-            colorFilter.setDefaults()
-            colorFilter.setValue(0, forKey: kCIInputSaturationKey)
-            filters.append(colorFilter)
-        }
+        filters.append(contentsOf: colorTreatmentFilters(for: colorTreatment))
 
         layer.backgroundFilters = filters.isEmpty ? nil : filters
+    }
+
+    /// Builds the Core Image filter chain that corresponds to the requested treatment.
+    private func colorTreatmentFilters(for treatment: FocusOverlayColorTreatment) -> [CIFilter] {
+        switch treatment {
+        case .preserveColor:
+            return []
+        case .dark:
+            guard
+                let colorControls = CIFilter(name: "CIColorControls"),
+                let exposure = CIFilter(name: "CIExposureAdjust")
+            else { return [] }
+            colorControls.setDefaults()
+            colorControls.setValue(0.18, forKey: kCIInputSaturationKey)
+            colorControls.setValue(-0.42, forKey: kCIInputBrightnessKey)
+            colorControls.setValue(1.18, forKey: kCIInputContrastKey)
+            exposure.setDefaults()
+            exposure.setValue(-0.45, forKey: kCIInputEVKey)
+            return [colorControls, exposure]
+        case .whiteOverlay:
+            guard
+                let colorControls = CIFilter(name: "CIColorControls"),
+                let gamma = CIFilter(name: "CIGammaAdjust"),
+                let exposure = CIFilter(name: "CIExposureAdjust")
+            else { return [] }
+            colorControls.setDefaults()
+            colorControls.setValue(0.22, forKey: kCIInputSaturationKey)
+            colorControls.setValue(0.52, forKey: kCIInputBrightnessKey)
+            colorControls.setValue(0.95, forKey: kCIInputContrastKey)
+            gamma.setDefaults()
+            gamma.setValue(0.78, forKey: "inputPower")
+            exposure.setDefaults()
+            exposure.setValue(0.55, forKey: kCIInputEVKey)
+            return [colorControls, gamma, exposure]
+        }
     }
 }

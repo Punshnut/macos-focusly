@@ -5,10 +5,11 @@ struct PresetLibrary {
     @MainActor static var presets: [FocusPreset] {
         let localization = LocalizationService.shared
         return [
-            FocusPreset(id: "focus", name: localization.localized("Blur (Focus)", fallback: "Blur (Focus)"), style: .blurFocus),
+            FocusPreset(id: "focus", name: localization.localized("Smart Blur", fallback: "Smart Blur"), style: .blurFocus),
             FocusPreset(id: "warm", name: localization.localized("Warm", fallback: "Warm"), style: .warm),
             FocusPreset(id: "colorful", name: localization.localized("Colorful", fallback: "Colorful"), style: .colorful),
-            FocusPreset(id: "monochrome", name: localization.localized("Monochrome", fallback: "Monochrome"), style: .monochrome)
+            FocusPreset(id: "dark", name: localization.localized("Dark", fallback: "Dark"), style: .dark),
+            FocusPreset(id: "white", name: localization.localized("White Overlay", fallback: "White Overlay"), style: .whiteOverlay)
         ]
     }
 
@@ -28,6 +29,8 @@ struct PresetLibrary {
     /// Maintains compatibility with older preset identifiers persisted to disk.
     private static let legacyIDMapping: [String: String] = [
         "ember": "warm",
-        "vibe": "colorful"
+        "vibe": "colorful",
+        "monochrome": "dark",
+        "whiteOverlay": "white"
     ]
 }

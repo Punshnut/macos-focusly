@@ -208,8 +208,7 @@ final class StatusBarController: NSObject {
         mainMenu.addItem(hotkeyToggleMenuItem)
 
         if state.isLaunchAtLoginAvailable {
-            let launchAtLoginTitleKey = state.isLaunchAtLoginEnabled ? "Launch at Login ✅" : "Launch at Login ⬜️"
-            let launchAtLoginTitle = localized(launchAtLoginTitleKey)
+            let launchAtLoginTitle = localized("Launch at Login")
             let launchAtLoginItem = NSMenuItem(title: launchAtLoginTitle, action: #selector(toggleLaunchAtLogin), keyEquivalent: "")
             launchAtLoginItem.target = self
             launchAtLoginItem.state = state.isLaunchAtLoginEnabled ? .on : .off
@@ -298,8 +297,7 @@ final class StatusBarController: NSObject {
         quickMenu.addItem(hotkeyItem)
 
         if state.isLaunchAtLoginAvailable {
-            let loginKey = state.isLaunchAtLoginEnabled ? "Launch at Login ✅" : "Launch at Login ⬜️"
-            let loginTitle = localized(loginKey)
+            let loginTitle = localized("Launch at Login")
             let loginItem = NSMenuItem(title: loginTitle, action: #selector(toggleLaunchAtLogin), keyEquivalent: "")
             loginItem.target = self
             loginItem.state = state.isLaunchAtLoginEnabled ? .on : .off

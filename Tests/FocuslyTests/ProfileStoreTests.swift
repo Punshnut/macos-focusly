@@ -29,7 +29,7 @@ final class ProfileStoreTests: XCTestCase {
             opacity: 0.61,
             tint: .ember,
             animationDuration: 0.27,
-            colorTreatment: .monochrome,
+            colorTreatment: .dark,
             blurMaterial: .menu,
             blurRadius: 18
         )
@@ -38,7 +38,7 @@ final class ProfileStoreTests: XCTestCase {
 
         let newStore = ProfileStore(userDefaults: userDefaults)
         XCTAssertEqual(newStore.style(forDisplayID: displayID).opacity, 0.61, accuracy: 0.001)
-        XCTAssertEqual(newStore.style(forDisplayID: displayID).colorTreatment, .monochrome)
+        XCTAssertEqual(newStore.style(forDisplayID: displayID).colorTreatment, .dark)
         XCTAssertEqual(newStore.style(forDisplayID: displayID).blurRadius, 18, accuracy: 0.001)
         XCTAssertEqual(newStore.style(forDisplayID: displayID).blurMaterial, .menu)
     }

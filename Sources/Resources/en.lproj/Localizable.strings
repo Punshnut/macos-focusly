@@ -10,7 +10,7 @@
 "Apply to Other Displays" = "Apply to Other Displays";
 "Assign a global shortcut and enable Launch at Login in Preferences so Focusly is ready whenever you are." = "Assign a global shortcut and enable Launch at Login in Preferences so Focusly is ready whenever you are.";
 "Back" = "Back";
-"Blur (Focus)" = "Blur (Focus)";
+"Smart Blur" = "Smart Blur";
 "Blur Style" = "Blur Style";
 "Blur Radius" = "Blur Radius";
 "Built-in retina display" = "Built-in retina display";
@@ -50,8 +50,7 @@
 "Jan Feuerbacher" = "Jan Feuerbacher";
 "Launch at Login is unavailable in the current build." = "Launch at Login is unavailable in the current build.";
 "Launch at Login requires Focusly to run from a signed app bundle. Build and run the app bundle instead of the command-line target to enable this option." = "Launch at Login requires Focusly to run from a signed app bundle. Build and run the app bundle instead of the command-line target to enable this option.";
-"Launch at Login ✅" = "Launch at Login ✅";
-"Launch at Login ⬜️" = "Launch at Login ⬜️";
+"Launch at Login" = "Launch at Login";
 "Launch Focusly at login" = "Launch Focusly at login";
 "Minimal Dot" = "Minimal Dot";
 "Monochrome" = "Monochrome";
@@ -60,7 +59,7 @@
 "No displays detected. Connect a monitor to adjust overlay styling." = "No displays detected. Connect a monitor to adjust overlay styling.";
 "Open Preferences to choose opacity, tint, and one of the Focus, Warm, Colorful, or Monochrome presets per display." = "Open Preferences to choose opacity, tint, and one of the Focus, Warm, Colorful, or Monochrome presets per display.";
 "Options" = "Options";
-"Overlay Preset" = "Overlay Preset";
+"Focus Preset" = "Focus Preset";
 "Overlay preview" = "Overlay preview";
 "Overlay Off" = "Overlay Off";
 "Overlay Strength" = "Overlay Strength";

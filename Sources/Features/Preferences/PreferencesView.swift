@@ -222,16 +222,6 @@ struct PreferencesView: View {
             }
 
             settingsPanel(
-                icon: "paintpalette",
-                titleKey: "Preferences.General.Appearance",
-                fallbackTitle: "Appearance",
-                subtitleKey: "Preferences.General.Appearance.Description",
-                subtitleFallback: "Adjust how the preferences window itself is styled."
-            ) {
-                appearanceControls
-            }
-
-            settingsPanel(
                 icon: "menubar.rectangle",
                 titleKey: "Preferences.General.MenuBar",
                 fallbackTitle: "Menu Bar Presence",
@@ -239,6 +229,16 @@ struct PreferencesView: View {
                 subtitleFallback: "Pick which Focusly icon appears in the menu bar."
             ) {
                 statusIconControls
+            }
+
+            settingsPanel(
+                icon: "paintpalette",
+                titleKey: "Preferences.General.Appearance",
+                fallbackTitle: "Appearance",
+                subtitleKey: "Preferences.General.Appearance.Description",
+                subtitleFallback: "Switch between minimal and classic window chrome."
+            ) {
+                appearanceControls
             }
 
             settingsPanel(
@@ -262,7 +262,7 @@ struct PreferencesView: View {
             settingsPanel(
                 icon: "square.grid.2x2",
                 titleKey: "Preferences.Interface.Presets",
-                fallbackTitle: "Overlay Presets",
+                fallbackTitle: "Focus Presets",
                 subtitleKey: "Preferences.Interface.Presets.Description",
                 subtitleFallback: "Quickly switch between saved looks."
             ) {
@@ -316,13 +316,13 @@ struct PreferencesView: View {
                     set: { viewModel.setPreferencesWindowGlassy($0) }
                 )
             ) {
-                Text(localized("Preferences.General.Appearance.Toggle", fallback: "Keep the preferences window glassy"))
+                Text(localized("Preferences.General.Appearance.Toggle", fallback: "Make the settings window minimal"))
                     .font(.subheadline)
                     .fontWeight(.semibold)
             }
             .toggleStyle(.switch)
 
-            Text(localized("Preferences.General.Appearance.Toggle.Description", fallback: "Enable to restore the original translucent styling."))
+            Text(localized("Preferences.General.Appearance.Toggle.Description", fallback: "Remove the border and extra chrome from the settings window."))
                 .font(.caption)
                 .foregroundColor(.secondary)
         }
@@ -376,12 +376,12 @@ struct PreferencesView: View {
 
     private var presetControls: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(localized("Overlay Preset"))
+            Text(localized("Focus Preset"))
                 .font(.subheadline)
                 .fontWeight(.semibold)
 
             Picker(
-                localized("Overlay Preset"),
+                localized("Focus Preset"),
                 selection: Binding(
                     get: { viewModel.selectedPresetIdentifier },
                     set: { viewModel.selectPreset(id: $0) }

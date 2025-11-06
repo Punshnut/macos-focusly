@@ -11,6 +11,8 @@ struct FocusTint: Codable, Equatable {
     static let ember = FocusTint(red: 0.62, green: 0.21, blue: 0.13, alpha: 0.78)
     static let lagoon = FocusTint(red: 0.10, green: 0.36, blue: 0.52, alpha: 0.72)
     static let slate = FocusTint(red: 0.20, green: 0.23, blue: 0.27, alpha: 0.82)
+    static let ink = FocusTint(red: 0.06, green: 0.07, blue: 0.09, alpha: 0.88)
+    static let frost = FocusTint(red: 0.90, green: 0.93, blue: 0.97, alpha: 0.78)
 
     /// Translates the serialized tint into an `NSColor` for rendering.
     func makeColor() -> NSColor {
@@ -21,16 +23,43 @@ struct FocusTint: Codable, Equatable {
 /// Granular options for how the overlay should treat captured window colors.
 enum FocusOverlayColorTreatment: String, Codable, CaseIterable {
     case preserveColor
-    case monochrome
+    case dark
+    case whiteOverlay
+
+    /// Maintains control over the display order surfaced in pickers.
+    static var allCases: [FocusOverlayColorTreatment] { [.preserveColor, .dark, .whiteOverlay] }
 
     /// Human readable label for UI display.
     var displayName: String {
         switch self {
         case .preserveColor:
             return "Preserve Color"
-        case .monochrome:
-            return "Monochrome"
+        case .dark:
+            return "Dark"
+        case .whiteOverlay:
+            return "White Overlay"
         }
+    }
+
+    /// Supports decoding legacy payloads that persisted the previous `monochrome` case.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        let rawValue = try container.decode(String.self)
+        if let treatment = FocusOverlayColorTreatment(rawValue: rawValue) {
+            self = treatment
+            return
+        }
+        if rawValue == "monochrome" {
+            self = .dark
+            return
+        }
+        self = .preserveColor
+    }
+
+    /// Persists the canonical raw value for new payloads.
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
     }
 }
 
@@ -164,7 +193,9 @@ struct FocusOverlayStyle: Codable, Equatable {
     static let blurFocus = FocusOverlayStyle(opacity: 0.78, tint: .neutral, animationDuration: 0.28, blurRadius: 38)
     static let warm = FocusOverlayStyle(opacity: 0.82, tint: .ember, animationDuration: 0.36, blurRadius: 32)
     static let colorful = FocusOverlayStyle(opacity: 0.88, tint: .lagoon, animationDuration: 0.32, blurRadius: 28)
-    static let monochrome = FocusOverlayStyle(opacity: 0.80, tint: .slate, animationDuration: 0.30, colorTreatment: .monochrome, blurRadius: 35)
+    static let dark = FocusOverlayStyle(opacity: 0.88, tint: .ink, animationDuration: 0.30, colorTreatment: .dark, blurRadius: 38)
+    static let whiteOverlay = FocusOverlayStyle(opacity: 0.86, tint: .frost, animationDuration: 0.28, colorTreatment: .whiteOverlay, blurRadius: 34)
+    static let monochrome = dark // Legacy alias preserved until a true monochrome treatment returns.
 
     // Legacy aliases preserved for backwards compatibility with persisted data.
     static let focus = blurFocus

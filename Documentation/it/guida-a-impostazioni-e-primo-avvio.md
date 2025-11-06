@@ -10,7 +10,7 @@ This guide walks through the macOS settings window and the first-run tips that h
 ## Settings Dialog Tour
 
 ### Appearance
-- `Overlay Preset`: Pick Blur (Focus), Warm, Colorful, or Monochrome. Switching presets updates every display instantly.
+- `Focus Preset`: Pick Smart Blur, Warm, Colorful, or Monochrome. Switching presets updates every display instantly.
 - `Status Bar Icon`: Toggle between Minimal Dot, Halo, and Equalizer to match your menu bar.
 - Tip: Pair a softer preset with the icon style that is easiest to glance at without pulling focus.
 
@@ -46,7 +46,7 @@ This guide walks through the macOS settings window and the first-run tips that h
 
 ## First-Startup Tips for Staying Focused
 1. **Switch overlays on**: From the quick menu, toggle `Enable Overlays` for each monitor to soften background clutter.
-2. **Pick a preset per space**: Blur (Focus) is ideal for neutral focus, Warm suits evening work, Colorful brightens presentations, and Monochrome keeps reference monitors subtle.
+2. **Pick a preset per space**: Smart Blur is ideal for neutral focus, Warm suits evening work, Colorful brightens presentations, and Monochrome keeps reference monitors subtle.
 3. **Dial in per-display tuning**: Adjust overlay strength lower on displays where you keep messaging apps, and increase blur on the main workspace to block busy wallpapers.
 4. **Set your controls**: Capture a global shortcut you can tap whenever you need to reveal your desktop, and enable Launch at Login so Focusly is always ready.
 5. **Revisit onboarding after changes**: Any time you rearrange displays or swap presets, relaunch the introduction from the status bar to refresh muscle memory for the quickest controls.
