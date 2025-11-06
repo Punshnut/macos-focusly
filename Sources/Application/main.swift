@@ -202,14 +202,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             "Credits",
             fallback: "Credits"
         )
-        let nameLine = localizationService.localized(
-            "Jan Feuerbacher",
-            fallback: "Jan Feuerbacher"
-        )
-        let nametagLine = localizationService.localized(
-            "Punshnut",
-            fallback: "Punshnut"
-        )
+        let developerSummary = FocuslyBuildInfo.developerSummary
 
         let centeredParagraphStyle = NSMutableParagraphStyle()
         centeredParagraphStyle.alignment = .center
@@ -227,8 +220,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             string: creditsHeader + "\n",
             attributes: headerTextAttributes
         )
-        let bodyText = [nameLine, nametagLine].joined(separator: "\n")
-        credits.append(NSAttributedString(string: bodyText, attributes: bodyTextAttributes))
+        credits.append(NSAttributedString(string: developerSummary, attributes: bodyTextAttributes))
 
         let aboutIcon = appIconImage ?? Self.makePlaceholderAboutIcon()
 
@@ -240,6 +232,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         ]
 
         NSApp.orderFrontStandardAboutPanel(options: panelOptions)
+        NSApp.activate(ignoringOtherApps: true)
+
+        let aboutTitleFormat = localizationService.localized("About %@", fallback: "About %@")
+        let aboutWindowTitle = String(format: aboutTitleFormat, appName)
+
+        DispatchQueue.main.async {
+            if let aboutWindow = NSApp.windows.first(where: { $0.title == aboutWindowTitle }) {
+                aboutWindow.level = FocuslyWindowLevels.aboutPanel
+                aboutWindow.makeKeyAndOrderFront(nil)
+            }
+        }
     }
 }
 

@@ -1,6 +1,5 @@
 import AppKit
 import Combine
-import CoreGraphics
 import SwiftUI
 
 /// Hosts the SwiftUI preferences view inside an AppKit window and handles shortcut capture.
@@ -24,7 +23,12 @@ final class PreferencesWindowController: NSWindowController {
         let hostingController = NSHostingController(rootView: preferencesView)
         hostingController.view.wantsLayer = true
         hostingController.view.layer?.backgroundColor = NSColor.clear.cgColor
-        let layout = PreferencesWindowController.windowLayout(for: viewModel.displaySettings.count, tab: currentTab)
+        let initialScreenHeight = NSScreen.main?.visibleFrame.height ?? NSScreen.main?.frame.height ?? 900
+        let layout = PreferencesWindowController.windowLayout(
+            for: viewModel.displaySettings.count,
+            tab: currentTab,
+            availableHeight: initialScreenHeight
+        )
         let window = NSWindow(
             contentRect: NSRect(origin: .zero, size: layout.initialSize),
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
@@ -41,8 +45,7 @@ final class PreferencesWindowController: NSWindowController {
         window.isOpaque = false
         window.backgroundColor = .clear
         window.toolbarStyle = .unifiedCompact
-        let screenSaverLevel = Int(CGWindowLevelForKey(.screenSaverWindow))
-        window.level = NSWindow.Level(screenSaverLevel + 1) // Keep preferences above overlay masks.
+        window.level = FocuslyWindowLevels.overlayBypass // Keep preferences above overlay masks.
         window.standardWindowButton(.closeButton)?.isHidden = true
         window.standardWindowButton(.miniaturizeButton)?.isHidden = true
         window.standardWindowButton(.zoomButton)?.isHidden = true
@@ -136,7 +139,12 @@ final class PreferencesWindowController: NSWindowController {
     private func updateWindowSize(for displayCount: Int, tab: PreferencesTab?, animated: Bool = true) {
         guard let window else { return }
         let activeTab = tab ?? currentTab
-        let layout = PreferencesWindowController.windowLayout(for: displayCount, tab: activeTab)
+        let availableHeight = window.screen?.visibleFrame.height ?? window.screen?.frame.height ?? NSScreen.main?.visibleFrame.height ?? NSScreen.main?.frame.height ?? 900
+        let layout = PreferencesWindowController.windowLayout(
+            for: displayCount,
+            tab: activeTab,
+            availableHeight: availableHeight
+        )
         window.contentMinSize = layout.minimumSize
         let currentSize = window.contentLayoutRect.size
         let widthDelta = abs(currentSize.width - layout.initialSize.width)
@@ -169,46 +177,62 @@ final class PreferencesWindowController: NSWindowController {
     }
 
     /// Returns recommended window sizes tailored to the active tab and screen count.
-    private static func windowLayout(for displayCount: Int, tab: PreferencesTab) -> (initialSize: NSSize, minimumSize: NSSize) {
+    private static func windowLayout(
+        for displayCount: Int,
+        tab: PreferencesTab,
+        availableHeight: CGFloat
+    ) -> (initialSize: NSSize, minimumSize: NSSize) {
         let initialWidth: CGFloat
         let minimumWidth: CGFloat
         let initialHeight: CGFloat
         let minimumHeight: CGFloat
+        let heightBoost = heightAdjustment(for: availableHeight)
 
         switch tab {
         case .general:
             initialWidth = 560
             minimumWidth = 500
-            initialHeight = 540
-            minimumHeight = 500
+            initialHeight = 540 + heightBoost
+            minimumHeight = 500 + heightBoost
         case .screen:
             switch displayCount {
             case ..<2:
                 initialWidth = 640
                 minimumWidth = 580
-                initialHeight = 600
-                minimumHeight = 520
+                initialHeight = 600 + heightBoost
+                minimumHeight = 520 + heightBoost
             case 2:
                 initialWidth = 720
                 minimumWidth = 640
-                initialHeight = 620
-                minimumHeight = 540
+                initialHeight = 620 + heightBoost
+                minimumHeight = 540 + heightBoost
             default:
                 initialWidth = 780
                 minimumWidth = 680
-                initialHeight = 640
-                minimumHeight = 560
+                initialHeight = 640 + heightBoost
+                minimumHeight = 560 + heightBoost
             }
         case .about:
             initialWidth = 520
             minimumWidth = 480
-            initialHeight = 520
-            minimumHeight = 480
+            initialHeight = 520 + heightBoost
+            minimumHeight = 480 + heightBoost
         }
 
         return (
             initialSize: NSSize(width: initialWidth, height: initialHeight),
             minimumSize: NSSize(width: minimumWidth, height: minimumHeight)
         )
+    }
+
+    private static func heightAdjustment(for availableHeight: CGFloat) -> CGFloat {
+        switch availableHeight {
+        case ..<720:
+            return 60
+        case ..<900:
+            return 90
+        default:
+            return 120
+        }
     }
 }

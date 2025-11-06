@@ -790,6 +790,11 @@ struct PreferencesView: View {
                 .font(.title2)
                 .fontWeight(.semibold)
 
+            Text(developerSummary())
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.center)
+
             Text(versionSummary())
                 .font(.subheadline)
                 .foregroundColor(.secondary)
@@ -1002,9 +1007,12 @@ struct PreferencesView: View {
     }
 
     private func versionSummary() -> String {
-        let shortVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.0"
-        let buildNumber = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "0"
-        return String(format: localized("Version %@ (%@)", fallback: "Version %@ (%@)"), shortVersion, buildNumber)
+        let format = localized("Version %@", fallback: "Version %@")
+        return String(format: format, FocuslyBuildInfo.marketingVersion)
+    }
+
+    private func developerSummary() -> String {
+        FocuslyBuildInfo.developerSummary
     }
 
     private func openAboutPanel() {
