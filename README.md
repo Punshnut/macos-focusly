@@ -57,7 +57,7 @@ Focusly tracks the active window (with your permission) so the foreground conten
 
 - macOS **13 Ventura** or newer  
 - **Accessibility permission** (recommended) for accurate window tracking  
-- **Xcode 15 / Swift 6.2.1** or later for source builds  
+- **Xcode 16 / Swift 6.2.1** or later for source builds  
 
 ---
 

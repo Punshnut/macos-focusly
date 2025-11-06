@@ -1,66 +1,80 @@
 import AppKit
 import SwiftUI
 
-/// Modernized preferences scene with tabbed navigation and frosted styling.
-struct PreferencesView: View {
-    private enum PreferencesTab: Int, CaseIterable, Identifiable {
-        case general
-        case interface
-        case about
+enum PreferencesTab: Int, CaseIterable, Identifiable {
+    case general
+    case screen
+    case about
 
-        var id: Int { rawValue }
+    var id: Int { rawValue }
 
-        var iconName: String {
-            switch self {
-            case .general: return "gearshape"
-            case .interface: return "sparkles.rectangle.stack"
-            case .about: return "info.circle"
-            }
-        }
-
-        var localizationKey: String {
-            switch self {
-            case .general: return "Preferences.Tab.General"
-            case .interface: return "Preferences.Tab.Interface"
-            case .about: return "Preferences.Tab.About"
-            }
-        }
-
-        var fallbackTitle: String {
-            switch self {
-            case .general: return "General"
-            case .interface: return "Interface"
-            case .about: return "About"
-            }
+    var iconName: String {
+        switch self {
+        case .general: return "gearshape"
+        case .screen: return "sparkles.rectangle.stack"
+        case .about: return "info.circle"
         }
     }
 
-    @ObservedObject var viewModel: PreferencesViewModel
+    var localizationKey: String {
+        switch self {
+        case .general: return "Preferences.Tab.General"
+        case .screen: return "Preferences.Tab.Screen"
+        case .about: return "Preferences.Tab.About"
+        }
+    }
+
+    var fallbackTitle: String {
+        switch self {
+        case .general: return "General"
+        case .screen: return "Screen"
+        case .about: return "About"
+        }
+    }
+}
+
+/// Modernized preferences scene with tabbed navigation and frosted styling.
+final class PreferencesTabRelay {
+    var handler: ((PreferencesTab) -> Void)?
+    func notify(_ tab: PreferencesTab) {
+        handler?(tab)
+    }
+}
+
+/// Modernized preferences scene with tabbed navigation and frosted styling.
+struct PreferencesView: View {
+    @ObservedObject private var viewModel: PreferencesViewModel
     @EnvironmentObject private var localization: LocalizationService
     @State private var activeTab: PreferencesTab = .general
     @State private var selectedDisplayID: DisplayID?
     @Namespace private var tabSelectionNamespace
     @State private var hostingWindow: NSWindow?
+    private let tabChangeRelay: PreferencesTabRelay?
+
+    init(viewModel: PreferencesViewModel, tabChangeRelay: PreferencesTabRelay? = nil) {
+        _viewModel = ObservedObject(wrappedValue: viewModel)
+        self.tabChangeRelay = tabChangeRelay
+    }
 
     var body: some View {
         VStack(spacing: 0) {
             windowControls
-                .padding(.top, 12)
-                .padding(.horizontal, 20)
+                .padding(.top, 8)
+                .padding(.horizontal, 16)
             tabBar
             Divider()
                 .opacity(0.08)
                 .overlay(Color.white.opacity(0.08))
-            ScrollView(.vertical, showsIndicators: false) {
-                VStack(spacing: 24) {
+            ScrollView(.vertical, showsIndicators: true) {
+                VStack(spacing: 16) {
                     tabContent
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 32)
-                .padding(.vertical, 26)
+                .padding(.horizontal, 20)
+                .padding(.vertical, 20)
             }
         }
-        .frame(minWidth: 560)
+        .frame(minWidth: 500)
         .background(
             FrostedBackgroundView(material: .hudWindow)
                 .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
@@ -82,16 +96,24 @@ struct PreferencesView: View {
             if selectedDisplayID == nil {
                 selectedDisplayID = viewModel.displaySettings.first?.id
             }
+            DispatchQueue.main.async {
+                tabChangeRelay?.notify(activeTab)
+            }
         }
         .onChange(of: viewModel.displaySettings.map(\.id)) { displayIDs in
             guard !displayIDs.isEmpty else {
                 selectedDisplayID = nil
+                tabChangeRelay?.notify(activeTab)
                 return
             }
             guard let selectedDisplayID, displayIDs.contains(selectedDisplayID) else {
                 selectedDisplayID = displayIDs.first
+                tabChangeRelay?.notify(activeTab)
                 return
             }
+        }
+        .onChange(of: activeTab) { tab in
+            tabChangeRelay?.notify(tab)
         }
     }
 
@@ -107,14 +129,14 @@ struct PreferencesView: View {
     }
 
     private var tabBar: some View {
-        HStack(spacing: 18) {
+        HStack(spacing: 14) {
             ForEach(PreferencesTab.allCases) { tab in
                 tabButton(for: tab)
             }
         }
-        .padding(.horizontal, 32)
-        .padding(.top, 24)
-        .padding(.bottom, 16)
+        .padding(.horizontal, 20)
+        .padding(.top, 18)
+        .padding(.bottom, 10)
     }
 
     private func tabButton(for tab: PreferencesTab) -> some View {
@@ -132,8 +154,8 @@ struct PreferencesView: View {
                     .font(.system(size: 15, weight: .semibold))
             }
             .foregroundColor(isSelected ? Color.accentColor : Color.primary)
-            .padding(.horizontal, 18)
-            .padding(.vertical, 10)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 7)
             .background(
                 ZStack {
                     if isSelected {
@@ -160,15 +182,15 @@ struct PreferencesView: View {
         switch activeTab {
         case .general:
             generalTab
-        case .interface:
-            interfaceTab
+        case .screen:
+            screenTab
         case .about:
             aboutTab
         }
     }
 
     private var generalTab: some View {
-        VStack(spacing: 20) {
+        VStack(spacing: 16) {
             settingsPanel(
                 icon: "power",
                 titleKey: "Preferences.General.Launch",
@@ -209,8 +231,8 @@ struct PreferencesView: View {
         }
     }
 
-    private var interfaceTab: some View {
-        VStack(spacing: 20) {
+    private var screenTab: some View {
+        VStack(spacing: 16) {
             settingsPanel(
                 icon: "square.grid.2x2",
                 titleKey: "Preferences.Interface.Presets",
@@ -303,7 +325,7 @@ struct PreferencesView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    // MARK: - Interface Panels
+    // MARK: - Screen Panels
 
     private var presetControls: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -381,7 +403,7 @@ struct PreferencesView: View {
     // MARK: - Reused Control Sections
 
     private var hotkeySection: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 8) {
             Toggle(isOn: Binding(
                 get: { viewModel.hotkeysEnabled },
                 set: { viewModel.setHotkeysEnabled($0) }
@@ -473,12 +495,12 @@ struct PreferencesView: View {
     }
 
     private var displayCollection: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 10) {
             Text(localized("Connected Displays", fallback: "Connected Displays"))
                 .font(.caption)
                 .foregroundColor(.secondary)
 
-            LazyVGrid(columns: displayColumns, spacing: 12) {
+            LazyVGrid(columns: displayColumns, spacing: 10) {
                 ForEach(viewModel.displaySettings) { display in
                     Button {
                         selectedDisplayID = display.id
@@ -498,7 +520,7 @@ struct PreferencesView: View {
     }
 
     private var displayColumns: [GridItem] {
-        [GridItem(.adaptive(minimum: 168, maximum: 220), spacing: 12, alignment: .top)]
+        [GridItem(.adaptive(minimum: 164, maximum: 220), spacing: 10, alignment: .top)]
     }
 
     private var displayInspector: some View {
@@ -509,10 +531,11 @@ struct PreferencesView: View {
                 displayEmptyState
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func monitorInspector(for display: PreferencesViewModel.DisplaySettings) -> some View {
-        VStack(alignment: .leading, spacing: 18) {
+        VStack(alignment: .leading, spacing: 16) {
             VStack(alignment: .leading, spacing: 4) {
                 Text(display.name)
                     .font(.title3)
@@ -549,16 +572,16 @@ struct PreferencesView: View {
 
             actionControls(for: display)
         }
-        .padding(20)
+        .padding(16)
         .background(
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
                 .fill(Color.white.opacity(0.02))
                 .background(
-                    RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
                         .fill(.thinMaterial)
                 )
                 .overlay(
-                    RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
                         .stroke(Color.white.opacity(0.08), lineWidth: 1)
                 )
         )
@@ -902,7 +925,7 @@ struct PreferencesView: View {
     private var panelDivider: some View {
         Divider()
             .overlay(Color.white.opacity(0.08))
-            .padding(.vertical, 2)
+            .padding(.vertical, 1)
     }
 
     private func settingsPanel<Content: View>(
@@ -913,7 +936,7 @@ struct PreferencesView: View {
         subtitleFallback: String? = nil,
         @ViewBuilder content: () -> Content
     ) -> some View {
-        VStack(alignment: .leading, spacing: 20) {
+        VStack(alignment: .leading, spacing: 18) {
             HStack(alignment: .top, spacing: 12) {
                 Image(systemName: icon)
                     .font(.system(size: 16, weight: .semibold))
@@ -937,17 +960,17 @@ struct PreferencesView: View {
 
             content()
         }
-        .padding(24)
+        .padding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
                 .fill(Color.white.opacity(0.03))
                 .background(
-                    RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
                         .fill(.ultraThinMaterial)
                 )
                 .overlay(
-                    RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
                         .stroke(Color.white.opacity(0.08), lineWidth: 1)
                 )
         )
@@ -1097,8 +1120,8 @@ private struct DisplayCard: View {
                 .opacity(liveSettings.isExcluded ? 0.2 : 1)
                 .accessibilityHidden(true)
         }
-        .padding(.vertical, 14)
-        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .padding(.horizontal, 14)
         .background(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .fill(
@@ -1211,21 +1234,21 @@ private struct ResponsiveDisplayLayout<Selector: View, Inspector: View>: View {
     var body: some View {
         GeometryReader { proxy in
             let width = proxy.size.width
-            let shouldStack = width < 720
-            let selectorWidth = min(width * 0.42, 380)
+            let shouldStack = width < 640
+            let selectorWidth = min(width * 0.42, 320)
 
             Group {
                 if shouldStack {
-                    VStack(spacing: 20) {
+                    VStack(spacing: 16) {
                         selector
                             .frame(maxWidth: .infinity, alignment: .leading)
                         inspector
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
                 } else {
-                    HStack(alignment: .top, spacing: 20) {
+                    HStack(alignment: .top, spacing: 18) {
                         selector
-                            .frame(width: selectorWidth, alignment: .leading)
+                            .frame(maxWidth: selectorWidth, alignment: .leading)
                         inspector
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }

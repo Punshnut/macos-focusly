@@ -11,16 +11,19 @@ final class PreferencesWindowController: NSWindowController {
     private var shortcutCaptureCompletion: ((HotkeyShortcut?) -> Void)?
     private var subscriptions: Set<AnyCancellable> = []
     private var localizationSubscription: AnyCancellable?
+    private var currentTab: PreferencesTab = .general
+    private let tabRelay = PreferencesTabRelay()
 
     /// Builds the preferences window and wires up localization and layout observers.
     init(viewModel: PreferencesViewModel, localization: LocalizationService) {
         self.viewModel = viewModel
         self.localization = localization
-        let preferencesView = PreferencesView(viewModel: viewModel).environmentObject(localization)
+        let preferencesView = PreferencesView(viewModel: viewModel, tabChangeRelay: tabRelay)
+            .environmentObject(localization)
         let hostingController = NSHostingController(rootView: preferencesView)
         hostingController.view.wantsLayer = true
         hostingController.view.layer?.backgroundColor = NSColor.clear.cgColor
-        let layout = PreferencesWindowController.windowLayout(for: viewModel.displaySettings.count)
+        let layout = PreferencesWindowController.windowLayout(for: viewModel.displaySettings.count, tab: currentTab)
         let window = NSWindow(
             contentRect: NSRect(origin: .zero, size: layout.initialSize),
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
@@ -45,12 +48,16 @@ final class PreferencesWindowController: NSWindowController {
         window.center()
         window.contentViewController = hostingController
         super.init(window: window)
+        tabRelay.handler = { [weak self] tab in
+            self?.handleTabSelectionChange(tab)
+        }
+        tabRelay.notify(currentTab)
 
         viewModel.$displaySettings
             .map(\.count)
             .removeDuplicates()
             .sink { [weak self] count in
-                self?.updateWindowSize(for: count)
+                self?.updateWindowSize(for: count, tab: nil)
             }
             .store(in: &subscriptions)
 
@@ -122,16 +129,17 @@ final class PreferencesWindowController: NSWindowController {
         shortcutCaptureCompletion = nil
     }
 
-    /// Adjusts the window dimensions to better fit the number of connected displays.
-    private func updateWindowSize(for displayCount: Int) {
+    /// Adjusts the window dimensions to better fit the number of connected displays and active tab.
+    private func updateWindowSize(for displayCount: Int, tab: PreferencesTab?, animated: Bool = true) {
         guard let window else { return }
-        let layout = PreferencesWindowController.windowLayout(for: displayCount)
+        let activeTab = tab ?? currentTab
+        let layout = PreferencesWindowController.windowLayout(for: displayCount, tab: activeTab)
         window.contentMinSize = layout.minimumSize
         let currentSize = window.contentLayoutRect.size
         let widthDelta = abs(currentSize.width - layout.initialSize.width)
         let heightDelta = abs(currentSize.height - layout.initialSize.height)
         guard widthDelta > 0.5 || heightDelta > 0.5 else { return }
-        if window.isVisible {
+        if window.isVisible, animated {
             NSAnimationContext.runAnimationGroup { context in
                 context.duration = 0.2
                 window.setContentSize(layout.initialSize)
@@ -151,29 +159,48 @@ final class PreferencesWindowController: NSWindowController {
         )
     }
 
-    /// Returns recommended window sizes based on how many display cards will be shown.
-    private static func windowLayout(for displayCount: Int) -> (initialSize: NSSize, minimumSize: NSSize) {
+    private func handleTabSelectionChange(_ tab: PreferencesTab) {
+        currentTab = tab
+        let shouldAnimate = window?.isVisible ?? false
+        updateWindowSize(for: viewModel.displaySettings.count, tab: tab, animated: shouldAnimate)
+    }
+
+    /// Returns recommended window sizes tailored to the active tab and screen count.
+    private static func windowLayout(for displayCount: Int, tab: PreferencesTab) -> (initialSize: NSSize, minimumSize: NSSize) {
         let initialWidth: CGFloat
         let minimumWidth: CGFloat
         let initialHeight: CGFloat
         let minimumHeight: CGFloat
 
-        switch displayCount {
-        case ..<2:
-            initialWidth = 620
-            minimumWidth = 540
-            initialHeight = 640
-            minimumHeight = 520
-        case 2:
-            initialWidth = 760
-            minimumWidth = 660
-            initialHeight = 680
-            minimumHeight = 560
-        default:
-            initialWidth = 860
-            minimumWidth = 720
-            initialHeight = 720
-            minimumHeight = 580
+        switch tab {
+        case .general:
+            initialWidth = 560
+            minimumWidth = 500
+            initialHeight = 540
+            minimumHeight = 500
+        case .screen:
+            switch displayCount {
+            case ..<2:
+                initialWidth = 640
+                minimumWidth = 580
+                initialHeight = 600
+                minimumHeight = 520
+            case 2:
+                initialWidth = 720
+                minimumWidth = 640
+                initialHeight = 620
+                minimumHeight = 540
+            default:
+                initialWidth = 780
+                minimumWidth = 680
+                initialHeight = 640
+                minimumHeight = 560
+            }
+        case .about:
+            initialWidth = 520
+            minimumWidth = 480
+            initialHeight = 520
+            minimumHeight = 480
         }
 
         return (
