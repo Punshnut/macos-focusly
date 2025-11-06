@@ -507,8 +507,10 @@ final class StatusBarController: NSObject {
     private func updateStatusItemIcon(tone providedTone: StatusBarIconTone? = nil, applyAlpha: Bool = true) {
         guard let button = statusItem.button else { return }
         let tone = providedTone ?? resolvedStatusBarIconTone()
-        button.image = StatusBarIconFactory.icon(style: state.iconStyle, isActive: state.overlayFiltersEnabled, tone: tone)
-        button.alternateImage = StatusBarIconFactory.icon(style: state.iconStyle, isActive: true, tone: tone)
+        let isActive = state.overlayFiltersEnabled
+        let icon = StatusBarIconFactory.icon(style: state.iconStyle, isActive: isActive, tone: tone)
+        button.image = icon
+        button.alternateImage = icon
         if applyAlpha {
             button.alphaValue = StatusBarController.statusItemAlpha(isActive: state.overlayFiltersEnabled)
         }
@@ -551,9 +553,20 @@ final class StatusBarController: NSObject {
         switch style {
         case .dot:
             let opacityAnimation = CAKeyframeAnimation(keyPath: "opacity")
-            let opacityValues = isActivating
-                ? [1.0, 1.0, 0.92, 1.0].map { NSNumber(value: $0) }
-                : [1.0, 0.88, 0.98, 1.0].map { NSNumber(value: $0) }
+            let opacityValues: [NSNumber]
+            if isActivating {
+                opacityValues = [1.0, 1.0, 0.92, 1.0].map { NSNumber(value: $0) }
+            } else {
+                let restingAlpha = Double(StatusBarController.inactiveStatusAlpha)
+                // Ease towards the resting opacity without returning to full intensity to avoid a visible flash.
+                let easedValues = [
+                    1.0,
+                    min(1.0, restingAlpha + 0.14),
+                    min(1.0, restingAlpha + 0.06),
+                    restingAlpha
+                ]
+                opacityValues = easedValues.map { NSNumber(value: $0) }
+            }
             opacityAnimation.values = opacityValues
             opacityAnimation.keyTimes = [0.0, 0.35, 0.7, 1.0].map { NSNumber(value: $0) }
             opacityAnimation.duration = duration * 0.9
