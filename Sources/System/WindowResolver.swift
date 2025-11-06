@@ -413,14 +413,35 @@ private func maskPurposeOrder(_ purpose: ActiveWindowSnapshot.MaskRegion.Purpose
 
 /// Converts CoreGraphics window coordinates to Cocoa coordinates for the correct screen.
 private func convertCGWindowBoundsToCocoa(_ bounds: CGRect) -> CGRect {
-    guard let targetScreen = screenMatching(bounds) else {
+    guard
+        let targetScreen = screenMatching(bounds),
+        let screenNumber = targetScreen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber
+    else {
         return bounds
     }
 
-    let screenFrame = targetScreen.frame
+    let displayID = CGDirectDisplayID(screenNumber.uint32Value)
+    let displayBounds = CGDisplayBounds(displayID)
+
+    let displayWidth = max(displayBounds.width, 1)
+    let displayHeight = max(displayBounds.height, 1)
+
+    let widthScale = targetScreen.frame.width / displayWidth
+    let heightScale = targetScreen.frame.height / displayHeight
+
+    let localX = bounds.origin.x - displayBounds.origin.x
+    let localY = bounds.origin.y - displayBounds.origin.y
+
+    let convertedOriginX = targetScreen.frame.origin.x + (localX * widthScale)
+    let convertedOriginY = targetScreen.frame.origin.y
+        + ((displayBounds.height - (localY + bounds.height)) * heightScale)
+
     var converted = bounds
 
-    converted.origin.y = (screenFrame.origin.y + screenFrame.size.height) - (bounds.origin.y + bounds.size.height)
+    converted.origin.x = convertedOriginX
+    converted.origin.y = convertedOriginY
+    converted.size.width = bounds.size.width * widthScale
+    converted.size.height = bounds.size.height * heightScale
 
     return converted
 }
@@ -430,9 +451,14 @@ private func screenMatching(_ rect: CGRect) -> NSScreen? {
     var bestMatch: (screen: NSScreen, area: CGFloat)?
 
     for screen in NSScreen.screens {
-        let intersection = screen.frame.intersection(rect)
+        guard let screenNumber = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber else {
+            continue
+        }
+        let displayID = CGDirectDisplayID(screenNumber.uint32Value)
+        let displayBounds = CGDisplayBounds(displayID)
+        let intersection = rect.intersection(displayBounds)
         guard !intersection.isNull else { continue }
-        let area = intersection.size.width * intersection.size.height
+        let area = intersection.width * intersection.height
         if let current = bestMatch {
             if area > current.area {
                 bestMatch = (screen, area)
@@ -442,7 +468,22 @@ private func screenMatching(_ rect: CGRect) -> NSScreen? {
         }
     }
 
-    return bestMatch?.screen ?? NSScreen.screens.first
+    if let bestMatch {
+        return bestMatch.screen
+    }
+
+    let center = CGPoint(x: rect.midX, y: rect.midY)
+    for screen in NSScreen.screens {
+        guard let screenNumber = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber else {
+            continue
+        }
+        let displayID = CGDirectDisplayID(screenNumber.uint32Value)
+        if CGDisplayBounds(displayID).contains(center) {
+            return screen
+        }
+    }
+
+    return NSScreen.main ?? NSScreen.screens.first
 }
 
 /// Clamps a corner radius so it never exceeds half the window dimensions.
