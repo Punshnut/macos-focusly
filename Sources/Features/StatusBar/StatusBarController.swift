@@ -141,8 +141,9 @@ final class StatusBarController: NSObject {
     func update(state newState: StatusBarState) {
         let previousState = state
         state = newState
-        rebuildMenus()
-        if previousState.overlayFiltersEnabled != newState.overlayFiltersEnabled {
+        let overlayChanged = previousState.overlayFiltersEnabled != newState.overlayFiltersEnabled
+        rebuildMenus(applyAlphaImmediately: !overlayChanged)
+        if overlayChanged {
             animateStatusItemIcon(activating: newState.overlayFiltersEnabled, style: newState.iconStyle)
         }
     }
@@ -164,11 +165,11 @@ final class StatusBarController: NSObject {
     }
 
     /// Recreates the primary status bar menu, reflecting the latest state and localization.
-    private func rebuildMenus() {
+    private func rebuildMenus(applyAlphaImmediately: Bool = true) {
         updateMenuTitles()
         statusItem.button?.toolTip = localized("Focusly")
         let statusIconTone = resolvedStatusBarIconTone()
-        updateStatusItemIcon(tone: statusIconTone)
+        updateStatusItemIcon(tone: statusIconTone, applyAlpha: applyAlphaImmediately)
 
         mainMenu.removeAllItems()
         mainMenu.addItem(makeVersionMenuItem())
@@ -503,11 +504,14 @@ final class StatusBarController: NSObject {
     }
     
     /// Updates the status item artwork to match the active state and appearance tone.
-    private func updateStatusItemIcon(tone providedTone: StatusBarIconTone? = nil) {
+    private func updateStatusItemIcon(tone providedTone: StatusBarIconTone? = nil, applyAlpha: Bool = true) {
         guard let button = statusItem.button else { return }
         let tone = providedTone ?? resolvedStatusBarIconTone()
         button.image = StatusBarIconFactory.icon(style: state.iconStyle, isActive: state.overlayFiltersEnabled, tone: tone)
         button.alternateImage = StatusBarIconFactory.icon(style: state.iconStyle, isActive: true, tone: tone)
+        if applyAlpha {
+            button.alphaValue = StatusBarController.statusItemAlpha(isActive: state.overlayFiltersEnabled)
+        }
     }
 
     /// Runs a short Core Animation sequence on the status icon whenever overlay filters toggle.
@@ -519,6 +523,13 @@ final class StatusBarController: NSObject {
         guard let layer = button.layer else { return }
 
         let duration: CFTimeInterval = 0.38
+        let targetAlpha = StatusBarController.statusItemAlpha(isActive: isActivating)
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = duration
+            context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            button.animator().alphaValue = targetAlpha
+        }
+
         let scaleValues: [NSNumber]
         if isActivating {
             scaleValues = [1.0, 1.16, 0.95, 1.0].map { NSNumber(value: $0) }
@@ -617,6 +628,12 @@ final class StatusBarController: NSObject {
 }
 
 private extension StatusBarController {
+    static let inactiveStatusAlpha: CGFloat = 0.64
+
+    static func statusItemAlpha(isActive: Bool) -> CGFloat {
+        isActive ? 1.0 : inactiveStatusAlpha
+    }
+
     /// Infers appearance tone by sampling the resolved label color brightness.
     static func derivedTone(from appearance: NSAppearance) -> StatusBarIconTone? {
         var resolvedColor = NSColor.labelColor
