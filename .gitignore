@@ -1,7 +1,6 @@
 # Swift Package Manager
 .build/
 Packages/
-Package.resolved
 
 # Xcode
 DerivedData/
@@ -19,10 +18,20 @@ DerivedData/
 
 # builds
 *.app
+*.xcarchive
+*.pkg
 Focusly.app/
 Focusly.dmg
-build_app.sh
-build_dmg.sh
+Focusly.zip
 
 # Codex CLI sandbox artifacts
 .sandbox-home/
+
+# Notary workflow artifacts
+.notarytool-submissions/
+
+# Local scripts (kept private)
+build_app.sh
+build_dmg.sh
+sign_and_notarize.sh
+notarize_async.sh
