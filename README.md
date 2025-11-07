@@ -37,14 +37,17 @@
     <p>🇦🇪 العربية (الفصحى)<br>🇹🇿 Kiswahili<br>🇳🇬 Hausa</p>
   </details>
   <details>
-    <summary>🇧🇷 · 🇲🇽 · 🇪🇸 · 🇵🇹 · 🇺🇸 — Americas (5)</summary>
-    <p>🇧🇷 Português (Brasil)<br>🇲🇽 Español (México)<br>🇪🇸 Español<br>🇵🇹 Português (Portugal)<br>🇺🇸 English</p>
+    <summary>🇧🇷 · 🇲🇽 · 🇵🇹 · 🇺🇸 — Americas (4)</summary>
+    <p>🇧🇷 Português (Brasil)<br>🇲🇽 Español (LatAm)<br>🇵🇹 Português (Portugal)<br>🇺🇸 English</p>
   </details>
   <details>
-    <summary>🇺🇦 · 🇷🇺 · 🇨🇳 · 🇯🇵 · 🇰🇷 · 🇹🇭 · 🇹🇷 · 🇩🇪 · 🇫🇷 · 🇮🇹 — Europe & Asia (10)</summary>
-    <p>🇺🇦 Українська<br>🇷🇺 Русский<br>🇨🇳 中文（简体）<br>🇯🇵 日本語<br>🇰🇷 한국어<br>🇹🇭 ภาษาไทย<br>🇹🇷 Türkçe<br>🇩🇪 Deutsch<br>🇫🇷 Français<br>🇮🇹 Italiano</p>
+    <summary>🇺🇦 · 🇷🇺 · 🇨🇳 · 🇯🇵 · 🇰🇷 · 🇹🇭 · 🇹🇷 · 🇩🇪 · 🇫🇷 · 🇮🇹 · 🇪🇸 — Europe & Asia (11)</summary>
+    <p>🇺🇦 Українська<br>🇷🇺 Русский<br>🇨🇳 中文（简体）<br>🇯🇵 日本語<br>🇰🇷 한국어<br>🇹🇭 ภาษาไทย<br>🇹🇷 Türkçe<br>🇩🇪 Deutsch<br>🇫🇷 Français<br>🇮🇹 Italiano<br>🇪🇸 Español (España)</p>
   </details>
 </div>
+<p align="center">
+  <sub>Spanish ships in both 🇲🇽 LatAm and 🇪🇸 Spain variants — the Americas card highlights LatAm while Europe & Asia lists the Iberian pack.</sub>
+</p>
 
 
 ## ✨ What is Focusly?
@@ -54,6 +57,8 @@ Focusly is a lightweight menu bar companion that softens the edges of every disp
 ---
 
 ## 🌍 Built for Every Desk
+
+Being a minimalist, productivity-first app means - at least to me as the developer, Jan - that every surface should feel intentional, and that includes shipping as much localization as humanly possible instead of treating it as a stretch goal.
 
 - **18 languages shipping today** (English, German, Spanish EU + MX, French, Italian, Portuguese EU + BR, Arabic MSA, Kiswahili, Hausa, Simplified Chinese, Ukrainian, Russian, Japanese, Korean, Thai, Turkish) so teammates worldwide see Focusly in their native voice the moment it launches.
 - **Right-to-left + Latin scripts** are tested against the same onboarding stories and menus, keeping cultural nuances intact.
