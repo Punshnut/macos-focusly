@@ -23,6 +23,7 @@ DerivedData/
 Focusly.app/
 Focusly.dmg
 Focusly.zip
+Focusly Dev Install.dmg
 
 # Codex CLI sandbox artifacts
 .sandbox-home/
@@ -35,3 +36,4 @@ build_app.sh
 build_dmg.sh
 sign_and_notarize.sh
 notarize_async.sh
+sign_dev_dmg.sh

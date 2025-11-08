@@ -46,7 +46,7 @@ final class LocalizationService: ObservableObject {
 
     /// Looks up a localized string from the override bundle or falls back to the module localization.
     func localized(_ key: String, fallback: String? = nil, table: String? = nil) -> String {
-        let bundle = overrideLocalizationBundle ?? .module
+        let bundle = overrideLocalizationBundle ?? .focuslyResources
         return bundle.localizedString(forKey: key, value: fallback ?? key, table: table)
     }
 
@@ -89,13 +89,13 @@ final class LocalizationService: ObservableObject {
 
     /// Returns a localized bundle for the exact identifier or falls back to language code only.
     private static func bundle(for identifier: String) -> Bundle? {
-        if let path = Bundle.module.path(forResource: identifier, ofType: "lproj"),
+        if let path = Bundle.focuslyResources.path(forResource: identifier, ofType: "lproj"),
            let bundle = Bundle(path: path) {
             return bundle
         }
         if let languageCode = identifier.split(separator: "-").first {
             let trimmed = String(languageCode)
-            if let path = Bundle.module.path(forResource: trimmed, ofType: "lproj"),
+            if let path = Bundle.focuslyResources.path(forResource: trimmed, ofType: "lproj"),
                let bundle = Bundle(path: path) {
                 return bundle
             }
@@ -122,7 +122,7 @@ final class LocalizationService: ObservableObject {
             localeIdentifier: nil
         ))
 
-        let available = Bundle.module.localizations
+        let available = Bundle.focuslyResources.localizations
             .filter { $0.caseInsensitiveCompare("Base") != .orderedSame }
 
         let collationIdentifier: String?
