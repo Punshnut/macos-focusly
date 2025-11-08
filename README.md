@@ -1,10 +1,8 @@
 # 🌙 Focusly - Mac Ambience & Focus Companion
 
-> 🧪 **Alpha flight** - polish & hardening sprint before the first signed + notarized build ships.
+> 🧪 **Alpha flight** - heads-down polish while the overlay stack hardens across real Mac setups.
 >
-> 🌐 **Global Focus Promise** - every productivity feature stays free everywhere Focusly ships, now and after launch.
->
-> 🔏 **Signed build preview** - the next public drop will be the first notarized test build so early adopters can vet the Gatekeeper flow.
+> 🔏 **Developer-signed build** - the latest DMG ships with my Developer ID cert; macOS still needs you to allow it once under **System Settings › Privacy & Security** because notarization is still in flight.
 
 <p align="center">
   <img src="https://img.shields.io/badge/License-MIT-green.svg" alt="License: MIT">
@@ -33,20 +31,20 @@
 
 <div align="center">
   <details>
-    <summary>🇦🇪 · 🇹🇿 · 🇳🇬 — Africa & Middle East (3)</summary>
+    <summary>🇦🇪 · 🇹🇿 · 🇳🇬 - Africa & Middle East (3)</summary>
     <p>🇦🇪 العربية (الفصحى)<br>🇹🇿 Kiswahili<br>🇳🇬 Hausa</p>
   </details>
   <details>
-    <summary>🇧🇷 · 🇲🇽 · 🇵🇹 · 🇺🇸 — Americas (4)</summary>
+    <summary>🇧🇷 · 🇲🇽 · 🇵🇹 · 🇺🇸 - Americas (4)</summary>
     <p>🇧🇷 Português (Brasil)<br>🇲🇽 Español (LatAm)<br>🇵🇹 Português (Portugal)<br>🇺🇸 English</p>
   </details>
   <details>
-    <summary>🇺🇦 · 🇷🇺 · 🇨🇳 · 🇯🇵 · 🇰🇷 · 🇹🇭 · 🇹🇷 · 🇩🇪 · 🇫🇷 · 🇮🇹 · 🇪🇸 — Europe & Asia (11)</summary>
+    <summary>🇺🇦 · 🇷🇺 · 🇨🇳 · 🇯🇵 · 🇰🇷 · 🇹🇭 · 🇹🇷 · 🇩🇪 · 🇫🇷 · 🇮🇹 · 🇪🇸 - Europe & Asia (11)</summary>
     <p>🇺🇦 Українська<br>🇷🇺 Русский<br>🇨🇳 中文（简体）<br>🇯🇵 日本語<br>🇰🇷 한국어<br>🇹🇭 ภาษาไทย<br>🇹🇷 Türkçe<br>🇩🇪 Deutsch<br>🇫🇷 Français<br>🇮🇹 Italiano<br>🇪🇸 Español (España)</p>
   </details>
 </div>
 <p align="center">
-  <sub>Spanish ships in both 🇲🇽 LatAm and 🇪🇸 Spain variants — the Americas card highlights LatAm while Europe & Asia lists the Iberian pack.</sub>
+  <sub>Spanish ships in both 🇲🇽 LatAm and 🇪🇸 Spain variants - the Americas card highlights LatAm while Europe & Asia lists the Iberian pack.</sub>
 </p>
 
 
@@ -96,13 +94,13 @@ Being a minimalist, productivity-first app means - at least to me as the develop
 <summary>Tap for install steps</summary>
 
 1. Mount `Focusly.dmg` and drag `Focusly.app` into `/Applications`.
-2. Control-click → **Open** once so Gatekeeper knows you trust the unsigned alpha.
+2. Launch `Focusly.app` once. macOS will block it because the build is Developer ID–signed but not notarized yet-open **System Settings › Privacy & Security**, click **Open Anyway** next to Focusly, confirm the prompt, and relaunch.
 3. Approve **Accessibility** under **System Settings › Privacy & Security › Accessibility** to unlock precise window tracking.
 4. Tap the menu bar icon and toggle **Enable Overlays**.
 
-Latest alpha DMG lives on [GitHub Releases](https://github.com/your-user/macos-focusly/releases). The next drop swaps in the refreshed overlay stack plus a guided onboarding pass.
+Latest alpha DMG lives on [GitHub Releases](https://github.com/your-user/macos-focusly/releases). This build already uses the refreshed overlay stack plus the guided onboarding pass.
 
-> 🔐 Want an early link to the signed + notarized preview build? Ping via Issues and I’ll share the test flight DMG as soon as it clears notarytool.
+> 🛡️ First launch is the only time macOS will block the app-after you click **Open Anyway** the system remembers the approval.
 
 > Need to roll your own build? Jump to **Build or Customize** below for the one-liner.
 
@@ -117,7 +115,7 @@ Latest alpha DMG lives on [GitHub Releases](https://github.com/your-user/macos-f
 
 - [ ] **Overlay Performance** - higher refresh via smarter blur scheduling *(feature-complete locally; validating on diverse GPUs before calling it done)*.
 - [ ] **Settings Refresh** - consolidated preferences window with inline previews *(UI polish + QA this sprint)*.
-- [ ] **Gatekeeper-Friendly Build** - next DMG ships signed + notarized so macOS opens it without extra prompts *(submission queued, awaiting notarytool ticket)*.
+- [ ] **Full notarization** - finish Apple's notary review so Gatekeeper skips the **Open Anyway** dance (current DMG is already Developer ID signed).
 - [ ] **Feedback Portal** - lightweight in-app link for sharing logs + screenshots *(tracking for Beta 1)*.
 
 </details>
@@ -164,7 +162,7 @@ spctl --assess --type exec Focusly.app
 ```
 
 - Swap the identity for your Developer ID certificate (or use `--identity "-"` for ad-hoc testing).
-- Public drops on GitHub will ship signed + notarized, so testers can double-click without Control-opening.
+- The latest public DMG is Developer ID signed; until notarization lands, testers must allow it once via **System Settings › Privacy & Security › Open Anyway**.
 - `Resources/Info.plist` now ships with marketing + build versions, the Productivity category, a human-readable copyright,
   and the automation usage blurb Gatekeeper surfaces alongside Accessibility prompts.
 - `Focusly.entitlements` is a tracked hardened-runtime manifest; the signing/notarization scripts pick it up automatically so any added capabilities are visible in code review.

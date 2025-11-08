@@ -241,6 +241,12 @@ private func collectSupplementaryMasks(
         }
 
         let ownerApplicationName = window[kCGWindowOwnerName as String] as? String
+        let normalizedOwnerName = ownerApplicationName?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased() ?? ""
+        if normalizedOwnerName == "window server" || normalizedOwnerName == "windowserver" {
+            continue
+        }
         let matchesPrimary: Bool
         if let primaryPID {
             matchesPrimary = resolvedProcessID == primaryPID
