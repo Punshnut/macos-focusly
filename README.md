@@ -165,6 +165,9 @@ spctl --assess --type exec Focusly.app
 
 - Swap the identity for your Developer ID certificate (or use `--identity "-"` for ad-hoc testing).
 - Public drops on GitHub will ship signed + notarized, so testers can double-click without Control-opening.
+- `Resources/Info.plist` now ships with marketing + build versions, the Productivity category, a human-readable copyright,
+  and the automation usage blurb Gatekeeper surfaces alongside Accessibility prompts.
+- `Focusly.entitlements` is a tracked hardened-runtime manifest; the signing/notarization scripts pick it up automatically so any added capabilities are visible in code review.
 
 ### Developer Notebook
 

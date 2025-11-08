@@ -6,6 +6,10 @@
 	<string>com.Punshnut.Focusly</string>
 	<key>CFBundleName</key>
 	<string>Focusly</string>
+	<key>CFBundleShortVersionString</key>
+	<string>0.3.0</string>
+	<key>CFBundleVersion</key>
+	<string>300</string>
 	<key>CFBundleExecutable</key>
 	<string>Focusly</string>
 	<key>CFBundlePackageType</key>
@@ -14,5 +18,11 @@
 	<string>AppIcon</string>
 	<key>LSUIElement</key>
 	<true/>
+	<key>LSApplicationCategoryType</key>
+	<string>public.app-category.productivity</string>
+	<key>NSHumanReadableCopyright</key>
+	<string>Copyright © 2025 Jan Feuerbacher. All rights reserved.</string>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>Focusly needs automation permission to read window frames and keep the ambient overlay aligned with your active app.</string>
 </dict>
 </plist>
