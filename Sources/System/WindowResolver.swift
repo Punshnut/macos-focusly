@@ -84,9 +84,20 @@ private func cgFrontWindow(excluding windowNumbers: Set<Int>, preferredPID: pid_
     var cornerSnapshotCache: [pid_t: [AXWindowCornerSnapshot]] = [:]
 
     let candidateWindowList = Array(completeWindowList.prefix(24))
-    if let preferredPID,
-       let preferredFrontWindow = findFrontWindow(in: candidateWindowList, excluding: windowNumbers, preferredPID: preferredPID)
-            ?? findFrontWindow(in: completeWindowList, excluding: windowNumbers, preferredPID: preferredPID) {
+    let resolvedPreferredPID: pid_t? = {
+        if let preferredPID {
+            return preferredPID
+        }
+        if let frontmostPID = NSWorkspace.shared.frontmostApplication?.processIdentifier,
+           frontmostPID != ProcessInfo.processInfo.processIdentifier {
+            return frontmostPID
+        }
+        return nil
+    }()
+
+    if let targetPID = resolvedPreferredPID,
+       let preferredFrontWindow = findFrontWindow(in: candidateWindowList, excluding: windowNumbers, preferredPID: targetPID)
+            ?? findFrontWindow(in: completeWindowList, excluding: windowNumbers, preferredPID: targetPID) {
         let supplementaryRegions = collectSupplementaryMasks(
             in: completeWindowList,
             primaryPID: preferredFrontWindow.ownerPID,
