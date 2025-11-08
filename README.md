@@ -31,16 +31,16 @@
 
 <div align="center">
   <details>
+    <summary>🇺🇦 · 🇷🇺 · 🇨🇳 · 🇯🇵 · 🇰🇷 · 🇹🇭 · 🇹🇷 · 🇩🇪 · 🇫🇷 · 🇮🇹 · 🇪🇸 - Europe & Asia (11)</summary>
+    <p>🇺🇦 Українська<br>🇷🇺 Русский<br>🇨🇳 中文（简体）<br>🇯🇵 日本語<br>🇰🇷 한국어<br>🇹🇭 ภาษาไทย<br>🇹🇷 Türkçe<br>🇩🇪 Deutsch<br>🇫🇷 Français<br>🇮🇹 Italiano<br>🇪🇸 Español (España)</p>
+  </details>
+  <details>
     <summary>🇦🇪 · 🇹🇿 · 🇳🇬 - Africa & Middle East (3)</summary>
     <p>🇦🇪 العربية (الفصحى)<br>🇹🇿 Kiswahili<br>🇳🇬 Hausa</p>
   </details>
   <details>
     <summary>🇧🇷 · 🇲🇽 · 🇵🇹 · 🇺🇸 - Americas (4)</summary>
     <p>🇧🇷 Português (Brasil)<br>🇲🇽 Español (LatAm)<br>🇵🇹 Português (Portugal)<br>🇺🇸 English</p>
-  </details>
-  <details>
-    <summary>🇺🇦 · 🇷🇺 · 🇨🇳 · 🇯🇵 · 🇰🇷 · 🇹🇭 · 🇹🇷 · 🇩🇪 · 🇫🇷 · 🇮🇹 · 🇪🇸 - Europe & Asia (11)</summary>
-    <p>🇺🇦 Українська<br>🇷🇺 Русский<br>🇨🇳 中文（简体）<br>🇯🇵 日本語<br>🇰🇷 한국어<br>🇹🇭 ภาษาไทย<br>🇹🇷 Türkçe<br>🇩🇪 Deutsch<br>🇫🇷 Français<br>🇮🇹 Italiano<br>🇪🇸 Español (España)</p>
   </details>
 </div>
 <p align="center">
@@ -66,7 +66,7 @@ Being a minimalist, productivity-first app means - at least to me as the develop
 
 <p align="center">
   <meter min="0" max="20" value="18">18</meter><br>
-  <sub>18 / 20 launch languages locked in for Alpha</sub>
+  <sub>18 / 18 launch languages locked in for Alpha</sub>
 </p>
 
 > ✈️ Focusly is designed for hybrid teams spread across time zones - the app never phones home, so the experience in Nairobi or Nagoya is identical to New York.
