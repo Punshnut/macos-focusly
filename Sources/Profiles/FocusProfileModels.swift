@@ -13,6 +13,7 @@ struct FocusTint: Codable, Equatable {
     static let slate = FocusTint(red: 0.20, green: 0.23, blue: 0.27, alpha: 0.82)
     static let ink = FocusTint(red: 0.06, green: 0.07, blue: 0.09, alpha: 0.88)
     static let frost = FocusTint(red: 0.90, green: 0.93, blue: 0.97, alpha: 0.78)
+    static let paper = FocusTint(red: 0.97, green: 0.95, blue: 0.88, alpha: 0.82)
 
     /// Translates the serialized tint into an `NSColor` for rendering.
     func makeColor() -> NSColor {
@@ -37,7 +38,7 @@ enum FocusOverlayColorTreatment: String, Codable, CaseIterable {
         case .dark:
             return "Dark"
         case .whiteOverlay:
-            return "White Overlay"
+            return "White"
         }
     }
 
@@ -195,6 +196,7 @@ struct FocusOverlayStyle: Codable, Equatable {
     static let colorful = FocusOverlayStyle(opacity: 0.88, tint: .lagoon, animationDuration: 0.32, blurRadius: 28)
     static let dark = FocusOverlayStyle(opacity: 0.88, tint: .ink, animationDuration: 0.30, colorTreatment: .dark, blurRadius: 38)
     static let whiteOverlay = FocusOverlayStyle(opacity: 0.86, tint: .frost, animationDuration: 0.28, colorTreatment: .whiteOverlay, blurRadius: 34)
+    static let paper = FocusOverlayStyle(opacity: 0.86, tint: .paper, animationDuration: 0.32, colorTreatment: .whiteOverlay, blurRadius: 30)
     static let monochrome = dark // Legacy alias preserved until a true monochrome treatment returns.
 
     // Legacy aliases preserved for backwards compatibility with persisted data.

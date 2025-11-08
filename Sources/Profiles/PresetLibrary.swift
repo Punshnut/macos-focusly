@@ -7,9 +7,10 @@ struct PresetLibrary {
         return [
             FocusPreset(id: "focus", name: localization.localized("Smart Blur", fallback: "Smart Blur"), style: .blurFocus),
             FocusPreset(id: "warm", name: localization.localized("Warm", fallback: "Warm"), style: .warm),
-            FocusPreset(id: "colorful", name: localization.localized("Colorful", fallback: "Colorful"), style: .colorful),
             FocusPreset(id: "dark", name: localization.localized("Dark", fallback: "Dark"), style: .dark),
-            FocusPreset(id: "white", name: localization.localized("White Overlay", fallback: "White Overlay"), style: .whiteOverlay)
+            FocusPreset(id: "white", name: localization.localized("White", fallback: "White"), style: .whiteOverlay),
+            FocusPreset(id: "paper", name: localization.localized("Paper", fallback: "Paper"), style: .paper),
+            FocusPreset(id: "colorful", name: localization.localized("Colorful", fallback: "Colorful"), style: .colorful)
         ]
     }
 

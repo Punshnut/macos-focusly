@@ -81,7 +81,7 @@ Being a minimalist, productivity-first app means - at least to me as the develop
 <summary>Tap to preview the menu bar tricks</summary>
 
 - **Context-aware masking** keeps the foreground app clear while gently blurring everything else so your brain stays in flow.
-- **Preset Library** ships with Smart Blur, Warm, Colorful, Dark, and White Overlay looks plus per-display tint + opacity overrides.
+- **Preset Library** ships with Smart Blur, Warm, Dark, White, Paper, and Colorful looks plus per-display tint + opacity overrides.
 - **Per-monitor ambience** lets you tune multi-display setups individually - brighten the reference monitor, dim the chat screen.
 - **Instant control** from the status bar: toggle overlays, swap presets, and edit preferences in a couple of clicks or via a customizable global hotkey.
 - **Guided onboarding** walks first-time users through permissions, color picks, and localization so the app feels ready on launch.
