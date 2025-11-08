@@ -144,6 +144,11 @@ struct PreferencesView: View {
     private var topChromeSpacer: some View {
         Color.clear
             .frame(height: topChromeHeight)
+            .overlay(alignment: .center) {
+                topBarTitle
+                    .padding(.top, 8)
+                    .padding(.horizontal, 60)
+            }
     }
 
     private var windowControls: some View {
@@ -156,6 +161,30 @@ struct PreferencesView: View {
             Spacer()
         }
         .frame(height: 24, alignment: .leading)
+    }
+
+    private var topBarTitle: some View {
+        HStack(spacing: 8) {
+            Text(appDisplayName())
+                .font(.system(size: 16, weight: .heavy, design: .rounded))
+                .foregroundColor(Color.black.opacity(0.82))
+                .shadow(color: Color.black.opacity(0.12), radius: 1.5, y: 1)
+            Text(FocuslyBuildInfo.marketingVersion)
+                .font(.system(size: 13, weight: .semibold, design: .rounded))
+                .foregroundColor(Color.black.opacity(0.5))
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 6)
+        .background(
+            Capsule(style: .continuous)
+                .fill(Color.white.opacity(viewModel.preferencesWindowGlassy ? 0.92 : 0.88))
+                .overlay(
+                    Capsule(style: .continuous)
+                        .stroke(Color.black.opacity(0.08), lineWidth: 1)
+                )
+        )
+        .shadow(color: Color.black.opacity(0.15), radius: 12, y: 6)
+        .allowsHitTesting(false)
     }
 
     private var tabBar: some View {

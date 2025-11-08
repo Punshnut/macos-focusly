@@ -352,7 +352,10 @@ final class StatusBarController: NSObject {
         if compact {
             let item = NSMenuItem(title: "Focusly", action: nil, keyEquivalent: "")
             item.isEnabled = false
-            item.attributedTitle = compactAttributedTitle(item.title)
+            item.attributedTitle = compactVersionAttributedTitle(
+                name: "Focusly",
+                version: FocuslyBuildInfo.marketingVersion
+            )
             return item
         } else {
             return makeVersionMenuItem()
@@ -491,6 +494,28 @@ final class StatusBarController: NSObject {
             .paragraphStyle: paragraph
         ]
         return NSAttributedString(string: title, attributes: attrs)
+    }
+
+    /// Styled "Focusly vX.Y" header for the compact context menu.
+    private func compactVersionAttributedTitle(name: String, version: String) -> NSAttributedString {
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.lineBreakMode = .byTruncatingTail
+        let font = NSFont.menuFont(ofSize: 13)
+
+        let baseAttrs: [NSAttributedString.Key: Any] = [
+            .font: font,
+            .foregroundColor: NSColor.labelColor,
+            .paragraphStyle: paragraph
+        ]
+        let versionAttrs: [NSAttributedString.Key: Any] = [
+            .font: font,
+            .foregroundColor: NSColor.secondaryLabelColor,
+            .paragraphStyle: paragraph
+        ]
+
+        let attributed = NSMutableAttributedString(string: "\(name) ", attributes: baseAttrs)
+        attributed.append(NSAttributedString(string: version, attributes: versionAttrs))
+        return attributed
     }
 
     // Produce a short version of a message by keeping at most the first five words and adding an ellipsis if truncated.
