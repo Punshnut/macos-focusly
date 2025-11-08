@@ -102,6 +102,18 @@ final class PreferencesWindowController: NSWindowController {
         updateWindowTitle()
     }
 
+    /// Programmatically activates a specific tab (e.g. when onboarding needs to highlight Screens).
+    func selectTab(_ tab: PreferencesTab) {
+        guard currentTab != tab else {
+            tabRelay.requestSelection(tab)
+            return
+        }
+        currentTab = tab
+        tabRelay.requestSelection(tab)
+        let shouldAnimate = window?.isVisible ?? false
+        updateWindowSize(for: viewModel.displaySettings.count, tab: tab, animated: shouldAnimate)
+    }
+
     /// Begins listening for a keyboard shortcut and reports the captured combination.
     func beginShortcutCapture(completion: @escaping (HotkeyShortcut?) -> Void) {
         shortcutCaptureCompletion = completion

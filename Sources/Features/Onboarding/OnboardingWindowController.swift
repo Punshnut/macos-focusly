@@ -16,8 +16,8 @@ final class OnboardingWindowController: NSWindowController {
         let view = OnboardingView(viewModel: viewModel).environmentObject(localization)
         let hostingController = NSHostingController(rootView: view)
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 440, height: 360),
-            styleMask: [.titled, .closable],
+            contentRect: NSRect(x: 0, y: 0, width: 560, height: 400),
+            styleMask: [.titled, .closable, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
@@ -25,10 +25,19 @@ final class OnboardingWindowController: NSWindowController {
             "Welcome to Focusly",
             fallback: "Welcome to Focusly"
         )
+        window.titlebarAppearsTransparent = true
+        window.titleVisibility = .hidden
+        window.isMovableByWindowBackground = true
+        window.isOpaque = false
+        window.backgroundColor = .clear
+        window.standardWindowButton(.closeButton)?.isHidden = true
+        window.standardWindowButton(.miniaturizeButton)?.isHidden = true
+        window.standardWindowButton(.zoomButton)?.isHidden = true
         window.isReleasedWhenClosed = false
+        window.contentMinSize = NSSize(width: 520, height: 360)
         window.center()
         window.contentViewController = hostingController
-        window.level = .floating // Keep the walkthrough visible above the overlay windows.
+        window.level = FocuslyWindowLevels.overlayBypass // Align styling with preferences so overlays respect positioning.
         super.init(window: window)
 
         localizationCancellable = localization.$languageOverrideIdentifier

@@ -36,8 +36,14 @@ enum PreferencesTab: Int, CaseIterable, Identifiable {
 /// Modernized preferences scene with tabbed navigation and frosted styling.
 final class PreferencesTabRelay {
     var handler: ((PreferencesTab) -> Void)?
+    var selectionRequestHandler: ((PreferencesTab) -> Void)?
+
     func notify(_ tab: PreferencesTab) {
         handler?(tab)
+    }
+
+    func requestSelection(_ tab: PreferencesTab) {
+        selectionRequestHandler?(tab)
     }
 }
 
@@ -100,6 +106,14 @@ struct PreferencesView: View {
         }
         .background(outerBackgroundView)
         .onAppear {
+            tabChangeRelay?.selectionRequestHandler = { tab in
+                DispatchQueue.main.async {
+                    guard activeTab != tab else { return }
+                    withAnimation(.spring(response: 0.28, dampingFraction: 0.85)) {
+                        activeTab = tab
+                    }
+                }
+            }
             if selectedDisplayID == nil {
                 selectedDisplayID = viewModel.displaySettings.first?.id
             }

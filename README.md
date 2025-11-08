@@ -64,6 +64,7 @@ Being a minimalist, productivity-first app means - at least to me as the develop
 - **Right-to-left + Latin scripts** are tested against the same onboarding stories and menus, keeping cultural nuances intact.
 - **Locale-aware presets** let each translation bundle tweak color names and descriptions without touching code.
 - **Community glossary** lives in `Sources/Resources/*.lproj`, making it easy for translators to submit improvements with context screenshots.
+- **Native speaker call**: I need native speakers to keep shaping their languages, but please hold PRs/issues until Alpha 0.5 lands—major localization changes are planned through that release and strings are still moving.
 
 <p align="center">
   <meter min="0" max="20" value="18">18</meter><br>
@@ -141,10 +142,6 @@ cd macos-focusly
 xcodebuild -scheme Focusly -configuration Release
 open .build/Release/Focusly.app
 ```
-
-- `./build_app.sh` builds an unsigned `.app`.
-- `./build_dmg.sh` packages the app and docs into a shareable DMG.
-- `notarize_async.sh` + `sign_and_notarize.sh` are being wired up for the first public notarized release.
 
 ---
 

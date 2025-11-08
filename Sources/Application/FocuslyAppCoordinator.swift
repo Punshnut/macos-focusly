@@ -23,6 +23,7 @@ final class FocuslyAppCoordinator: NSObject {
     private let statusBarController: StatusBarController
     private let hotkeyCenter: HotkeyCenter
     private var onboardingWindowController: OnboardingWindowController? // Retain the welcome flow while it is onscreen.
+    private var didPresentPreferencesDuringOnboarding = false
     private let localization: LocalizationService
     private var localizationCancellable: AnyCancellable?
     private var trackingProfileCancellable: AnyCancellable?
@@ -502,6 +503,7 @@ final class FocuslyAppCoordinator: NSObject {
         }
 
         let steps = makeOnboardingSteps()
+        didPresentPreferencesDuringOnboarding = false
 
         let viewModel = OnboardingViewModel(steps: steps) { [weak self] completed in
             guard let self else { return }
@@ -510,6 +512,10 @@ final class FocuslyAppCoordinator: NSObject {
             }
             self.onboardingWindowController?.close()
             self.onboardingWindowController = nil
+            self.didPresentPreferencesDuringOnboarding = false
+        }
+        viewModel.stepChangeHandler = { [weak self] step in
+            self?.handleOnboardingStepChange(step: step)
         }
 
         let controller = OnboardingWindowController(viewModel: viewModel, localization: localization)
@@ -524,6 +530,18 @@ final class FocuslyAppCoordinator: NSObject {
             OnboardingViewModel.Step(
                 id: 0,
                 title: localization.localized(
+                    "Onboarding.Welcome.Step.Title",
+                    fallback: "Welcome to Focusly"
+                ),
+                message: localization.localized(
+                    "Onboarding.Welcome.Step.Message",
+                    fallback: "Focusly ships with two settings windows: the quick status bar menu for fast toggles and the glassy Preferences window for deep, per-display tweaks. When you move to the next card we'll pop Preferences beside this dialogue so you can explore both together."
+                ),
+                systemImageName: "sparkles.rectangle.stack"
+            ),
+            OnboardingViewModel.Step(
+                id: 1,
+                title: localization.localized(
                     "1. Switch overlays on",
                     fallback: "1. Switch overlays on"
                 ),
@@ -534,7 +552,7 @@ final class FocuslyAppCoordinator: NSObject {
                 systemImageName: "moon.fill"
             ),
             OnboardingViewModel.Step(
-                id: 1,
+                id: 2,
                 title: localization.localized(
                     "2. Pick a filter",
                     fallback: "2. Pick a filter"
@@ -546,7 +564,7 @@ final class FocuslyAppCoordinator: NSObject {
                 systemImageName: "paintpalette"
             ),
             OnboardingViewModel.Step(
-                id: 2,
+                id: 3,
                 title: localization.localized(
                     "3. Set your controls",
                     fallback: "3. Set your controls"
@@ -558,6 +576,55 @@ final class FocuslyAppCoordinator: NSObject {
                 systemImageName: "keyboard"
             )
         ]
+    }
+
+    /// Reacts to onboarding pagination so Preferences only appears once users reach key cards.
+    private func handleOnboardingStepChange(step: OnboardingViewModel.Step) {
+        switch step.id {
+        case 1: // Card 2: introduce overlays + open Preferences window.
+            guard !didPresentPreferencesDuringOnboarding else { return }
+            didPresentPreferencesDuringOnboarding = true
+            presentPreferencesAlongsideOnboarding(anchorWindow: onboardingWindowController?.window)
+        case 2: // Card 3: focus the Screen tab inside Preferences.
+            if preferencesWindow == nil {
+                presentPreferencesAlongsideOnboarding(anchorWindow: onboardingWindowController?.window)
+            }
+            preferencesWindow?.selectTab(.screen)
+        default:
+            break
+        }
+    }
+
+    /// Opens a Preferences window next to the onboarding card to mirror the requested layout.
+    private func presentPreferencesAlongsideOnboarding(anchorWindow: NSWindow?) {
+        guard let anchorWindow else { return }
+        presentPreferences()
+        guard let preferencesWindow = preferencesWindow?.window else { return }
+        position(preferencesWindow, beside: anchorWindow)
+    }
+
+    private func position(_ window: NSWindow, beside anchor: NSWindow) {
+        let spacing: CGFloat = 24
+        let anchorFrame = anchor.frame
+        var origin = NSPoint(
+            x: anchorFrame.maxX + spacing,
+            y: anchorFrame.maxY - window.frame.height
+        )
+
+        if let screenFrame = anchor.screen?.visibleFrame {
+            if origin.x + window.frame.width > screenFrame.maxX {
+                origin.x = anchorFrame.minX - spacing - window.frame.width
+            }
+            let minX = screenFrame.minX
+            let maxX = screenFrame.maxX - window.frame.width
+            origin.x = min(max(origin.x, minX), maxX)
+            origin.y = min(
+                max(origin.y, screenFrame.minY),
+                screenFrame.maxY - window.frame.height
+            )
+        }
+
+        window.setFrameOrigin(origin)
     }
 }
 
@@ -643,6 +710,7 @@ extension FocuslyAppCoordinator: NSWindowDelegate {
         }
         if let window = notification.object as? NSWindow, window === onboardingWindowController?.window {
             onboardingWindowController = nil
+            didPresentPreferencesDuringOnboarding = false
         }
     }
 }

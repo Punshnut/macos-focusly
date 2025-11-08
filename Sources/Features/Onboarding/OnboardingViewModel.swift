@@ -11,7 +11,9 @@ final class OnboardingViewModel: ObservableObject {
         let systemImageName: String?
     }
 
-    @Published private(set) var currentIndex: Int = 0
+    @Published private(set) var currentIndex: Int = 0 {
+        didSet { notifyStepChange() }
+    }
     var steps: [Step] {
         didSet {
             if currentIndex >= steps.count {
@@ -19,6 +21,7 @@ final class OnboardingViewModel: ObservableObject {
             }
         }
     }
+    var stepChangeHandler: ((Step) -> Void)?
 
     private let completion: (Bool) -> Void
 
@@ -74,5 +77,10 @@ final class OnboardingViewModel: ObservableObject {
         } else {
             currentIndex = max(min(currentIndex, newSteps.count - 1), 0)
         }
+    }
+
+    private func notifyStepChange() {
+        guard steps.indices.contains(currentIndex) else { return }
+        stepChangeHandler?(steps[currentIndex])
     }
 }
