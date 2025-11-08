@@ -98,7 +98,7 @@ Being a minimalist, productivity-first app means - at least to me as the develop
 3. Approve **Accessibility** under **System Settings › Privacy & Security › Accessibility** to unlock precise window tracking.
 4. Tap the menu bar icon and toggle **Enable Overlays**.
 
-Latest alpha DMG lives on [GitHub Releases](https://github.com/your-user/macos-focusly/releases). This build already uses the refreshed overlay stack plus the guided onboarding pass.
+Latest alpha DMG lives on [GitHub Releases](https://github.com/Punshnut/macos-focusly/releases). This build already uses the refreshed overlay stack plus the guided onboarding pass.
 
 > 🛡️ First launch is the only time macOS will block the app-after you click **Open Anyway** the system remembers the approval.
 
