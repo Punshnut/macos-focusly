@@ -382,6 +382,7 @@ final class FocuslyAppCoordinator: NSObject {
     private func presentPreferences() {
         if let controller = preferencesWindow {
             controller.present()
+            synchronizePreferencesWindowAnchor()
             preferencesScreenModel?.isLaunchAtLoginEnabled = environment.launchAtLogin.isEnabled()
             preferencesScreenModel?.isLaunchAtLoginAvailable = environment.launchAtLogin.isAvailable
             preferencesScreenModel?.launchAtLoginStatusMessage = environment.launchAtLogin.unavailableReason
@@ -511,8 +512,14 @@ final class FocuslyAppCoordinator: NSObject {
         let controller = PreferencesWindowController(viewModel: viewModel, localization: localization)
         preferencesScreenModel = viewModel
         preferencesWindow = controller
+        synchronizePreferencesWindowAnchor()
         controller.window?.delegate = self
         controller.present()
+    }
+
+    private func synchronizePreferencesWindowAnchor() {
+        let anchor: PreferencesWindowController.ResizeAnchor = didPresentPreferencesDuringOnboarding ? .topLeading : .topCenter
+        preferencesWindow?.setResizeAnchor(anchor)
     }
 
     /// Routes the shortcut capture request down to the preferences controller.
@@ -635,6 +642,7 @@ final class FocuslyAppCoordinator: NSObject {
 
         let steps = makeOnboardingSteps()
         didPresentPreferencesDuringOnboarding = false
+        synchronizePreferencesWindowAnchor()
 
         let viewModel = OnboardingViewModel(steps: steps) { [weak self] completed in
             guard let self else { return }
@@ -644,6 +652,7 @@ final class FocuslyAppCoordinator: NSObject {
             self.onboardingWindowController?.close()
             self.onboardingWindowController = nil
             self.didPresentPreferencesDuringOnboarding = false
+            self.synchronizePreferencesWindowAnchor()
         }
         viewModel.stepChangeHandler = { [weak self] step in
             self?.handleOnboardingStepChange(step: step)
@@ -727,6 +736,7 @@ final class FocuslyAppCoordinator: NSObject {
         case 1: // Card 2: introduce overlays + open Preferences window.
             guard !didPresentPreferencesDuringOnboarding else { return }
             didPresentPreferencesDuringOnboarding = true
+            synchronizePreferencesWindowAnchor()
             presentPreferencesAlongsideOnboarding(anchorWindow: onboardingWindowController?.window)
         case 3: // Card 4: focus the Screen tab inside Preferences.
             if preferencesWindow == nil {
@@ -753,23 +763,53 @@ final class FocuslyAppCoordinator: NSObject {
 
     private func position(_ window: NSWindow, beside anchor: NSWindow) {
         let spacing: CGFloat = 24
-        let anchorFrame = anchor.frame
+        var anchorFrame = anchor.frame
+        let preferencesFrame = window.frame
+        guard let screenFrame = anchor.screen?.visibleFrame
+                ?? window.screen?.visibleFrame
+                ?? NSScreen.main?.visibleFrame else {
+            let origin = NSPoint(
+                x: anchorFrame.maxX + spacing,
+                y: anchorFrame.maxY - preferencesFrame.height
+            )
+            window.setFrameOrigin(origin)
+            return
+        }
+
+        let combinedWidth = anchorFrame.width + spacing + preferencesFrame.width
+        var combinedOriginX = screenFrame.midX - combinedWidth / 2
+        if combinedWidth >= screenFrame.width {
+            combinedOriginX = screenFrame.minX
+        } else {
+            combinedOriginX = min(max(combinedOriginX, screenFrame.minX), screenFrame.maxX - combinedWidth)
+        }
+
+        anchorFrame.origin.x = combinedOriginX
+        if anchorFrame.height >= screenFrame.height {
+            anchorFrame.origin.y = screenFrame.minY
+        } else {
+            anchorFrame.origin.y = min(
+                max(anchorFrame.origin.y, screenFrame.minY),
+                screenFrame.maxY - anchorFrame.height
+            )
+        }
+        anchor.setFrameOrigin(anchorFrame.origin)
+        anchorFrame.origin = anchor.frame.origin
+
         var origin = NSPoint(
             x: anchorFrame.maxX + spacing,
-            y: anchorFrame.maxY - window.frame.height
+            y: anchorFrame.maxY - preferencesFrame.height
         )
 
-        if let screenFrame = anchor.screen?.visibleFrame {
-            if origin.x + window.frame.width > screenFrame.maxX {
-                origin.x = anchorFrame.minX - spacing - window.frame.width
-            }
-            let minX = screenFrame.minX
-            let maxX = screenFrame.maxX - window.frame.width
-            origin.x = min(max(origin.x, minX), maxX)
-            origin.y = min(
-                max(origin.y, screenFrame.minY),
-                screenFrame.maxY - window.frame.height
-            )
+        if preferencesFrame.width >= screenFrame.width {
+            origin.x = screenFrame.minX
+        } else {
+            origin.x = min(max(origin.x, screenFrame.minX), screenFrame.maxX - preferencesFrame.width)
+        }
+        if preferencesFrame.height >= screenFrame.height {
+            origin.y = screenFrame.minY
+        } else {
+            origin.y = min(max(origin.y, screenFrame.minY), screenFrame.maxY - preferencesFrame.height)
         }
 
         window.setFrameOrigin(origin)
@@ -874,6 +914,7 @@ extension FocuslyAppCoordinator: NSWindowDelegate {
         if let window = notification.object as? NSWindow, window === onboardingWindowController?.window {
             onboardingWindowController = nil
             didPresentPreferencesDuringOnboarding = false
+            synchronizePreferencesWindowAnchor()
         }
     }
 }

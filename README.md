@@ -98,7 +98,7 @@ Being a minimalist, productivity-first app means - at least to me as the develop
   <sub>18 / 18 launch languages locked in for Alpha</sub>
 </p>
 
-> ✈️ Focusly is designed for hybrid teams spread across time zones - the app never phones home, so the experience in Nairobi or Nagoya is identical to New York.
+> Focusly is designed for hybrid teams spread across time zones - the app never phones home, so the experience in Nairobi or Nagoya is identical to New York.
 
 ---
 

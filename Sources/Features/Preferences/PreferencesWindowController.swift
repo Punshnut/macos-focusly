@@ -5,6 +5,11 @@ import SwiftUI
 /// Hosts the SwiftUI preferences view inside an AppKit window and handles shortcut capture.
 @MainActor
 final class PreferencesWindowController: NSWindowController {
+    enum ResizeAnchor {
+        case topCenter
+        case topLeading
+    }
+
     private let viewModel: PreferencesViewModel
     private let localization: LocalizationService
     private var shortcutEventMonitor: Any?
@@ -13,6 +18,7 @@ final class PreferencesWindowController: NSWindowController {
     private var localizationSubscription: AnyCancellable?
     private var currentTab: PreferencesTab = .general
     private let tabRelay = PreferencesTabRelay()
+    private var resizeAnchor: ResizeAnchor = .topCenter
 
     /// Builds the preferences window and wires up localization and layout observers.
     init(viewModel: PreferencesViewModel, localization: LocalizationService) {
@@ -167,11 +173,12 @@ final class PreferencesWindowController: NSWindowController {
         let widthDelta = abs(currentSize.width - layout.initialSize.width)
         let heightDelta = abs(currentSize.height - layout.initialSize.height)
         guard widthDelta > 0.5 || heightDelta > 0.5 else { return }
-        if window.isVisible, animated {
-            NSAnimationContext.runAnimationGroup { context in
-                context.duration = 0.2
+        if window.isVisible {
+            guard let targetFrame = targetFrame(forContentSize: layout.initialSize, window: window) else {
                 window.setContentSize(layout.initialSize)
+                return
             }
+            window.setFrame(targetFrame, display: true, animate: animated)
         } else {
             window.setContentSize(layout.initialSize)
             window.center()
@@ -197,6 +204,10 @@ final class PreferencesWindowController: NSWindowController {
         currentTab = tab
         let shouldAnimate = window?.isVisible ?? false
         updateWindowSize(for: viewModel.displaySettings.count, tab: tab, animated: shouldAnimate)
+    }
+
+    func setResizeAnchor(_ anchor: ResizeAnchor) {
+        resizeAnchor = anchor
     }
 
     /// Returns recommended window sizes tailored to the active tab and screen count.
@@ -257,5 +268,44 @@ final class PreferencesWindowController: NSWindowController {
         default:
             return 120
         }
+    }
+
+    private func targetFrame(forContentSize contentSize: NSSize, window: NSWindow) -> NSRect? {
+        let contentRect = NSRect(origin: .zero, size: contentSize)
+        let targetFrameSize = window.frameRect(forContentRect: contentRect).size
+        let currentFrame = window.frame
+        let origin: NSPoint
+        switch resizeAnchor {
+        case .topLeading:
+            origin = NSPoint(x: currentFrame.minX, y: currentFrame.maxY - targetFrameSize.height)
+        case .topCenter:
+            origin = NSPoint(
+                x: currentFrame.midX - targetFrameSize.width / 2,
+                y: currentFrame.maxY - targetFrameSize.height
+            )
+        }
+        let constrainedOrigin = constrain(origin: origin, size: targetFrameSize, window: window)
+        return NSRect(origin: constrainedOrigin, size: targetFrameSize)
+    }
+
+    private func constrain(origin: NSPoint, size: NSSize, window: NSWindow) -> NSPoint {
+        guard let screenFrame = window.screen?.visibleFrame
+                ?? window.screen?.frame
+                ?? NSScreen.main?.visibleFrame
+                ?? NSScreen.main?.frame else {
+            return origin
+        }
+        var adjusted = origin
+        if size.width >= screenFrame.width {
+            adjusted.x = screenFrame.minX
+        } else {
+            adjusted.x = min(max(adjusted.x, screenFrame.minX), screenFrame.maxX - size.width)
+        }
+        if size.height >= screenFrame.height {
+            adjusted.y = screenFrame.minY
+        } else {
+            adjusted.y = min(max(adjusted.y, screenFrame.minY), screenFrame.maxY - size.height)
+        }
+        return adjusted
     }
 }
