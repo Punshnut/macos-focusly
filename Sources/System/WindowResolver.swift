@@ -11,9 +11,10 @@ private let menuKeywordSet: Set<String> = ["menu", "popover", "context"]
 @MainActor
 func resolveActiveWindowSnapshot(
     excluding windowNumbers: Set<Int> = [],
-    preferredPID: pid_t? = nil
+    preferredPID: pid_t? = nil,
+    includeAllApplicationWindows: Bool = true
 ) -> ActiveWindowSnapshot? {
-    if let frontWindow = cgFrontWindow(excluding: windowNumbers, preferredPID: preferredPID) {
+    if let frontWindow = cgFrontWindow(excluding: windowNumbers, preferredPID: preferredPID, includeApplicationWindows: includeAllApplicationWindows) {
         let resolvedCornerRadius = (
             frontWindow.cornerRadius ??
             axActiveWindowCornerRadius(preferredPID: frontWindow.ownerPID) ??
@@ -30,13 +31,16 @@ func resolveActiveWindowSnapshot(
         return nil
     }
 
+    let supplementaryMasks = resolveSupplementaryMasks(
+        primaryPID: NSWorkspace.shared.frontmostApplication?.processIdentifier,
+        excludingWindowNumbers: windowNumbers,
+        includeApplicationWindows: includeAllApplicationWindows
+    )
+
     return ActiveWindowSnapshot(
         frame: snapshot.frame,
         cornerRadius: clampCornerRadius(snapshot.cornerRadius, to: snapshot.frame),
-        supplementaryMasks: resolveSupplementaryMasks(
-            primaryPID: NSWorkspace.shared.frontmostApplication?.processIdentifier,
-            excludingWindowNumbers: windowNumbers
-        )
+        supplementaryMasks: supplementaryMasks
     )
 }
 
@@ -74,7 +78,11 @@ private struct CGFrontWindowSnapshot {
 
 /// Uses CoreGraphics to locate the foremost visible window while skipping overlay windows.
 @MainActor
-private func cgFrontWindow(excluding windowNumbers: Set<Int>, preferredPID: pid_t?) -> CGFrontWindowSnapshot? {
+private func cgFrontWindow(
+    excluding windowNumbers: Set<Int>,
+    preferredPID: pid_t?,
+    includeApplicationWindows: Bool = true
+) -> CGFrontWindowSnapshot? {
     let options: CGWindowListOption = [.optionOnScreenOnly, .excludeDesktopElements]
 
     guard let completeWindowList = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]], !completeWindowList.isEmpty else {
@@ -102,6 +110,7 @@ private func cgFrontWindow(excluding windowNumbers: Set<Int>, preferredPID: pid_
             in: completeWindowList,
             primaryPID: preferredFrontWindow.ownerPID,
             excludingNumbers: windowNumbers.union([preferredFrontWindow.windowNumber]),
+            includeApplicationWindows: includeApplicationWindows,
             cornerSnapshotCache: &cornerSnapshotCache
         )
 
@@ -131,6 +140,7 @@ private func cgFrontWindow(excluding windowNumbers: Set<Int>, preferredPID: pid_
         in: completeWindowList,
         primaryPID: resolvedFrontWindow.ownerPID,
         excludingNumbers: windowNumbers.union([resolvedFrontWindow.windowNumber]),
+        includeApplicationWindows: includeApplicationWindows,
         cornerSnapshotCache: &cornerSnapshotCache
     )
 
@@ -212,6 +222,7 @@ private func collectSupplementaryMasks(
     in windowDictionaries: [[String: Any]],
     primaryPID: pid_t?,
     excludingNumbers: Set<Int>,
+    includeApplicationWindows: Bool,
     cornerSnapshotCache: inout [pid_t: [AXWindowCornerSnapshot]]
 ) -> [ActiveWindowSnapshot.MaskRegion] {
     var maskRegions: [ActiveWindowSnapshot.MaskRegion] = []
@@ -254,12 +265,13 @@ private func collectSupplementaryMasks(
             matchesPrimary = false
         }
 
-        guard let maskPurpose = classifyMenuWindow(
+        guard let maskPurpose = classifySupplementaryWindow(
             layer: layerIndex,
             name: window[kCGWindowName as String] as? String,
             ownerName: ownerApplicationName,
             bounds: coreGraphicsBounds,
-            matchesPrimary: matchesPrimary
+            matchesPrimary: matchesPrimary,
+            includeApplicationWindows: includeApplicationWindows
         ) else {
             continue
         }
@@ -281,7 +293,12 @@ private func collectSupplementaryMasks(
            ) {
             resolvedCornerRadius = clampCornerRadius(matchedRadius, to: maskFrame)
         } else {
-            resolvedCornerRadius = menuCornerRadius(for: maskFrame)
+            switch maskPurpose {
+            case .applicationWindow:
+                resolvedCornerRadius = fallbackCornerRadius(for: maskFrame)
+            case .applicationMenu, .systemMenu:
+                resolvedCornerRadius = menuCornerRadius(for: maskFrame)
+            }
         }
 
         maskRegions.append(
@@ -340,7 +357,11 @@ private func resolveCornerRadiusForWindow(
 
 /// Standalone helper used by the AX fallback path to still find menus for the front app.
 @MainActor
-private func resolveSupplementaryMasks(primaryPID: pid_t?, excludingWindowNumbers: Set<Int>) -> [ActiveWindowSnapshot.MaskRegion] {
+private func resolveSupplementaryMasks(
+    primaryPID: pid_t?,
+    excludingWindowNumbers: Set<Int>,
+    includeApplicationWindows: Bool
+) -> [ActiveWindowSnapshot.MaskRegion] {
     let windowListOptions: CGWindowListOption = [.optionOnScreenOnly, .excludeDesktopElements]
     guard let completeWindowList = CGWindowListCopyWindowInfo(windowListOptions, kCGNullWindowID) as? [[String: Any]], !completeWindowList.isEmpty else {
         return []
@@ -350,6 +371,7 @@ private func resolveSupplementaryMasks(primaryPID: pid_t?, excludingWindowNumber
         in: completeWindowList,
         primaryPID: primaryPID,
         excludingNumbers: excludingWindowNumbers,
+        includeApplicationWindows: includeApplicationWindows,
         cornerSnapshotCache: &cornerSnapshotCache
     )
 }
@@ -381,61 +403,89 @@ private func menuCornerRadius(for maskFrame: NSRect) -> CGFloat {
     return clampCornerRadius(8, to: maskFrame)
 }
 
-/// Heuristically identifies whether a window should be treated as a menu carve-out.
-private func classifyMenuWindow(
+/// Heuristically identifies whether a window should be treated as an application window or menu carve-out.
+private func classifySupplementaryWindow(
     layer layerIndex: Int,
     name windowName: String?,
     ownerName ownerApplicationName: String?,
     bounds coreGraphicsBounds: CGRect,
-    matchesPrimary matchesPrimaryApplication: Bool
+    matchesPrimary matchesPrimaryApplication: Bool,
+    includeApplicationWindows: Bool
 ) -> ActiveWindowSnapshot.MaskRegion.Purpose? {
     if matchesPrimaryApplication {
-        return .applicationMenu
+        if isLikelyMenuWindow(
+            layer: layerIndex,
+            name: windowName,
+            ownerName: ownerApplicationName,
+            bounds: coreGraphicsBounds
+        ) {
+            return .applicationMenu
+        }
+        return includeApplicationWindows ? .applicationWindow : nil
     }
 
     if let ownerApplicationName, ownerApplicationName == "SystemUIServer" {
         return .systemMenu
     }
 
-    let lowercasedOwnerName = ownerApplicationName?.lowercased() ?? ""
-    if menuKeywordSet.contains(where: { lowercasedOwnerName.contains($0) }) {
+    if isLikelyMenuWindow(
+        layer: layerIndex,
+        name: windowName,
+        ownerName: ownerApplicationName,
+        bounds: coreGraphicsBounds
+    ) {
         return .systemMenu
     }
 
-    let lowercasedName = windowName?.lowercased() ?? ""
-    let windowArea = coreGraphicsBounds.width * coreGraphicsBounds.height
-    let windowHeight = coreGraphicsBounds.height
-    let windowWidth = coreGraphicsBounds.width
+    return nil
+}
+
+/// Shared heuristics for identifying popovers, menus, and other transient UI surfaces.
+private func isLikelyMenuWindow(
+    layer layerIndex: Int,
+    name windowName: String?,
+    ownerName ownerApplicationName: String?,
+    bounds coreGraphicsBounds: CGRect
+) -> Bool {
+    let lowercasedOwnerName = ownerApplicationName?.lowercased() ?? ""
+    if menuKeywordSet.contains(where: { lowercasedOwnerName.contains($0) }) {
+        return true
+    }
 
     if layerIndex >= popUpMenuWindowLevel && popUpMenuWindowLevel > 0 {
-        return .systemMenu
+        return true
     }
 
     if layerIndex >= 18 {
-        return .systemMenu
+        return true
     }
 
+    let lowercasedName = windowName?.lowercased() ?? ""
     if !lowercasedName.isEmpty, menuKeywordSet.contains(where: { lowercasedName.contains($0) }) {
-        return .systemMenu
+        return true
     }
+
+    let windowArea = coreGraphicsBounds.width * coreGraphicsBounds.height
+    let windowHeight = coreGraphicsBounds.height
+    let windowWidth = coreGraphicsBounds.width
 
     let isCompactMenu = windowHeight <= 620 && windowArea <= 520_000
     let isTallNarrowMenu = windowArea <= 900_000 && windowWidth <= 420
     let compactWindowOnFloatingLayer = layerIndex >= max(2, floatingAccessoryWindowLevel)
 
     if (isCompactMenu || isTallNarrowMenu) && compactWindowOnFloatingLayer {
-        return .systemMenu
+        return true
     }
 
     if (isCompactMenu || isTallNarrowMenu), lowercasedOwnerName.isEmpty, layerIndex == 0 {
-        return .systemMenu
+        return true
     }
 
     if isCompactMenu && layerIndex >= 4 {
-        return .systemMenu
+        return true
     }
 
-    return nil
+    return false
 }
 
 /// Provides a stable ordering so mask regions sort consistently.

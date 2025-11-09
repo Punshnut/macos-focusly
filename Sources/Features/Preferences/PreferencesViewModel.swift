@@ -25,9 +25,9 @@ final class PreferencesViewModel: ObservableObject {
         /// Glue closure bundle so the view model can stay UI focused without knowing about app coordination.
         var onDisplayChange: (DisplayID, FocusOverlayStyle) -> Void
         var onDisplayReset: (DisplayID) -> Void
-        var onRequestShortcutCapture: (@escaping (HotkeyShortcut?) -> Void) -> Void
-        var onUpdateShortcut: (HotkeyShortcut?) -> Void
-        var onToggleHotkeys: (Bool) -> Void
+        var onRequestShortcutCapture: (HotkeyAction, @escaping (HotkeyShortcut?) -> Void) -> Void
+        var onUpdateShortcut: (HotkeyAction, HotkeyShortcut?) -> Void
+        var onToggleHotkeys: (HotkeyAction, Bool) -> Void
         var onToggleLaunchAtLogin: (Bool) -> Void
         var onRequestOnboarding: () -> Void
         var onUpdateStatusIconStyle: (StatusBarIconStyle) -> Void
@@ -41,29 +41,33 @@ final class PreferencesViewModel: ObservableObject {
     @Published var displaySettings: [DisplaySettings]
     @Published var presetOptions: [FocusPreset]
     @Published var selectedPresetIdentifier: String
-    @Published var hotkeysEnabled: Bool
     @Published var isLaunchAtLoginEnabled: Bool
     @Published var isLaunchAtLoginAvailable: Bool
     @Published var launchAtLoginStatusMessage: String?
-    @Published var isCapturingShortcut = false
-    @Published private(set) var shortcutSummary: String
+    @Published private var hotkeyStates: [HotkeyAction: HotkeyState]
+    @Published private(set) var capturingHotkey: HotkeyAction?
     @Published var statusIconStyle: StatusBarIconStyle
     @Published var trackingProfile: WindowTrackingProfile
     @Published var preferencesWindowGlassy: Bool
-    private var activeShortcut: HotkeyShortcut?
     /// App coordination closures invoked when preferences mutate shared state.
     private let callbacks: Callbacks
     let iconStyleOptions: [StatusBarIconStyle]
     let trackingProfileOptions: [WindowTrackingProfile]
+    let hotkeyActions: [HotkeyAction] = HotkeyAction.allCases
+
+    /// User-facing representation of a single hotkey preference row.
+    struct HotkeyState {
+        var shortcut: HotkeyShortcut?
+        var isEnabled: Bool
+    }
 
     /// Creates the view model with the current overlay, shortcut, and status bar state.
     init(
         displaySettings: [DisplaySettings],
-        hotkeysEnabled: Bool,
         isLaunchAtLoginEnabled: Bool,
         isLaunchAtLoginAvailable: Bool,
         launchAtLoginStatusMessage: String?,
-        activeShortcut: HotkeyShortcut?,
+        hotkeyStates: [HotkeyAction: HotkeyState],
         statusIconStyle: StatusBarIconStyle,
         iconStyleOptions: [StatusBarIconStyle],
         presetOptions: [FocusPreset],
@@ -76,13 +80,11 @@ final class PreferencesViewModel: ObservableObject {
         self.displaySettings = displaySettings
         self.presetOptions = presetOptions
         self.selectedPresetIdentifier = selectedPresetIdentifier
-        self.hotkeysEnabled = hotkeysEnabled
         self.isLaunchAtLoginEnabled = isLaunchAtLoginEnabled
         self.isLaunchAtLoginAvailable = isLaunchAtLoginAvailable
         self.launchAtLoginStatusMessage = launchAtLoginStatusMessage
-        self.activeShortcut = activeShortcut
+        self.hotkeyStates = PreferencesViewModel.normalizeHotkeyStates(hotkeyStates)
         self.callbacks = callbacks
-        self.shortcutSummary = PreferencesViewModel.describeShortcut(activeShortcut)
         self.statusIconStyle = statusIconStyle
         self.iconStyleOptions = iconStyleOptions
         self.trackingProfile = trackingProfile
@@ -152,12 +154,6 @@ final class PreferencesViewModel: ObservableObject {
         }
     }
 
-    /// Enables or disables the global hotkey preference.
-    func setHotkeysEnabled(_ enabled: Bool) {
-        hotkeysEnabled = enabled
-        callbacks.onToggleHotkeys(enabled)
-    }
-
     /// Toggles the launch-at-login setting when the feature is supported.
     func setLaunchAtLoginEnabled(_ enabled: Bool) {
         guard isLaunchAtLoginAvailable else { return }
@@ -165,23 +161,48 @@ final class PreferencesViewModel: ObservableObject {
         callbacks.onToggleLaunchAtLogin(enabled)
     }
 
+    /// Returns whether a specific hotkey toggle is enabled.
+    func isHotkeyEnabled(_ action: HotkeyAction) -> Bool {
+        hotkeyStates[action]?.isEnabled ?? true
+    }
+
+    /// Returns a description of the shortcut bound to the supplied action.
+    func shortcutSummary(for action: HotkeyAction) -> String {
+        PreferencesViewModel.describeShortcut(hotkeyStates[action]?.shortcut)
+    }
+    
+    /// Indicates whether the supplied action currently has a shortcut bound.
+    func hasShortcut(for action: HotkeyAction) -> Bool {
+        hotkeyStates[action]?.shortcut != nil
+    }
+
+    /// Enables or disables a single hotkey action.
+    func setHotkeyEnabled(_ enabled: Bool, for action: HotkeyAction) {
+        mutateHotkeyState(for: action) { state in
+            state.isEnabled = enabled
+        }
+        callbacks.onToggleHotkeys(action, enabled)
+    }
+
     /// Initiates capturing a new shortcut and updates state when recording finishes.
-    func beginShortcutCapture() {
-        isCapturingShortcut = true
-        callbacks.onRequestShortcutCapture { [weak self] shortcut in
+    func beginShortcutCapture(for action: HotkeyAction) {
+        capturingHotkey = action
+        callbacks.onRequestShortcutCapture(action) { [weak self] shortcut in
             guard let self else { return }
-            self.isCapturingShortcut = false
-            self.activeShortcut = shortcut
-            self.shortcutSummary = PreferencesViewModel.describeShortcut(shortcut)
-            self.callbacks.onUpdateShortcut(shortcut)
+            self.capturingHotkey = nil
+            self.mutateHotkeyState(for: action) { state in
+                state.shortcut = shortcut
+            }
+            self.callbacks.onUpdateShortcut(action, shortcut)
         }
     }
 
     /// Removes the current shortcut so no global hotkey remains registered.
-    func clearShortcut() {
-        activeShortcut = nil
-        shortcutSummary = "—"
-        callbacks.onUpdateShortcut(nil)
+    func clearShortcut(for action: HotkeyAction) {
+        mutateHotkeyState(for: action) { state in
+            state.shortcut = nil
+        }
+        callbacks.onUpdateShortcut(action, nil)
     }
 
     /// Persists the status bar icon style choice.
@@ -214,10 +235,23 @@ final class PreferencesViewModel: ObservableObject {
         callbacks.onRequestOnboarding()
     }
 
-    /// Applies a shortcut received from outside the view model (e.g., persisted state).
-    func applyShortcut(_ activeShortcut: HotkeyShortcut?) {
-        self.activeShortcut = activeShortcut
-        shortcutSummary = PreferencesViewModel.describeShortcut(activeShortcut)
+    /// Applies an externally provided shortcut (e.g., after persistence changes).
+    func applyShortcut(_ activeShortcut: HotkeyShortcut?, for action: HotkeyAction) {
+        mutateHotkeyState(for: action) { state in
+            state.shortcut = activeShortcut
+        }
+    }
+
+    /// Replaces the entire hotkey map with a fresh snapshot.
+    func updateHotkeys(_ states: [HotkeyAction: HotkeyState]) {
+        hotkeyStates = PreferencesViewModel.normalizeHotkeyStates(states)
+    }
+
+    /// Updates a single hotkey state without triggering callbacks.
+    func updateHotkeyState(_ state: HotkeyState, for action: HotkeyAction) {
+        var updated = hotkeyStates
+        updated[action] = state
+        hotkeyStates = updated
     }
 
     /// Converts UI-managed display settings into a `FocusOverlayStyle` and emits callbacks.
@@ -257,6 +291,14 @@ final class PreferencesViewModel: ObservableObject {
         return components.joined(separator: " ")
     }
 
+    private static func normalizeHotkeyStates(_ states: [HotkeyAction: HotkeyState]) -> [HotkeyAction: HotkeyState] {
+        var normalized = states
+        for action in HotkeyAction.allCases where normalized[action] == nil {
+            normalized[action] = HotkeyState(shortcut: nil, isEnabled: true)
+        }
+        return normalized
+    }
+
     /// Finds the matching preset for the supplied identifier, updating selection if necessary.
     private func preset(for id: String) -> FocusPreset? {
         if let match = presetOptions.first(where: { $0.id == id }) {
@@ -267,6 +309,16 @@ final class PreferencesViewModel: ObservableObject {
             return fallback
         }
         return nil
+    }
+}
+
+private extension PreferencesViewModel {
+    func mutateHotkeyState(for action: HotkeyAction, mutation: (inout HotkeyState) -> Void) {
+        var updated = hotkeyStates
+        var state = updated[action] ?? HotkeyState(shortcut: nil, isEnabled: true)
+        mutation(&state)
+        updated[action] = state
+        hotkeyStates = updated
     }
 }
 

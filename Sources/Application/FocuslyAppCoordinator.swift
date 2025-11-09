@@ -8,11 +8,14 @@ final class FocuslyAppCoordinator: NSObject {
         static let overlaysEnabled = "Focusly.Enabled"
         static let hotkeysEnabled = "Focusly.HotkeysEnabled"
         static let shortcut = "Focusly.Shortcut"
+        static let maskingHotkeysEnabled = "Focusly.MaskHotkeysEnabled"
+        static let maskingShortcut = "Focusly.MaskShortcut"
         static let onboardingCompleted = "Focusly.OnboardingCompleted"
         static let statusIconStyle = "Focusly.StatusIconStyle"
         static let languageOverride = "Focusly.LanguageOverride"
         static let trackingProfile = "Focusly.WindowTrackingProfile"
         static let preferencesWindowGlassy = "Focusly.Preferences.GlassyChrome"
+        static let maskingModes = "Focusly.DisplayMaskingModes"
     }
 
     private let environment: FocuslyEnvironment
@@ -40,14 +43,22 @@ final class FocuslyAppCoordinator: NSObject {
         didSet { persistOverlayActivation() }
     }
     private var hotkeysEnabled: Bool {
-        didSet { persistHotkeyActivationState() }
+        didSet { persistHotkeyActivationState(hotkeysEnabled, key: UserDefaultsKey.hotkeysEnabled) }
     }
     private var activationHotkey: HotkeyShortcut? {
-        didSet { persistHotkeyShortcut() }
+        didSet { persistHotkeyShortcut(activationHotkey, key: UserDefaultsKey.shortcut) }
+    }
+    private var maskingHotkeyEnabled: Bool {
+        didSet { persistHotkeyActivationState(maskingHotkeyEnabled, key: UserDefaultsKey.maskingHotkeysEnabled) }
+    }
+    private var maskingHotkey: HotkeyShortcut? {
+        didSet { persistHotkeyShortcut(maskingHotkey, key: UserDefaultsKey.maskingShortcut) }
     }
     private var statusItemIconStyle: StatusBarIconStyle {
         didSet { persistStatusIconStyle() }
     }
+    private let defaultApplicationMaskingMode: ApplicationMaskingMode = .allApplicationWindows
+    private var displayMaskingModes: [DisplayID: ApplicationMaskingMode]
 
     // MARK: - Initialization
 
@@ -65,7 +76,9 @@ final class FocuslyAppCoordinator: NSObject {
         let defaults = environment.userDefaults
         overlayFiltersEnabled = defaults.object(forKey: UserDefaultsKey.overlaysEnabled) as? Bool ?? true
         hotkeysEnabled = defaults.object(forKey: UserDefaultsKey.hotkeysEnabled) as? Bool ?? true
-        activationHotkey = FocuslyAppCoordinator.loadHotkeyShortcut(from: defaults)
+        activationHotkey = FocuslyAppCoordinator.loadHotkeyShortcut(from: defaults, key: UserDefaultsKey.shortcut)
+        maskingHotkeyEnabled = defaults.object(forKey: UserDefaultsKey.maskingHotkeysEnabled) as? Bool ?? true
+        maskingHotkey = FocuslyAppCoordinator.loadHotkeyShortcut(from: defaults, key: UserDefaultsKey.maskingShortcut)
         if let storedStyle = defaults.string(forKey: UserDefaultsKey.statusIconStyle),
            let decoded = StatusBarIconStyle(rawValue: storedStyle) {
             statusItemIconStyle = decoded
@@ -84,18 +97,25 @@ final class FocuslyAppCoordinator: NSObject {
         if let storedGlassyPreference = defaults.object(forKey: UserDefaultsKey.preferencesWindowGlassy) as? Bool {
             globalSettings.preferencesWindowGlassy = storedGlassyPreference
         }
+        displayMaskingModes = FocuslyAppCoordinator.loadMaskingModes(from: defaults)
 
         super.init()
 
+        configureMaskingModes()
         observeApplicationActivation()
         overlayService.delegate = overlayCoordinator
         overlayCoordinator.updateTrackingProfile(globalSettings.windowTrackingProfile)
         statusBarController.setDelegate(self)
-        hotkeyCenter.onActivation = { [weak self] in
+        hotkeyCenter.setHandler({ [weak self] in
             self?.toggleOverlayActivation()
-        }
-        hotkeyCenter.updateShortcut(activationHotkey)
-        hotkeyCenter.setShortcutEnabled(hotkeysEnabled && activationHotkey != nil)
+        }, for: .overlayToggle)
+        hotkeyCenter.setHandler({ [weak self] in
+            self?.toggleMaskingModeForActiveDisplay()
+        }, for: .maskingModeToggle)
+        hotkeyCenter.updateShortcut(activationHotkey, for: .overlayToggle)
+        hotkeyCenter.setShortcutEnabled(hotkeysEnabled && activationHotkey != nil, for: .overlayToggle)
+        hotkeyCenter.updateShortcut(maskingHotkey, for: .maskingModeToggle)
+        hotkeyCenter.setShortcutEnabled(maskingHotkeyEnabled && maskingHotkey != nil, for: .maskingModeToggle)
 
         localizationCancellable = localization.$languageOverrideIdentifier
             .sink { [weak self] languageIdentifier in
@@ -178,7 +198,8 @@ final class FocuslyAppCoordinator: NSObject {
         if isEnabled {
             let snapshot = resolveActiveWindowSnapshot(
                 excluding: currentApplicationWindowNumbers(),
-                preferredPID: lastKnownExternalPID
+                preferredPID: lastKnownExternalPID,
+                includeAllApplicationWindows: overlayCoordinator.prefersApplicationWideMasking
             )
             overlayCoordinator.primeOverlayMask(with: snapshot)
         }
@@ -187,6 +208,73 @@ final class FocuslyAppCoordinator: NSObject {
         synchronizeOverlayControllerRunningState()
         overlayService.setActive(isEnabled, animated: true)
         synchronizeStatusBar()
+    }
+
+    /// Seeds the overlay controller with the default and per-display masking modes.
+    private func configureMaskingModes() {
+        overlayCoordinator.setDefaultApplicationMaskingMode(defaultApplicationMaskingMode)
+        for (displayID, mode) in displayMaskingModes {
+            overlayCoordinator.setApplicationMaskingMode(mode, for: displayID)
+        }
+    }
+
+    // MARK: - Masking Preferences
+
+    private static func loadMaskingModes(from defaults: UserDefaults) -> [DisplayID: ApplicationMaskingMode] {
+        guard let stored = defaults.dictionary(forKey: UserDefaultsKey.maskingModes) as? [String: String] else {
+            return [:]
+        }
+
+        var decoded: [DisplayID: ApplicationMaskingMode] = [:]
+        for (key, value) in stored {
+            guard
+                let rawIdentifier = UInt32(key, radix: 10),
+                let mode = ApplicationMaskingMode(rawValue: value)
+            else {
+                continue
+            }
+            decoded[DisplayID(rawIdentifier)] = mode
+        }
+        return decoded
+    }
+
+    private func persistMaskingModes() {
+        let payload = displayMaskingModes.reduce(into: [String: String]()) { partialResult, entry in
+            partialResult[String(entry.key)] = entry.value.rawValue
+        }
+        environment.userDefaults.set(payload, forKey: UserDefaultsKey.maskingModes)
+    }
+
+    private func toggleMaskingMode(for displayID: DisplayID) {
+        let current = displayMaskingModes[displayID] ?? defaultApplicationMaskingMode
+        let updated = current.toggled
+        if updated == defaultApplicationMaskingMode {
+            displayMaskingModes.removeValue(forKey: displayID)
+        } else {
+            displayMaskingModes[displayID] = updated
+        }
+        persistMaskingModes()
+        overlayCoordinator.setApplicationMaskingMode(updated, for: displayID)
+    }
+
+    private func toggleMaskingModeForActiveDisplay() {
+        let fallbackDisplay = displayIdentifier(for: NSScreen.main) ?? displayIdentifier(for: NSScreen.screens.first)
+        let resolvedDisplayID = overlayCoordinator.activeDisplayIdentifier() ?? fallbackDisplay
+        guard let displayID = resolvedDisplayID else {
+            NSSound.beep()
+            return
+        }
+        toggleMaskingMode(for: displayID)
+    }
+
+    private func displayIdentifier(for screen: NSScreen?) -> DisplayID? {
+        guard
+            let screen,
+            let number = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber
+        else {
+            return nil
+        }
+        return DisplayID(truncating: number)
     }
 
     /// Starts or stops the overlay controller based on the persisted enabled flag.
@@ -207,20 +295,20 @@ final class FocuslyAppCoordinator: NSObject {
     }
 
     /// Stores whether keyboard shortcuts should be respected.
-    private func persistHotkeyActivationState() {
-        environment.userDefaults.set(hotkeysEnabled, forKey: UserDefaultsKey.hotkeysEnabled)
+    private func persistHotkeyActivationState(_ isEnabled: Bool, key: String) {
+        environment.userDefaults.set(isEnabled, forKey: key)
     }
 
     /// Saves the current activation shortcut, or removes it if clearing.
-    private func persistHotkeyShortcut() {
+    private func persistHotkeyShortcut(_ shortcut: HotkeyShortcut?, key: String) {
         let defaults = environment.userDefaults
-        if let activationHotkey {
+        if let shortcut {
             let jsonEncoder = JSONEncoder()
-            if let encodedShortcut = try? jsonEncoder.encode(activationHotkey) {
-                defaults.set(encodedShortcut, forKey: UserDefaultsKey.shortcut)
+            if let encodedShortcut = try? jsonEncoder.encode(shortcut) {
+                defaults.set(encodedShortcut, forKey: key)
             }
         } else {
-            defaults.removeObject(forKey: UserDefaultsKey.shortcut)
+            defaults.removeObject(forKey: key)
         }
     }
 
@@ -235,8 +323,8 @@ final class FocuslyAppCoordinator: NSObject {
     }
 
     /// Restores a previously persisted hotkey shortcut if one exists.
-    private static func loadHotkeyShortcut(from defaults: UserDefaults) -> HotkeyShortcut? {
-        guard let persistedData = defaults.data(forKey: UserDefaultsKey.shortcut) else { return nil }
+    private static func loadHotkeyShortcut(from defaults: UserDefaults, key: String) -> HotkeyShortcut? {
+        guard let persistedData = defaults.data(forKey: key) else { return nil }
         let jsonDecoder = JSONDecoder()
         return try? jsonDecoder.decode(HotkeyShortcut.self, from: persistedData)
     }
@@ -294,17 +382,15 @@ final class FocuslyAppCoordinator: NSObject {
     private func presentPreferences() {
         if let controller = preferencesWindow {
             controller.present()
-            let isHotkeyActive = hotkeysEnabled && activationHotkey != nil
-            preferencesScreenModel?.hotkeysEnabled = isHotkeyActive
             preferencesScreenModel?.isLaunchAtLoginEnabled = environment.launchAtLogin.isEnabled()
             preferencesScreenModel?.isLaunchAtLoginAvailable = environment.launchAtLogin.isAvailable
             preferencesScreenModel?.launchAtLoginStatusMessage = environment.launchAtLogin.unavailableReason
-            preferencesScreenModel?.applyShortcut(activationHotkey)
             preferencesScreenModel?.statusIconStyle = statusItemIconStyle
             preferencesScreenModel?.presetOptions = PresetLibrary.presets
             preferencesScreenModel?.selectedPresetIdentifier = overlayProfileStore.currentPreset().id
             preferencesScreenModel?.trackingProfile = globalSettings.windowTrackingProfile
             preferencesScreenModel?.preferencesWindowGlassy = globalSettings.preferencesWindowGlassy
+            preferencesScreenModel?.updateHotkeys(hotkeyStatesSnapshot())
             controller.updateLocalization(localization: localization)
             synchronizePreferencesDisplays()
             return
@@ -312,11 +398,10 @@ final class FocuslyAppCoordinator: NSObject {
 
         let viewModel = PreferencesViewModel(
             displaySettings: makeDisplaySettings(),
-            hotkeysEnabled: hotkeysEnabled && activationHotkey != nil,
             isLaunchAtLoginEnabled: environment.launchAtLogin.isEnabled(),
             isLaunchAtLoginAvailable: environment.launchAtLogin.isAvailable,
             launchAtLoginStatusMessage: environment.launchAtLogin.unavailableReason,
-            activeShortcut: activationHotkey,
+            hotkeyStates: hotkeyStatesSnapshot(),
             statusIconStyle: statusItemIconStyle,
             iconStyleOptions: StatusBarIconStyle.allCases,
             presetOptions: PresetLibrary.presets,
@@ -336,25 +421,45 @@ final class FocuslyAppCoordinator: NSObject {
                     self.overlayService.updateStyle(for: displayID, animated: true)
                     self.synchronizePreferencesDisplays()
                 },
-                onRequestShortcutCapture: { [weak self] completion in
-                    self?.beginShortcutCapture(completion: completion)
+                onRequestShortcutCapture: { [weak self] action, completion in
+                    self?.beginShortcutCapture(action: action, completion: completion)
                 },
-                onUpdateShortcut: { [weak self] shortcut in
+                onUpdateShortcut: { [weak self] action, shortcut in
                     guard let self else { return }
-                    self.activationHotkey = shortcut
-                    self.hotkeyCenter.updateShortcut(shortcut)
-                    let isHotkeyActive = self.hotkeysEnabled && shortcut != nil
-                    self.hotkeyCenter.setShortcutEnabled(isHotkeyActive)
-                    self.preferencesScreenModel?.hotkeysEnabled = isHotkeyActive
-                    self.preferencesScreenModel?.applyShortcut(shortcut)
+                    switch action {
+                    case .overlayToggle:
+                        self.activationHotkey = shortcut
+                        self.hotkeyCenter.updateShortcut(shortcut, for: .overlayToggle)
+                        let isActive = self.hotkeysEnabled && shortcut != nil
+                        self.hotkeyCenter.setShortcutEnabled(isActive, for: .overlayToggle)
+                    case .maskingModeToggle:
+                        self.maskingHotkey = shortcut
+                        self.hotkeyCenter.updateShortcut(shortcut, for: .maskingModeToggle)
+                        let isActive = self.maskingHotkeyEnabled && shortcut != nil
+                        self.hotkeyCenter.setShortcutEnabled(isActive, for: .maskingModeToggle)
+                    }
+                    self.preferencesScreenModel?.updateHotkeyState(
+                        PreferencesViewModel.HotkeyState(shortcut: shortcut, isEnabled: self.hotkeyToggleValue(for: action)),
+                        for: action
+                    )
                     self.synchronizeStatusBar()
                 },
-                onToggleHotkeys: { [weak self] enabled in
+                onToggleHotkeys: { [weak self] action, enabled in
                     guard let self else { return }
-                    self.hotkeysEnabled = enabled
-                    let isHotkeyActive = enabled && self.activationHotkey != nil
-                    self.hotkeyCenter.setShortcutEnabled(isHotkeyActive)
-                    self.preferencesScreenModel?.hotkeysEnabled = isHotkeyActive
+                    switch action {
+                    case .overlayToggle:
+                        self.hotkeysEnabled = enabled
+                        let isActive = enabled && self.activationHotkey != nil
+                        self.hotkeyCenter.setShortcutEnabled(isActive, for: .overlayToggle)
+                    case .maskingModeToggle:
+                        self.maskingHotkeyEnabled = enabled
+                        let isActive = enabled && self.maskingHotkey != nil
+                        self.hotkeyCenter.setShortcutEnabled(isActive, for: .maskingModeToggle)
+                    }
+                    self.preferencesScreenModel?.updateHotkeyState(
+                        PreferencesViewModel.HotkeyState(shortcut: self.shortcut(for: action), isEnabled: enabled),
+                        for: action
+                    )
                     self.synchronizeStatusBar()
                 },
                 onToggleLaunchAtLogin: { [weak self] enabled in
@@ -411,7 +516,7 @@ final class FocuslyAppCoordinator: NSObject {
     }
 
     /// Routes the shortcut capture request down to the preferences controller.
-    private func beginShortcutCapture(completion: @escaping (HotkeyShortcut?) -> Void) {
+    private func beginShortcutCapture(action: HotkeyAction, completion: @escaping (HotkeyShortcut?) -> Void) {
         guard let controller = preferencesWindow else { return }
         controller.beginShortcutCapture(completion: completion)
     }
@@ -419,6 +524,32 @@ final class FocuslyAppCoordinator: NSObject {
     /// Keeps the display settings section in preferences synchronized with hardware updates.
     private func synchronizePreferencesDisplays() {
         preferencesScreenModel?.displaySettings = makeDisplaySettings()
+    }
+
+    /// Captures the current shortcut assignments for the preferences UI.
+    private func hotkeyStatesSnapshot() -> [HotkeyAction: PreferencesViewModel.HotkeyState] {
+        [
+            .overlayToggle: PreferencesViewModel.HotkeyState(shortcut: activationHotkey, isEnabled: hotkeysEnabled),
+            .maskingModeToggle: PreferencesViewModel.HotkeyState(shortcut: maskingHotkey, isEnabled: maskingHotkeyEnabled)
+        ]
+    }
+
+    private func shortcut(for action: HotkeyAction) -> HotkeyShortcut? {
+        switch action {
+        case .overlayToggle:
+            return activationHotkey
+        case .maskingModeToggle:
+            return maskingHotkey
+        }
+    }
+
+    private func hotkeyToggleValue(for action: HotkeyAction) -> Bool {
+        switch action {
+        case .overlayToggle:
+            return hotkeysEnabled
+        case .maskingModeToggle:
+            return maskingHotkeyEnabled
+        }
     }
 
     /// Observes frontmost app changes so we can remember the last non-Focusly PID.
@@ -554,8 +685,20 @@ final class FocuslyAppCoordinator: NSObject {
             OnboardingViewModel.Step(
                 id: 2,
                 title: localization.localized(
-                    "2. Pick a filter",
-                    fallback: "2. Pick a filter"
+                    "2. Shift-click for focus",
+                    fallback: "2. Shift-click for focus"
+                ),
+                message: localization.localized(
+                    "Shift-click the status bar icon to cycle between masking only the active window or every window from the foreground app. Each display remembers its own mode.",
+                    fallback: "Shift-click the status bar icon to cycle between masking only the active window or every window from the foreground app. Each display remembers its own mode."
+                ),
+                systemImageName: "square.split.2x2"
+            ),
+            OnboardingViewModel.Step(
+                id: 3,
+                title: localization.localized(
+                    "3. Pick a filter",
+                    fallback: "3. Pick a filter"
                 ),
                 message: localization.localized(
                     "Open Preferences to choose opacity, tint, and one of the Focus, Warm, Colorful, or Monochrome presets per display.",
@@ -564,10 +707,10 @@ final class FocuslyAppCoordinator: NSObject {
                 systemImageName: "paintpalette"
             ),
             OnboardingViewModel.Step(
-                id: 3,
+                id: 4,
                 title: localization.localized(
-                    "3. Set your controls",
-                    fallback: "3. Set your controls"
+                    "4. Set your controls",
+                    fallback: "4. Set your controls"
                 ),
                 message: localization.localized(
                     "Assign a global shortcut and enable Launch at Login in Preferences so Focusly is ready whenever you are.",
@@ -585,11 +728,16 @@ final class FocuslyAppCoordinator: NSObject {
             guard !didPresentPreferencesDuringOnboarding else { return }
             didPresentPreferencesDuringOnboarding = true
             presentPreferencesAlongsideOnboarding(anchorWindow: onboardingWindowController?.window)
-        case 2: // Card 3: focus the Screen tab inside Preferences.
+        case 3: // Card 4: focus the Screen tab inside Preferences.
             if preferencesWindow == nil {
                 presentPreferencesAlongsideOnboarding(anchorWindow: onboardingWindowController?.window)
             }
             preferencesWindow?.selectTab(.screen)
+        case 4: // Card 5: return to the General tab to introduce hotkeys.
+            if preferencesWindow == nil {
+                presentPreferencesAlongsideOnboarding(anchorWindow: onboardingWindowController?.window)
+            }
+            preferencesWindow?.selectTab(.general)
         default:
             break
         }
@@ -666,8 +814,12 @@ extension FocuslyAppCoordinator: StatusBarControllerDelegate {
     /// Flips the global hotkey enablement flag.
     func statusBarDidToggleHotkeys(_ controller: StatusBarController) {
         hotkeysEnabled.toggle()
-        hotkeyCenter.setShortcutEnabled(hotkeysEnabled && activationHotkey != nil)
-        preferencesScreenModel?.hotkeysEnabled = hotkeysEnabled && activationHotkey != nil
+        let isActive = hotkeysEnabled && activationHotkey != nil
+        hotkeyCenter.setShortcutEnabled(isActive, for: .overlayToggle)
+        preferencesScreenModel?.updateHotkeyState(
+            PreferencesViewModel.HotkeyState(shortcut: activationHotkey, isEnabled: hotkeysEnabled),
+            for: .overlayToggle
+        )
         synchronizeStatusBar()
     }
 
@@ -695,6 +847,17 @@ extension FocuslyAppCoordinator: StatusBarControllerDelegate {
     /// Terminates the app when the Quit menu item is selected.
     func statusBarDidRequestQuit(_ controller: StatusBarController) {
         NSApp.terminate(nil)
+    }
+
+    /// Shift-click toggles whether a display should carve out all application windows or just the focused one.
+    func statusBar(_ controller: StatusBarController, didToggleMaskingModeFor displayID: DisplayID?) {
+        guard let resolvedDisplayID = displayID
+                ?? displayIdentifier(for: NSScreen.main)
+                ?? displayIdentifier(for: NSScreen.screens.first) else {
+            NSSound.beep()
+            return
+        }
+        toggleMaskingMode(for: resolvedDisplayID)
     }
 }
 

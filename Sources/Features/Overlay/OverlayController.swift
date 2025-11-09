@@ -28,7 +28,7 @@ final class OverlayController {
     private let interactionBoostDuration: TimeInterval = 0.6
     private let interactionCooldownDuration: TimeInterval = 0.25
     private let supplementalSnapshotInterval: TimeInterval = 1.0 / 15.0
-    private let activeWindowSnapshotResolver: (Set<Int>) -> ActiveWindowSnapshot?
+    private let activeWindowSnapshotResolver: (Set<Int>, Bool) -> ActiveWindowSnapshot?
 
     private var overlayWindowsByDisplayID: [DisplayID: OverlayWindow] = [:]
     private var snapshotPollingTimer: Timer?
@@ -47,16 +47,24 @@ final class OverlayController {
         self.handleDisplayLinkTick()
     }
     private var isDisplayLinkRunning = false
+    private var defaultApplicationMaskingMode: ApplicationMaskingMode = .allApplicationWindows
+    private var maskingModeOverrides: [DisplayID: ApplicationMaskingMode] = [:]
+    private var isApplicationWideSnapshotEnabled = true
 
     init(
-        activeWindowSnapshotResolver: @escaping (Set<Int>) -> ActiveWindowSnapshot? = { windowNumbers in
-            resolveActiveWindowSnapshot(excluding: windowNumbers)
+        activeWindowSnapshotResolver: @escaping (Set<Int>, Bool) -> ActiveWindowSnapshot? = { windowNumbers, includeApplicationWindows in
+            resolveActiveWindowSnapshot(excluding: windowNumbers, includeAllApplicationWindows: includeApplicationWindows)
         }
     ) {
         self.activeWindowSnapshotResolver = activeWindowSnapshotResolver
         self.currentTrackingProfile = .standard
         self.currentPollingCadence = PollingCadence(profile: .standard)
         self.currentPollingInterval = currentPollingCadence.idleInterval
+    }
+
+    /// Indicates whether any display currently prefers application-wide carving.
+    var prefersApplicationWideMasking: Bool {
+        shouldIncludeApplicationWindows()
     }
 
     /// Begins monitoring the focused window and updates overlay masks accordingly.
@@ -116,6 +124,38 @@ final class OverlayController {
         }
     }
 
+    /// Returns the display identifier currently associated with the focused window snapshot, if any.
+    func activeDisplayIdentifier() -> DisplayID? {
+        activeDisplayID
+    }
+
+    /// Updates the fallback masking mode applied to displays without explicit overrides.
+    func setDefaultApplicationMaskingMode(_ mode: ApplicationMaskingMode) {
+        guard defaultApplicationMaskingMode != mode else { return }
+        defaultApplicationMaskingMode = mode
+        updateApplicationWideSnapshotFlag()
+        applyCachedOverlayMask()
+    }
+
+    /// Overrides the masking mode for a specific display identifier.
+    func setApplicationMaskingMode(_ mode: ApplicationMaskingMode, for displayID: DisplayID) {
+        if mode == defaultApplicationMaskingMode {
+            if maskingModeOverrides.removeValue(forKey: displayID) != nil {
+                updateApplicationWideSnapshotFlag()
+                applyCachedOverlayMask()
+            } else {
+                updateApplicationWideSnapshotFlag()
+            }
+            return
+        }
+        if maskingModeOverrides[displayID] == mode {
+            return
+        }
+        maskingModeOverrides[displayID] = mode
+        updateApplicationWideSnapshotFlag()
+        applyCachedOverlayMask()
+    }
+
     /// Replaces the overlay window map, cleaning up removed displays and applying cached masks.
     func refreshOverlayWindows(_ updatedOverlayWindows: [DisplayID: OverlayWindow]) {
         let previousOverlayWindows = overlayWindowsByDisplayID
@@ -137,6 +177,7 @@ final class OverlayController {
         if isMonitoringActive {
             applyCachedOverlayMask()
         }
+        updateApplicationWideSnapshotFlag()
     }
 
     /// Applies the supplied snapshot to all overlays, carving out the focused window and related UI.
@@ -149,6 +190,33 @@ final class OverlayController {
 
         cacheActiveSnapshot(snapshot)
         applyOverlayMasksFromCache()
+    }
+
+    private func maskingMode(for displayID: DisplayID) -> ApplicationMaskingMode {
+        maskingModeOverrides[displayID] ?? defaultApplicationMaskingMode
+    }
+
+    private func shouldIncludeApplicationWindows() -> Bool {
+        if overlayWindowsByDisplayID.isEmpty {
+            if defaultApplicationMaskingMode == .allApplicationWindows {
+                return true
+            }
+            return maskingModeOverrides.values.contains { $0 == .allApplicationWindows }
+        }
+
+        for displayID in overlayWindowsByDisplayID.keys {
+            if maskingMode(for: displayID) == .allApplicationWindows {
+                return true
+            }
+        }
+        return false
+    }
+
+    private func updateApplicationWideSnapshotFlag() {
+        let desiredState = shouldIncludeApplicationWindows()
+        guard desiredState != isApplicationWideSnapshotEnabled else { return }
+        isApplicationWideSnapshotEnabled = desiredState
+        _ = refreshActiveWindowSnapshot()
     }
 
     /// Resolves the active window snapshot and updates overlays when it changes.
@@ -199,7 +267,7 @@ final class OverlayController {
 
         for (displayID, window) in overlayWindowsByDisplayID {
             if let cachedSnapshot = cachedSnapshotsByDisplayID[displayID] {
-                if apply(snapshot: cachedSnapshot, to: window) {
+                if apply(snapshot: cachedSnapshot, to: window, displayID: displayID) {
                     didApplyMask = true
                     continue
                 } else {
@@ -208,7 +276,7 @@ final class OverlayController {
             }
 
             if let fallbackSnapshot = cachedActiveSnapshot,
-               apply(snapshot: fallbackSnapshot, to: window) {
+               apply(snapshot: fallbackSnapshot, to: window, displayID: displayID) {
                 cachedSnapshotsByDisplayID[displayID] = fallbackSnapshot
                 activeDisplayID = displayID
                 didApplyMask = true
@@ -232,13 +300,13 @@ final class OverlayController {
     }
 
     /// Converts an active window snapshot into overlay mask regions for the supplied window.
-    private func apply(snapshot: ActiveWindowSnapshot, to window: OverlayWindow) -> Bool {
+    private func apply(snapshot: ActiveWindowSnapshot, to window: OverlayWindow, displayID: DisplayID) -> Bool {
         guard let contentView = window.contentView else {
             window.applyMask(regions: [])
             return false
         }
 
-        let maskRequests = maskRequests(for: snapshot)
+        let maskRequests = maskRequests(for: snapshot, mode: maskingMode(for: displayID))
         guard !maskRequests.isEmpty else {
             window.applyMask(regions: [])
             return false
@@ -251,11 +319,19 @@ final class OverlayController {
 
         for request in maskRequests {
             let expansion = maskExpansion(for: request.purpose)
-            let expandedRect = expansion != 0 ? request.rect.insetBy(dx: -expansion, dy: -expansion) : request.rect
-            let screenIntersection = expandedRect.intersection(windowScreenFrame)
-            guard !screenIntersection.isNull else { continue }
+            let baseIntersection = request.rect.intersection(windowScreenFrame)
+            guard !baseIntersection.isNull else { continue }
 
-            let windowRect = window.convertFromScreen(screenIntersection)
+            let expandedRect: NSRect
+            if expansion != 0 {
+                let expanded = baseIntersection.insetBy(dx: -expansion, dy: -expansion)
+                expandedRect = expanded.intersection(windowScreenFrame)
+            } else {
+                expandedRect = baseIntersection
+            }
+            guard !expandedRect.isNull else { continue }
+
+            let windowRect = window.convertFromScreen(expandedRect)
             let rectInContent = contentView.convert(windowRect, from: nil)
             let normalizedRect = rectInContent.intersection(contentView.bounds)
             guard !normalizedRect.isNull else { continue }
@@ -287,7 +363,7 @@ final class OverlayController {
     }
 
     /// Builds mask requests for the supplied snapshot including supplementary carve-outs.
-    private func maskRequests(for snapshot: ActiveWindowSnapshot) -> [MaskRequest] {
+    private func maskRequests(for snapshot: ActiveWindowSnapshot, mode: ApplicationMaskingMode) -> [MaskRequest] {
         var requests: [MaskRequest] = [
             MaskRequest(
                 rect: snapshot.frame,
@@ -297,9 +373,14 @@ final class OverlayController {
         ]
 
         if !snapshot.supplementaryMasks.isEmpty {
-            requests.append(contentsOf: snapshot.supplementaryMasks.map {
-                MaskRequest(rect: $0.frame, cornerRadius: $0.cornerRadius, purpose: $0.purpose)
-            })
+            for region in snapshot.supplementaryMasks {
+                if region.purpose == .applicationWindow, mode == .focusedWindow {
+                    continue
+                }
+                requests.append(
+                    MaskRequest(rect: region.frame, cornerRadius: region.cornerRadius, purpose: region.purpose)
+                )
+            }
         }
 
         return requests
@@ -350,7 +431,7 @@ final class OverlayController {
     /// Resolves the active window snapshot and updates overlays when it changes.
     @discardableResult
     private func refreshActiveWindowSnapshot() -> Bool {
-        let snapshot = activeWindowSnapshotResolver(activeOverlayWindowNumbers())
+        let snapshot = activeWindowSnapshotResolver(activeOverlayWindowNumbers(), isApplicationWideSnapshotEnabled)
         let previousSnapshot = cachedActiveSnapshot
 
         switch (previousSnapshot, snapshot) {

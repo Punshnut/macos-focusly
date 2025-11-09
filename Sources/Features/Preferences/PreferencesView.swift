@@ -493,39 +493,48 @@ struct PreferencesView: View {
     // MARK: - Reused Control Sections
 
     private var hotkeySection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Toggle(isOn: Binding(
-                get: { viewModel.hotkeysEnabled },
-                set: { viewModel.setHotkeysEnabled($0) }
-            )) {
-                Text(localized("Enable Focus Toggle Shortcut"))
-            }
-            .toggleStyle(.switch)
-
-            VStack(alignment: .leading, spacing: 6) {
-                HStack {
-                    Text(localized("Shortcut"))
-                        .foregroundColor(.secondary)
-                    Text(viewModel.shortcutSummary)
-                        .font(.body)
-                    Spacer()
-                    Button {
-                        viewModel.beginShortcutCapture()
-                    } label: {
-                        Text(localized("Record"))
+        VStack(alignment: .leading, spacing: 16) {
+            ForEach(viewModel.hotkeyActions, id: \.self) { action in
+                VStack(alignment: .leading, spacing: 8) {
+                    Toggle(isOn: Binding(
+                        get: { viewModel.isHotkeyEnabled(action) },
+                        set: { viewModel.setHotkeyEnabled($0, for: action) }
+                    )) {
+                        Text(localized(action.preferenceTitleKey, fallback: action.preferenceTitleFallback))
                     }
-                    .disabled(viewModel.isCapturingShortcut)
-                    Button {
-                        viewModel.clearShortcut()
-                    } label: {
-                        Text(localized("Clear"))
-                    }
-                }
+                    .toggleStyle(.switch)
 
-                if viewModel.isCapturingShortcut {
-                    Text(localized("Press a key combination…"))
+                    Text(localized(action.preferenceDescriptionKey, fallback: action.preferenceDescriptionFallback))
                         .font(.caption)
-                        .foregroundColor(.accentColor)
+                        .foregroundColor(.secondary)
+
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack {
+                            Text(localized("Shortcut"))
+                                .foregroundColor(.secondary)
+                            Text(viewModel.shortcutSummary(for: action))
+                                .font(.body)
+                            Spacer()
+                            Button {
+                                viewModel.beginShortcutCapture(for: action)
+                            } label: {
+                                Text(localized("Record"))
+                            }
+                            .disabled(viewModel.capturingHotkey == action)
+                            Button {
+                                viewModel.clearShortcut(for: action)
+                            } label: {
+                                Text(localized("Clear"))
+                            }
+                            .disabled(!viewModel.hasShortcut(for: action))
+                        }
+
+                        if viewModel.capturingHotkey == action {
+                            Text(localized("Press a key combination…"))
+                                .font(.caption)
+                                .foregroundColor(.accentColor)
+                        }
+                    }
                 }
             }
         }

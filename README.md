@@ -54,6 +54,33 @@ Focusly is a lightweight menu bar companion that softens the edges of every disp
 
 ---
 
+## 🔐 Privacy & Trust
+
+- **Offline by design** - zero networking code, no telemetry, no analytics SDKs.
+- **No screen capture** - overlays rely on Accessibility metadata, never on screenshots.
+- **Data stays local** - presets, onboarding state, and preferences live in your macOS account’s `UserDefaults`.
+- **Permission aware** - decline Accessibility and the app gracefully downgrades instead of quitting.
+- **Transparent pipeline** - every script required to audit, sign, and ship the app sits in this repo.
+
+---
+
+## 🎛️ Superpowers for your Menu Bar
+
+<details open>
+<summary>Tap to preview the menu bar tricks</summary>
+
+- **Context-aware masking** keeps the foreground app clear while gently blurring everything else so your brain stays in flow.
+- **Preset Library** ships with Smart Blur, Warm, Dark, White, Paper, and Colorful looks plus per-display tint + opacity overrides.
+- **Per-monitor ambience** lets you tune multi-display setups individually - brighten the reference monitor, dim the chat screen.
+- **Shift-click focus** lets you flip between masking only the focused window or every window from the same app, per display, without opening Preferences.
+- **Dual hotkeys** give you one shortcut to toggle overlays and another to cycle the masking mode, so you can keep hands on the keyboard.
+- **Instant control** from the status bar: toggle overlays, swap presets, and edit preferences in a couple of clicks or via customizable global hotkeys.
+- **Guided onboarding** walks first-time users through permissions, color picks, and localization so the app feels ready on launch.
+
+</details>
+
+---
+
 ## 🌍 Built for Every Desk
 
 Being a minimalist, productivity-first app means - at least to me as the developer, Jan - that every surface should feel intentional, and that includes shipping as much localization as humanly possible instead of treating it as a stretch goal.
@@ -73,16 +100,14 @@ Being a minimalist, productivity-first app means - at least to me as the develop
 
 ---
 
-## 🎛️ Menu Bar Superpowers
+## ☀️ Upcoming Features
 
 <details open>
-<summary>Tap to preview the menu bar tricks</summary>
+<summary>Alpha flight checklist</summary>
 
-- **Context-aware masking** keeps the foreground app clear while gently blurring everything else so your brain stays in flow.
-- **Preset Library** ships with Smart Blur, Warm, Dark, White, Paper, and Colorful looks plus per-display tint + opacity overrides.
-- **Per-monitor ambience** lets you tune multi-display setups individually - brighten the reference monitor, dim the chat screen.
-- **Instant control** from the status bar: toggle overlays, swap presets, and edit preferences in a couple of clicks or via a customizable global hotkey.
-- **Guided onboarding** walks first-time users through permissions, color picks, and localization so the app feels ready on launch.
+- [ ] **Overlay Performance** - higher refresh via smarter blur scheduling *(feature-complete locally; validating on diverse GPUs before calling it done)*.
+- [ ] **Settings Refresh** - enhancing the usability of the app settings window
+- [ ] **Full notarization** - finish Apple's notary review so Gatekeeper skips the **Open Anyway** dance (current DMG is already Developer ID signed).
 
 </details>
 
@@ -105,30 +130,6 @@ Latest alpha DMG lives on [GitHub Releases](https://github.com/Punshnut/macos-fo
 > Need to roll your own build? Jump to **Build or Customize** below for the one-liner.
 
 </details>
-
----
-
-## 📅 Roadmap to Public Launch
-
-<details open>
-<summary>Alpha flight checklist</summary>
-
-- [ ] **Overlay Performance** - higher refresh via smarter blur scheduling *(feature-complete locally; validating on diverse GPUs before calling it done)*.
-- [ ] **Settings Refresh** - consolidated preferences window with inline previews *(UI polish + QA this sprint)*.
-- [ ] **Full notarization** - finish Apple's notary review so Gatekeeper skips the **Open Anyway** dance (current DMG is already Developer ID signed).
-- [ ] **Feedback Portal** - lightweight in-app link for sharing logs + screenshots *(tracking for Beta 1)*.
-
-</details>
-
----
-
-## 🔐 Privacy & Trust
-
-- **Offline by design** - zero networking code, no telemetry, no analytics SDKs.
-- **No screen capture** - overlays rely on Accessibility metadata, never on screenshots.
-- **Data stays local** - presets, onboarding state, and preferences live in your macOS account’s `UserDefaults`.
-- **Permission aware** - decline Accessibility and the app gracefully downgrades instead of quitting.
-- **Transparent pipeline** - every script required to audit, sign, and ship the app sits in this repo.
 
 ---
 

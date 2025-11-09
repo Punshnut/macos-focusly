@@ -65,6 +65,8 @@ protocol StatusBarControllerDelegate: AnyObject {
     func statusBarDidRequestOnboarding(_ controller: StatusBarController)
     /// App should terminate in response to the Quit menu item.
     func statusBarDidRequestQuit(_ controller: StatusBarController)
+    /// Shift-click toggled whether all application windows should be carved out on a display.
+    func statusBar(_ controller: StatusBarController, didToggleMaskingModeFor displayID: DisplayID?)
 }
 
 /// Builds and manages the menu bar item, including icons, menus, and hotkey shortcuts.
@@ -437,7 +439,10 @@ final class StatusBarController: NSObject {
         case .rightMouseUp, .rightMouseDown:
             showQuickMenu(with: event)
         case .leftMouseUp:
-            if event.modifierFlags.contains(.option) || event.modifierFlags.contains(.control) {
+            if shouldHandleMaskingToggle(for: event) {
+                let targetDisplayID = displayIdentifier(for: event)
+                delegate?.statusBar(self, didToggleMaskingModeFor: targetDisplayID)
+            } else if event.modifierFlags.contains(.option) || event.modifierFlags.contains(.control) {
                 showMainMenu()
             } else {
                 toggleOverlay()
@@ -524,6 +529,27 @@ final class StatusBarController: NSObject {
         let words = message.split { $0.isWhitespace || $0.isNewline }.map(String.init)
         guard words.count > 5 else { return message }
         return words.prefix(5).joined(separator: " ") + "…"
+    }
+
+    /// Determines whether a shift-click should toggle the masking mode instead of the overlay flag.
+    private func shouldHandleMaskingToggle(for event: NSEvent) -> Bool {
+        guard event.type == .leftMouseUp else { return false }
+        let modifiers = event.modifierFlags
+        let shiftHeld = modifiers.contains(.shift)
+        let conflictingModifier = modifiers.contains(.option) || modifiers.contains(.control) || modifiers.contains(.command)
+        return shiftHeld && !conflictingModifier
+    }
+
+    /// Attempts to map the current pointer location to a display identifier for per-screen toggles.
+    private func displayIdentifier(for event: NSEvent) -> DisplayID? {
+        let mouseLocation = NSEvent.mouseLocation
+        guard let screen = NSScreen.screens.first(where: { $0.frame.contains(mouseLocation) }) else {
+            return nil
+        }
+        guard let number = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber else {
+            return nil
+        }
+        return DisplayID(truncating: number)
     }
     
     /// Updates the status item artwork to match the active state and appearance tone.

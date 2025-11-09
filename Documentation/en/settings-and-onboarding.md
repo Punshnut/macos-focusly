@@ -27,10 +27,11 @@ This guide walks through the macOS settings window and the first-run tips that h
 - **Standard Settings**: `Reset to Preset` reverts the current display; `Apply to Other Displays` copies the look to the rest of your setup.
 - Tip: Reduce opacity on secondary displays to keep reference content visible while still muting distractions.
 
-### Shortcut
-- Toggle **Enable Focus Toggle Shortcut** to activate the global hotkey.
-- Press **Record** to capture a combination (for example, `⌃⌥⌘F`), and use **Clear** to remove it.
-- Tip: Choose a combination that is easy to hit with one hand so you can momentarily show the desktop without breaking flow.
+### Shortcuts
+- Each hotkey row has its own toggle and Record/Clear buttons, making it easy to run multiple actions from the keyboard.
+- **Toggle Focusly overlays**: Show or hide the blur/tint effect without reaching for the mouse. Pick something like `⌃⌥⌘F` so it never collides with app shortcuts.
+- **Cycle masking mode**: Flip between “Focused window only” and “All windows from the frontmost app” just like a shift-click on the status icon. Great for apps that spawn multiple floating tools.
+- Tip: Capture distinct shortcuts so you can build muscle memory—one combo to dim everything, another to promote extra app windows when you need them.
 
 ### Launch at Login
 - Enable **Launch Focusly at login** so overlays start with macOS. If macOS blocks the setting, Focusly shows instructions for resolving it in System Settings → Users & Groups → Login Items.
@@ -46,7 +47,8 @@ This guide walks through the macOS settings window and the first-run tips that h
 
 ## First-Startup Tips for Staying Focused
 1. **Switch overlays on**: From the quick menu, toggle `Enable Overlays` for each monitor to soften background clutter.
-2. **Pick a preset per space**: Smart Blur is ideal for neutral focus, Warm suits evening work, Colorful brightens presentations, and Monochrome keeps reference monitors subtle.
-3. **Dial in per-display tuning**: Adjust overlay strength lower on displays where you keep messaging apps, and increase blur on the main workspace to block busy wallpapers.
-4. **Set your controls**: Capture a global shortcut you can tap whenever you need to reveal your desktop, and enable Launch at Login so Focusly is always ready.
-5. **Revisit onboarding after changes**: Any time you rearrange displays or swap presets, relaunch the introduction from the status bar to refresh muscle memory for the quickest controls.
+2. **Shift-click for focus**: Holding Shift while clicking the status icon cycles between masking just the focused window or every window in the active app, per display.
+3. **Pick a preset per space**: Smart Blur is ideal for neutral focus, Warm suits evening work, Colorful brightens presentations, and Monochrome keeps reference monitors subtle.
+4. **Dial in per-display tuning**: Adjust overlay strength lower on displays where you keep messaging apps, and increase blur on the main workspace to block busy wallpapers.
+5. **Set your controls**: Capture both hotkeys—one for enabling overlays, one for cycling the masking mode—and enable Launch at Login so Focusly is always ready.
+6. **Revisit onboarding after changes**: Any time you rearrange displays or swap presets, relaunch the introduction from the status bar to refresh muscle memory for the quickest controls.

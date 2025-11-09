@@ -1,23 +1,17 @@
 import AppKit
 import Carbon
 
-/// Manages a single global keyboard shortcut using Carbon hotkey APIs.
+/// Manages Focusly's global keyboard shortcuts using Carbon hotkey APIs.
 @MainActor
 final class HotkeyCenter {
-    var onActivation: (() -> Void)?
-
-    /// Last requested shortcut definition used to manage Carbon registration.
-    private var registeredShortcut: HotkeyShortcut? {
-        didSet { refreshRegistration() }
+    private struct Registration {
+        var shortcut: HotkeyShortcut?
+        var isEnabled: Bool = false
+        var handler: (() -> Void)?
+        var token: EventHotKeyRef?
     }
 
-    /// Controls whether the registered shortcut should currently be active.
-    private var isShortcutActive = false {
-        didSet { refreshRegistration() }
-    }
-
-    /// Carbon hotkey token returned during registration.
-    private var registeredHotKeyReference: EventHotKeyRef?
+    private var registrations: [HotkeyAction: Registration] = [:]
     /// Carbon event handler token allowing teardown during deinitialization.
     private var hotKeyHandlerReference: EventHandlerRef?
 
@@ -27,25 +21,40 @@ final class HotkeyCenter {
 
     @MainActor
     deinit {
-        unregister()
+        for action in HotkeyAction.allCases {
+            unregister(action: action)
+        }
         if let hotKeyHandlerReference {
             RemoveEventHandler(hotKeyHandlerReference)
         }
     }
 
-    /// Registers a new shortcut definition; pass nil to clear the binding.
-    func updateShortcut(_ shortcut: HotkeyShortcut?) {
-        self.registeredShortcut = shortcut
+    /// Assigns or updates the closure executed when the supplied action fires.
+    func setHandler(_ handler: (() -> Void)?, for action: HotkeyAction) {
+        var registration = registrations[action] ?? Registration()
+        registration.handler = handler
+        registrations[action] = registration
     }
 
-    /// Enables or disables the global hotkey without forgetting the shortcut.
-    func setShortcutEnabled(_ enabled: Bool) {
-        self.isShortcutActive = enabled
+    /// Registers a new shortcut definition for the supplied action; pass nil to clear the binding.
+    func updateShortcut(_ shortcut: HotkeyShortcut?, for action: HotkeyAction) {
+        var registration = registrations[action] ?? Registration()
+        registration.shortcut = shortcut
+        registrations[action] = registration
+        refreshRegistration(for: action)
     }
 
-    /// Returns the currently registered shortcut, if any.
-    func currentShortcut() -> HotkeyShortcut? {
-        registeredShortcut
+    /// Enables or disables the global hotkey for the supplied action without forgetting the shortcut.
+    func setShortcutEnabled(_ enabled: Bool, for action: HotkeyAction) {
+        var registration = registrations[action] ?? Registration()
+        registration.isEnabled = enabled
+        registrations[action] = registration
+        refreshRegistration(for: action)
+    }
+
+    /// Returns the currently registered shortcut for the supplied action, if any.
+    func currentShortcut(for action: HotkeyAction) -> HotkeyShortcut? {
+        registrations[action]?.shortcut
     }
 
     /// Installs the Carbon event handler used to receive hotkey callbacks.
@@ -65,30 +74,41 @@ final class HotkeyCenter {
     }
 
     /// Updates the registered hotkey whenever the shortcut or enabled state changes.
-    private func refreshRegistration() {
-        unregister()
-        guard isShortcutActive, let registeredShortcut else { return }
+    private func refreshRegistration(for action: HotkeyAction) {
+        var registration = registrations[action] ?? Registration()
+        if let token = registration.token {
+            UnregisterEventHotKey(token)
+            registration.token = nil
+        }
 
-        // Register the single global hotkey each time modifiers or enabled state changes.
-        let hotKeyIdentifier = EventHotKeyID(signature: fourCharCode("FCS1"), id: 1)
+        guard registration.isEnabled, let shortcut = registration.shortcut else {
+            registrations[action] = registration
+            return
+        }
+
+        var hotKeyReference: EventHotKeyRef?
+        let hotKeyIdentifier = EventHotKeyID(signature: fourCharCode("FCSH"), id: UInt32(action.rawValue))
         let registrationStatus = RegisterEventHotKey(
-            UInt32(registeredShortcut.keyCode),
-            registeredShortcut.carbonModifiers,
+            UInt32(shortcut.keyCode),
+            shortcut.carbonModifiers,
             hotKeyIdentifier,
             GetEventDispatcherTarget(),
             0,
-            &registeredHotKeyReference
+            &hotKeyReference
         )
-        if registrationStatus != noErr {
-            registeredHotKeyReference = nil
+        if registrationStatus == noErr {
+            registration.token = hotKeyReference
+        } else {
+            registration.token = nil
         }
+        registrations[action] = registration
     }
 
-    /// Unregisters the previously registered hotkey, if one exists.
-    private func unregister() {
-        if let registeredHotKeyReference {
-            UnregisterEventHotKey(registeredHotKeyReference)
-            self.registeredHotKeyReference = nil
+    /// Unregisters the previously registered hotkey for a specific action, if one exists.
+    private func unregister(action: HotkeyAction) {
+        if let token = registrations[action]?.token {
+            UnregisterEventHotKey(token)
+            registrations[action]?.token = nil
         }
     }
 
@@ -96,10 +116,12 @@ final class HotkeyCenter {
     private func handle(event: EventRef) {
         var receivedHotKeyIdentifier = EventHotKeyID()
         GetEventParameter(event, EventParamName(kEventParamDirectObject), EventParamType(typeEventHotKeyID), nil, MemoryLayout<EventHotKeyID>.size, nil, &receivedHotKeyIdentifier)
-        guard receivedHotKeyIdentifier.id == 1 else { return }
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            self.onActivation?()
+        guard
+            let action = HotkeyAction(rawValue: Int(receivedHotKeyIdentifier.id)),
+            let handler = registrations[action]?.handler
+        else { return }
+        Task { @MainActor in
+            handler()
         }
     }
 }
