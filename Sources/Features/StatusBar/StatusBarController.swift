@@ -690,7 +690,7 @@ final class StatusBarController: NSObject {
 }
 
 private extension StatusBarController {
-    static let inactiveStatusAlpha: CGFloat = 0.64
+    static let inactiveStatusAlpha: CGFloat = 0.50
 
     static func statusItemAlpha(isActive: Bool) -> CGFloat {
         isActive ? 1.0 : inactiveStatusAlpha

@@ -3,10 +3,10 @@
 > 🔏 **Developer-signed build** - the latest DMG ships with my Developer ID cert; macOS still needs you to allow it once under **System Settings › Privacy & Security** because notarization is still in flight.
 
 <p align="center">
-  <img src="https://img.shields.io/badge/License-MIT-green.svg" alt="License: MIT">
   <img src="https://img.shields.io/badge/platform-macOS-blue" alt="Platform macOS">
   <img src="https://img.shields.io/badge/Swift-6.2-orange" alt="Swift 6.2">
   <img src="https://img.shields.io/badge/Stage-Alpha-yellow" alt="Stage Alpha">
+  <img src="https://img.shields.io/badge/License-MIT-green.svg" alt="License: MIT">
 </p>
 
 <p align="center">

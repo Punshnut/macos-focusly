@@ -168,16 +168,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
         let appName = Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String ?? "Focusly"
 
-        let aboutMenuTemplate = localizationService.localized(
-            "About %@",
-            fallback: "About %@"
-        )
-        let aboutMenuTitle = String(format: aboutMenuTemplate, locale: localizationService.locale, appName)
-        let aboutMenuItem = NSMenuItem(title: aboutMenuTitle, action: #selector(showAboutPanel(_:)), keyEquivalent: "")
-        aboutMenuItem.target = self
-        applicationSubmenu.addItem(aboutMenuItem)
-        applicationSubmenu.addItem(NSMenuItem.separator())
-
         let quitMenuTemplate = localizationService.localized(
             "Quit %@",
             fallback: "Quit %@"
@@ -193,76 +183,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         NSApp.mainMenu = applicationMenu
     }
 
-    /// Shows a localized About panel with basic app metadata.
-    @MainActor
-    @objc func showAboutPanel(_ sender: Any?) {
-        let localizationService = LocalizationService.shared
-        let appName = Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String ?? "Focusly"
-        let creditsHeader = localizationService.localized(
-            "Credits",
-            fallback: "Credits"
-        )
-        let developerSummary = FocuslyBuildInfo.developerSummary
-
-        let centeredParagraphStyle = NSMutableParagraphStyle()
-        centeredParagraphStyle.alignment = .center
-        let headerTextAttributes: [NSAttributedString.Key: Any] = [
-            .font: NSFont.boldSystemFont(ofSize: 13),
-            .foregroundColor: NSColor.labelColor,
-            .paragraphStyle: centeredParagraphStyle
-        ]
-        let bodyTextAttributes: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: 13),
-            .foregroundColor: NSColor.labelColor,
-            .paragraphStyle: centeredParagraphStyle
-        ]
-        let credits = NSMutableAttributedString(
-            string: creditsHeader + "\n",
-            attributes: headerTextAttributes
-        )
-        credits.append(NSAttributedString(string: developerSummary, attributes: bodyTextAttributes))
-
-        let aboutIcon = appIconImage ?? Self.makePlaceholderAboutIcon()
-
-        let panelOptions: [NSApplication.AboutPanelOptionKey: Any] = [
-            .applicationName: appName,
-            .credits: credits,
-            .applicationIcon: aboutIcon,
-            .version: FocuslyBuildInfo.marketingVersion
-        ]
-
-        NSApp.orderFrontStandardAboutPanel(options: panelOptions)
-        NSApp.activate(ignoringOtherApps: true)
-
-        let aboutTitleFormat = localizationService.localized("About %@", fallback: "About %@")
-        let aboutWindowTitle = String(format: aboutTitleFormat, appName)
-
-        DispatchQueue.main.async {
-            if let aboutWindow = NSApp.windows.first(where: { $0.title == aboutWindowTitle }) {
-                aboutWindow.level = FocuslyWindowLevels.aboutPanel
-                aboutWindow.makeKeyAndOrderFront(nil)
-            }
-        }
-    }
 }
 
 private extension AppDelegate {
-    /// Loads the bundled Focusly icon for use in menus and the About panel.
+    /// Loads the bundled Focusly icon for use in menus and app surfaces.
     static func loadAppIcon() -> NSImage? {
         guard let url = Bundle.focuslyResources.url(forResource: "Focusly_centered", withExtension: "png"),
               let image = NSImage(contentsOf: url) else { return nil }
         image.isTemplate = false
         return image
-    }
-
-    /// Provides a fallback icon if the bundled image cannot be located.
-    static func makePlaceholderAboutIcon() -> NSImage {
-        let placeholderIconSize = NSSize(width: 160, height: 160)
-        return NSImage(size: placeholderIconSize, flipped: false) { rect in
-            NSColor.windowBackgroundColor.setFill()
-            rect.fill()
-            return true
-        }
     }
 }
 

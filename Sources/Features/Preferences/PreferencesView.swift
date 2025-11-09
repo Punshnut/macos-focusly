@@ -291,11 +291,7 @@ struct PreferencesView: View {
                 subtitleKey: "Preferences.General.Localized.Description",
                 subtitleFallback: "Switch languages instantly or revisit the intro walkthrough."
             ) {
-                VStack(spacing: 18) {
-                    languageControls
-                    panelDivider
-                    onboardingControl
-                }
+                languageControls
             }
         }
     }
@@ -403,16 +399,6 @@ struct PreferencesView: View {
     private var languageControls: some View {
         languageSection
             .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private var onboardingControl: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(localized("Refresh the onboarding steps or review feature highlights."))
-                .font(.caption)
-                .foregroundColor(.secondary)
-            onboardingSection
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     // MARK: - Screen Panels
@@ -557,16 +543,6 @@ struct PreferencesView: View {
                     .foregroundColor(.secondary)
             }
         }
-    }
-
-    private var onboardingSection: some View {
-        Button {
-            viewModel.showOnboarding()
-        } label: {
-            Text(localized("Revisit Introduction…"))
-        }
-        .buttonStyle(.borderedProminent)
-        .controlSize(.small)
     }
 
     private var languageSection: some View {
@@ -959,8 +935,10 @@ struct PreferencesView: View {
 
     private var aboutActions: some View {
         HStack(spacing: 14) {
-            Button(action: openAboutPanel) {
-                Label(localized("Standard About Panel", fallback: "macOS About Panel"), systemImage: "macwindow")
+            Button {
+                viewModel.showOnboarding()
+            } label: {
+                Label(localized("Revisit Introduction…"), systemImage: "sparkles")
             }
             .buttonStyle(.bordered)
 
@@ -1152,14 +1130,6 @@ struct PreferencesView: View {
 
     private func developerSummary() -> String {
         FocuslyBuildInfo.developerSummary
-    }
-
-    private func openAboutPanel() {
-        if let delegate = NSApp.delegate as? AppDelegate {
-            delegate.showAboutPanel(nil)
-        } else {
-            NSApp.orderFrontStandardAboutPanel(nil)
-        }
     }
 }
 

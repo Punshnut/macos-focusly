@@ -249,8 +249,8 @@ final class PreferencesWindowController: NSWindowController {
         case .about:
             initialWidth = 520
             minimumWidth = 480
-            initialHeight = 520 + heightBoost
-            minimumHeight = 480 + heightBoost
+            initialHeight = 590 + heightBoost
+            minimumHeight = 540 + heightBoost
         }
 
         return (
