@@ -1,7 +1,5 @@
-# 🌙 Focusly - Mac Ambience & Focus Companion
+# **Focusly - macOS Ambience & Focus Companion**
 
-> 🧪 **Alpha flight** - heads-down polish while the overlay stack hardens across real Mac setups.
->
 > 🔏 **Developer-signed build** - the latest DMG ships with my Developer ID cert; macOS still needs you to allow it once under **System Settings › Privacy & Security** because notarization is still in flight.
 
 <p align="center">
@@ -48,13 +46,17 @@
 </p>
 
 
-## ✨ What is Focusly?
+## **About Focusly**
 
-Focusly is a lightweight menu bar companion that softens the edges of every display, keeps the active window crisp, and lets you dial in ambience without touching your creative tools. It is built to feel like a native macOS control: fast, glassy, localized, and respectful of privacy.
+**Focusly** is a lightweight menu bar companion that softens the edges of every display, keeps the active window crisp, and lets you dial in ambience without touching your creative tools.
+
+It’s built to feel like a **native macOS control** - fast, glassy, localized, and respectful of your privacy.
 
 ---
 
-## 🔐 Privacy & Trust
+## **Privacy & Trust**
+
+Focusly is built on the principle that privacy isn’t an afterthought - it’s the architecture.
 
 - **Offline by design** - zero networking code, no telemetry, no analytics SDKs.
 - **No screen capture** - overlays rely on Accessibility metadata, never on screenshots.
@@ -64,7 +66,7 @@ Focusly is a lightweight menu bar companion that softens the edges of every disp
 
 ---
 
-## 🎛️ Superpowers for your Menu Bar
+## **Quiet Power in Your Menu Bar**
 
 <details open>
 <summary>Tap to preview the menu bar tricks</summary>
@@ -81,7 +83,7 @@ Focusly is a lightweight menu bar companion that softens the edges of every disp
 
 ---
 
-## 🌍 Built for Every Desk
+## **Made for Every Desk, Everywhere**
 
 Being a minimalist, productivity-first app means - at least to me as the developer, Jan - that every surface should feel intentional, and that includes shipping as much localization as humanly possible instead of treating it as a stretch goal.
 
@@ -100,7 +102,7 @@ Being a minimalist, productivity-first app means - at least to me as the develop
 
 ---
 
-## ☀️ Upcoming Features
+## **Upcoming Features**
 
 <details open>
 <summary>Alpha flight checklist</summary>
@@ -113,7 +115,7 @@ Being a minimalist, productivity-first app means - at least to me as the develop
 
 ---
 
-## 🚀 Try the Alpha Build Today
+## **Try the newest Alpha Release Today**
 
 <details open>
 <summary>Tap for install steps</summary>
@@ -123,9 +125,9 @@ Being a minimalist, productivity-first app means - at least to me as the develop
 3. Approve **Accessibility** under **System Settings › Privacy & Security › Accessibility** to unlock precise window tracking.
 4. Tap the menu bar icon and toggle **Enable Overlays**.
 
-Latest alpha DMG lives on [GitHub Releases](https://github.com/Punshnut/macos-focusly/releases). This build already uses the refreshed overlay stack plus the guided onboarding pass.
+Latest alpha DMG lives on [GitHub Releases](https://github.com/Punshnut/macos-focusly/releases).
 
-> 🛡️ First launch is the only time macOS will block the app-after you click **Open Anyway** the system remembers the approval.
+> 🛡️ First launch is the only time macOS will block the app-after you click **Open Anyway** in **System Settings › Privacy & Security**, the system remembers the approval.
 
 > Need to roll your own build? Jump to **Build or Customize** below for the one-liner.
 
@@ -133,7 +135,7 @@ Latest alpha DMG lives on [GitHub Releases](https://github.com/Punshnut/macos-fo
 
 ---
 
-## 🛠️ Build or Customize
+## **Build or Customize**
 
 ```bash
 git clone https://github.com/your-user/macos-focusly.git
@@ -202,7 +204,7 @@ Current coverage focuses on `ProfileStore` persistence and preset override logic
 
 ---
 
-## 📜 License
+## **License**
 
 Released under the **MIT License** - see [LICENSE](./LICENSE) for details.
 
