@@ -10,7 +10,7 @@ struct PresetLibrary {
             FocusPreset(id: "dark", name: localization.localized("Dark", fallback: "Dark"), style: .dark),
             FocusPreset(id: "white", name: localization.localized("White", fallback: "White"), style: .whiteOverlay),
             FocusPreset(id: "paper", name: localization.localized("Paper", fallback: "Paper"), style: .paper),
-            FocusPreset(id: "colorful", name: localization.localized("Colorful", fallback: "Colorful"), style: .colorful)
+            FocusPreset(id: "colorful", name: localization.localized("Ocean", fallback: "Ocean"), style: .colorful)
         ]
     }
 

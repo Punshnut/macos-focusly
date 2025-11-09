@@ -16,8 +16,8 @@ enum StatusBarIconStyle: String, CaseIterable, Codable, Equatable, Hashable {
         switch self {
         case .dot:
             return localization.localized(
-                "Minimal Dot",
-                fallback: "Minimal Dot"
+                "Standard Icon",
+                fallback: "Standard Icon"
             )
         case .halo:
             return localization.localized(
@@ -279,7 +279,7 @@ final class StatusBarController: NSObject {
 
         quickMenu.addItem(.separator())
 
-        let presetsTitle = localized("Presets")
+        let presetsTitle = localization.localized("Preset", fallback: "Preset")
         let presetsHeader = NSMenuItem(title: presetsTitle, action: nil, keyEquivalent: "")
         presetsHeader.isEnabled = false
         presetsHeader.attributedTitle = compactAttributedTitle(presetsTitle)
@@ -290,13 +290,6 @@ final class StatusBarController: NSObject {
         }
 
         quickMenu.addItem(.separator())
-
-        let hotkeyTitle = localized(state.hotkeysEnabled ? "Disable Shortcut" : "Enable Shortcut")
-        let hotkeyItem = NSMenuItem(title: hotkeyTitle, action: #selector(toggleHotkeys), keyEquivalent: "")
-        hotkeyItem.target = self
-        hotkeyItem.state = state.hotkeysEnabled ? .on : .off
-        hotkeyItem.isEnabled = state.hasShortcut
-        quickMenu.addItem(hotkeyItem)
 
         if state.isLaunchAtLoginAvailable {
             let loginTitle = localized("Launch at Login")

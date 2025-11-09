@@ -710,8 +710,8 @@ final class FocuslyAppCoordinator: NSObject {
                     fallback: "3. Pick a filter"
                 ),
                 message: localization.localized(
-                    "Open Preferences to choose opacity, tint, and one of the Focus, Warm, Colorful, or Monochrome presets per display.",
-                    fallback: "Open Preferences to choose opacity, tint, and one of the Focus, Warm, Colorful, or Monochrome presets per display."
+                    "Open Preferences to choose opacity, tint, and one of the Focus, Warm, Ocean, or Monochrome presets per display.",
+                    fallback: "Open Preferences to choose opacity, tint, and one of the Focus, Warm, Ocean, or Monochrome presets per display."
                 ),
                 systemImageName: "paintpalette"
             ),

@@ -3,15 +3,15 @@
 This guide walks through the macOS settings window and the first-run tips that help Focusly keep distractions out of view.
 
 ## Opening Focusly Settings
-- Launch Focusly and look for the status bar icon (Minimal Dot, Halo, or Equalizer depending on your current style).
+- Launch Focusly and look for the status bar icon (Standard Icon, Halo, or Equalizer depending on your current style).
 - Click the icon and choose `Preferences…`, or press `⌘,` while Focusly is active, to open the Preferences window.
 - The window is scrollable; sections flow from appearance tweaks to automation and language.
 
 ## Settings Dialog Tour
 
 ### Appearance
-- `Focus Preset`: Pick Smart Blur, Warm, Colorful, or Monochrome. Switching presets updates every display instantly.
-- `Status Bar Icon`: Toggle between Minimal Dot, Halo, and Equalizer to match your menu bar.
+- `Focus Preset`: Pick Smart Blur, Warm, Ocean, or Monochrome. Switching presets updates every display instantly.
+- `Status Bar Icon`: Toggle between Standard Icon, Halo, and Equalizer to match your menu bar.
 - Tip: Pair a softer preset with the icon style that is easiest to glance at without pulling focus.
 
 ### Window Tracking Performance
@@ -48,7 +48,7 @@ This guide walks through the macOS settings window and the first-run tips that h
 ## First-Startup Tips for Staying Focused
 1. **Switch overlays on**: From the quick menu, toggle `Enable Overlays` for each monitor to soften background clutter.
 2. **Shift-click for focus**: Holding Shift while clicking the status icon cycles between masking just the focused window or every window in the active app, per display.
-3. **Pick a preset per space**: Smart Blur is ideal for neutral focus, Warm suits evening work, Colorful brightens presentations, and Monochrome keeps reference monitors subtle.
+3. **Pick a preset per space**: Smart Blur is ideal for neutral focus, Warm suits evening work, Ocean brightens presentations, and Monochrome keeps reference monitors subtle.
 4. **Dial in per-display tuning**: Adjust overlay strength lower on displays where you keep messaging apps, and increase blur on the main workspace to block busy wallpapers.
 5. **Set your controls**: Capture both hotkeys—one for enabling overlays, one for cycling the masking mode—and enable Launch at Login so Focusly is always ready.
 6. **Revisit onboarding after changes**: Any time you rearrange displays or swap presets, relaunch the introduction from the status bar to refresh muscle memory for the quickest controls.

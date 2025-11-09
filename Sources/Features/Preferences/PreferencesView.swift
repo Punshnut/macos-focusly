@@ -1304,11 +1304,34 @@ private enum WindowControlKind: CaseIterable, Identifiable {
             return Color(red: 0.19, green: 0.81, blue: 0.29)
         }
     }
+
+    var accessibilityLocalizationKey: String {
+        switch self {
+        case .close:
+            return "WindowControls.Accessibility.Close"
+        case .minimize:
+            return "WindowControls.Accessibility.Minimize"
+        case .zoom:
+            return "WindowControls.Accessibility.Zoom"
+        }
+    }
+
+    var accessibilityFallback: String {
+        switch self {
+        case .close:
+            return "Close window button"
+        case .minimize:
+            return "Minimize window button"
+        case .zoom:
+            return "Zoom window button"
+        }
+    }
 }
 
 private struct WindowControlDot: View {
     let kind: WindowControlKind
     let action: () -> Void
+    @EnvironmentObject private var localization: LocalizationService
 
     var body: some View {
         Button(action: action) {
@@ -1321,7 +1344,9 @@ private struct WindowControlDot: View {
                 )
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(Text("\(kind.id.capitalized) window button"))
+        .accessibilityLabel(
+            Text(localization.localized(kind.accessibilityLocalizationKey, fallback: kind.accessibilityFallback))
+        )
     }
 }
 
