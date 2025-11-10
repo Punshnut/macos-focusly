@@ -65,6 +65,7 @@ final class FocuslyAppCoordinator: NSObject {
     /// Wires up all runtime services and restores persisted state for a new app session.
     init(environment: FocuslyEnvironment, overlayCoordinator: OverlayController) {
         self.environment = environment
+        ApplicationMaskingIgnoreList.configureShared(userDefaults: environment.userDefaults)
         self.globalSettings = AppSettings()
         self.overlayProfileStore = ProfileStore(userDefaults: environment.userDefaults)
         self.overlayService = OverlayService(profileStore: overlayProfileStore, appSettings: globalSettings)
@@ -581,7 +582,11 @@ final class FocuslyAppCoordinator: NSObject {
     private func updateLastNonSelfPID(with application: NSRunningApplication?) {
         guard let application else { return }
         let currentPID = ProcessInfo.processInfo.processIdentifier
-        if application.processIdentifier != currentPID {
+        if application.processIdentifier != currentPID,
+           !ApplicationMaskingIgnoreList.shared.shouldIgnore(
+               bundleIdentifier: application.bundleIdentifier,
+               processName: application.localizedName
+           ) {
             lastKnownExternalPID = application.processIdentifier
         }
     }

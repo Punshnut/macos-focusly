@@ -14,7 +14,13 @@ func resolveActiveWindowSnapshot(
     preferredPID: pid_t? = nil,
     includeAllApplicationWindows: Bool = true
 ) -> ActiveWindowSnapshot? {
-    if let frontWindow = cgFrontWindow(excluding: windowNumbers, preferredPID: preferredPID, includeApplicationWindows: includeAllApplicationWindows) {
+    let resolvedPreferredPID = resolvedPreferredProcessIdentifier(preferredPID)
+
+    if let frontWindow = cgFrontWindow(
+        excluding: windowNumbers,
+        preferredPID: resolvedPreferredPID,
+        includeApplicationWindows: includeAllApplicationWindows
+    ) {
         let resolvedCornerRadius = (
             frontWindow.cornerRadius ??
             axActiveWindowCornerRadius(preferredPID: frontWindow.ownerPID) ??
@@ -27,12 +33,16 @@ func resolveActiveWindowSnapshot(
         )
     }
 
-    guard let snapshot = axActiveWindowSnapshot(preferredPID: preferredPID) else {
+    guard let snapshot = axActiveWindowSnapshot(preferredPID: resolvedPreferredPID) else {
+        return nil
+    }
+
+    if resolvedPreferredPID == nil, isFrontmostApplicationIgnoredForMasking() {
         return nil
     }
 
     let supplementaryMasks = resolveSupplementaryMasks(
-        primaryPID: NSWorkspace.shared.frontmostApplication?.processIdentifier,
+        primaryPID: frontmostApplicationProcessIdentifierForMasking(),
         excludingWindowNumbers: windowNumbers,
         includeApplicationWindows: includeAllApplicationWindows
     )
@@ -52,10 +62,11 @@ func resolveActiveWindowFrame(
     excluding windowNumbers: Set<Int> = [],
     preferredPID: pid_t? = nil
 ) -> NSRect? {
-    if let frontWindow = cgFrontWindow(excluding: windowNumbers, preferredPID: preferredPID) {
+    let resolvedPreferredPID = resolvedPreferredProcessIdentifier(preferredPID)
+    if let frontWindow = cgFrontWindow(excluding: windowNumbers, preferredPID: resolvedPreferredPID) {
         return frontWindow.frame
     }
-    return axActiveWindowSnapshot(preferredPID: preferredPID)?.frame
+    return axActiveWindowSnapshot(preferredPID: resolvedPreferredPID)?.frame
 }
 
 /// CoreGraphics-only variant to avoid touching the Accessibility APIs.
@@ -64,7 +75,8 @@ func resolveActiveWindowFrameUsingCoreGraphics(
     excluding windowNumbers: Set<Int> = [],
     preferredPID: pid_t? = nil
 ) -> NSRect? {
-    cgFrontWindow(excluding: windowNumbers, preferredPID: preferredPID)?.frame
+    let resolvedPreferredPID = resolvedPreferredProcessIdentifier(preferredPID)
+    return cgFrontWindow(excluding: windowNumbers, preferredPID: resolvedPreferredPID)?.frame
 }
 
 /// Metadata representing the window currently at the front of the CoreGraphics list.
@@ -90,28 +102,26 @@ private func cgFrontWindow(
     }
 
     var cornerSnapshotCache: [pid_t: [AXWindowCornerSnapshot]] = [:]
+    var bundleIdentifierCache: [pid_t: String?] = [:]
 
     let candidateWindowList = Array(completeWindowList.prefix(24))
     let resolvedPreferredPID: pid_t? = {
         if let preferredPID {
             return preferredPID
         }
-        if let frontmostPID = NSWorkspace.shared.frontmostApplication?.processIdentifier,
-           frontmostPID != ProcessInfo.processInfo.processIdentifier {
-            return frontmostPID
-        }
-        return nil
+        return frontmostApplicationProcessIdentifierForMasking()
     }()
 
     if let targetPID = resolvedPreferredPID,
-       let preferredFrontWindow = findFrontWindow(in: candidateWindowList, excluding: windowNumbers, preferredPID: targetPID)
-            ?? findFrontWindow(in: completeWindowList, excluding: windowNumbers, preferredPID: targetPID) {
+       let preferredFrontWindow = findFrontWindow(in: candidateWindowList, excluding: windowNumbers, preferredPID: targetPID, bundleIdentifierCache: &bundleIdentifierCache)
+            ?? findFrontWindow(in: completeWindowList, excluding: windowNumbers, preferredPID: targetPID, bundleIdentifierCache: &bundleIdentifierCache) {
         let supplementaryRegions = collectSupplementaryMasks(
             in: completeWindowList,
             primaryPID: preferredFrontWindow.ownerPID,
             excludingNumbers: windowNumbers.union([preferredFrontWindow.windowNumber]),
             includeApplicationWindows: includeApplicationWindows,
-            cornerSnapshotCache: &cornerSnapshotCache
+            cornerSnapshotCache: &cornerSnapshotCache,
+            bundleIdentifierCache: &bundleIdentifierCache
         )
 
         let resolvedCornerRadius = resolveCornerRadiusForWindow(
@@ -129,8 +139,8 @@ private func cgFrontWindow(
         )
     }
 
-    let candidateFrontWindow = findFrontWindow(in: candidateWindowList, excluding: windowNumbers, preferredPID: nil)
-        ?? findFrontWindow(in: completeWindowList, excluding: windowNumbers, preferredPID: nil)
+    let candidateFrontWindow = findFrontWindow(in: candidateWindowList, excluding: windowNumbers, preferredPID: nil, bundleIdentifierCache: &bundleIdentifierCache)
+        ?? findFrontWindow(in: completeWindowList, excluding: windowNumbers, preferredPID: nil, bundleIdentifierCache: &bundleIdentifierCache)
 
     guard let resolvedFrontWindow = candidateFrontWindow else {
         return nil
@@ -141,7 +151,8 @@ private func cgFrontWindow(
         primaryPID: resolvedFrontWindow.ownerPID,
         excludingNumbers: windowNumbers.union([resolvedFrontWindow.windowNumber]),
         includeApplicationWindows: includeApplicationWindows,
-        cornerSnapshotCache: &cornerSnapshotCache
+        cornerSnapshotCache: &cornerSnapshotCache,
+        bundleIdentifierCache: &bundleIdentifierCache
     )
 
     let resolvedCornerRadius = resolveCornerRadiusForWindow(
@@ -160,10 +171,12 @@ private func cgFrontWindow(
 }
 
 /// Walks window dictionaries looking for the topmost candidate the overlay should carve out.
+@MainActor
 private func findFrontWindow(
     in windowDictionaries: [[String: Any]],
     excluding windowNumbers: Set<Int>,
-    preferredPID: pid_t?
+    preferredPID: pid_t?,
+    bundleIdentifierCache: inout [pid_t: String?]
 ) -> CGFrontWindowSnapshot? {
     var fallbackSnapshot: CGFrontWindowSnapshot?
 
@@ -187,6 +200,15 @@ private func findFrontWindow(
         } else if let pidValue = windowDictionary[kCGWindowOwnerPID as String] as? pid_t {
             resolvedProcessID = pidValue
         } else {
+            continue
+        }
+
+        let ownerApplicationName = windowDictionary[kCGWindowOwnerName as String] as? String
+        if shouldIgnoreWindowForMasking(
+            pid: resolvedProcessID,
+            ownerName: ownerApplicationName,
+            bundleIdentifierCache: &bundleIdentifierCache
+        ) {
             continue
         }
 
@@ -223,7 +245,8 @@ private func collectSupplementaryMasks(
     primaryPID: pid_t?,
     excludingNumbers: Set<Int>,
     includeApplicationWindows: Bool,
-    cornerSnapshotCache: inout [pid_t: [AXWindowCornerSnapshot]]
+    cornerSnapshotCache: inout [pid_t: [AXWindowCornerSnapshot]],
+    bundleIdentifierCache: inout [pid_t: String?]
 ) -> [ActiveWindowSnapshot.MaskRegion] {
     var maskRegions: [ActiveWindowSnapshot.MaskRegion] = []
     var visitedWindowNumbers: Set<Int> = []
@@ -252,6 +275,13 @@ private func collectSupplementaryMasks(
         }
 
         let ownerApplicationName = window[kCGWindowOwnerName as String] as? String
+        if shouldIgnoreWindowForMasking(
+            pid: resolvedProcessID,
+            ownerName: ownerApplicationName,
+            bundleIdentifierCache: &bundleIdentifierCache
+        ) {
+            continue
+        }
         let normalizedOwnerName = ownerApplicationName?
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased() ?? ""
@@ -367,12 +397,14 @@ private func resolveSupplementaryMasks(
         return []
     }
     var cornerSnapshotCache: [pid_t: [AXWindowCornerSnapshot]] = [:]
+    var bundleIdentifierCache: [pid_t: String?] = [:]
     return collectSupplementaryMasks(
         in: completeWindowList,
         primaryPID: primaryPID,
         excludingNumbers: excludingWindowNumbers,
         includeApplicationWindows: includeApplicationWindows,
-        cornerSnapshotCache: &cornerSnapshotCache
+        cornerSnapshotCache: &cornerSnapshotCache,
+        bundleIdentifierCache: &bundleIdentifierCache
     )
 }
 
@@ -594,4 +626,79 @@ private func fallbackCornerRadius(for frame: NSRect) -> CGFloat {
 
     // Earlier macOS releases keep a consistent ~12pt rounding across standard document windows.
     return min(12, minDimension / 2)
+}
+
+/// Determines which process identifier should be preferred when locating the front window.
+@MainActor
+private func resolvedPreferredProcessIdentifier(_ preferredPID: pid_t?) -> pid_t? {
+    if let preferredPID {
+        return shouldIgnoreProcessIdentifier(preferredPID) ? nil : preferredPID
+    }
+    return frontmostApplicationProcessIdentifierForMasking()
+}
+
+/// Returns the current frontmost app's PID when it is safe to use for masking.
+@MainActor
+private func frontmostApplicationProcessIdentifierForMasking() -> pid_t? {
+    guard let frontmostApp = NSWorkspace.shared.frontmostApplication else { return nil }
+    if frontmostApp.processIdentifier == ProcessInfo.processInfo.processIdentifier {
+        return nil
+    }
+    if ApplicationMaskingIgnoreList.shared.shouldIgnore(
+        bundleIdentifier: frontmostApp.bundleIdentifier,
+        processName: frontmostApp.localizedName
+    ) {
+        return nil
+    }
+    return frontmostApp.processIdentifier
+}
+
+/// Checks whether the frontmost app is currently part of the ignore list.
+@MainActor
+private func isFrontmostApplicationIgnoredForMasking() -> Bool {
+    guard let frontmostApp = NSWorkspace.shared.frontmostApplication else { return false }
+    return ApplicationMaskingIgnoreList.shared.shouldIgnore(
+        bundleIdentifier: frontmostApp.bundleIdentifier,
+        processName: frontmostApp.localizedName
+    )
+}
+
+/// Determines whether a process identifier should be ignored entirely.
+@MainActor
+private func shouldIgnoreProcessIdentifier(_ processID: pid_t) -> Bool {
+    guard let application = NSRunningApplication(processIdentifier: processID) else {
+        return false
+    }
+    return ApplicationMaskingIgnoreList.shared.shouldIgnore(
+        bundleIdentifier: application.bundleIdentifier,
+        processName: application.localizedName
+    )
+}
+
+/// Resolves whether a specific window should be skipped because its owning application is ignored.
+@MainActor
+private func shouldIgnoreWindowForMasking(
+    pid: pid_t?,
+    ownerName: String?,
+    bundleIdentifierCache: inout [pid_t: String?]
+) -> Bool {
+    let identifier: String?
+    if let pid {
+        identifier = cachedBundleIdentifier(for: pid, cache: &bundleIdentifierCache)
+    } else {
+        identifier = nil
+    }
+    return ApplicationMaskingIgnoreList.shared.shouldIgnore(bundleIdentifier: identifier, processName: ownerName)
+}
+
+/// Caches bundle identifiers for running processes to avoid repeated lookups.
+@MainActor
+private func cachedBundleIdentifier(for pid: pid_t, cache: inout [pid_t: String?]) -> String? {
+    if let cached = cache[pid] {
+        return cached
+    }
+    let resolvedIdentifier = NSRunningApplication(processIdentifier: pid)?.bundleIdentifier
+    let normalized = resolvedIdentifier.flatMap { $0.focuslyNormalizedToken() }
+    cache[pid] = normalized
+    return normalized
 }
