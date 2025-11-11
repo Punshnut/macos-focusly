@@ -357,6 +357,8 @@ struct PreferencesView: View {
             }
 
             displayManagementPanel
+
+            experimentalPanel
         }
     }
 
@@ -936,6 +938,40 @@ struct PreferencesView: View {
             Text(localized("Choose which language Focusly uses. Switch instantly to test translations."))
                 .font(.caption)
                 .foregroundColor(.secondary)
+        }
+    }
+
+    private var experimentalPanel: some View {
+        settingsPanel(
+            icon: "wand.and.stars",
+            titleKey: "Preferences.Interface.DockReveal",
+            fallbackTitle: "Dock & Stage Manager (Experimental)",
+            subtitleKey: "Preferences.Interface.DockReveal.Description",
+            subtitleFallback: "Early controls for how the Dock and Stage Manager clear the blur."
+        ) {
+            dockRevealControls
+        }
+    }
+
+    private var dockRevealControls: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Toggle(isOn: Binding(
+                get: { viewModel.desktopPeripheralRevealEnabled },
+                set: { viewModel.setDesktopPeripheralRevealEnabled($0) }
+            )) {
+                Text(localized(
+                    "Preferences.Interface.DockReveal.Toggle",
+                    fallback: "Reveal Dock & Stage Manager when desktop is focused"
+                ))
+            }
+            .toggleStyle(.switch)
+
+            Text(localized(
+                "Preferences.Interface.DockReveal.Detail",
+                fallback: "Automatically clear blur around the Dock and Stage Manager when every window is minimized or the desktop is active."
+            ))
+            .font(.caption)
+            .foregroundColor(.secondary)
         }
     }
 

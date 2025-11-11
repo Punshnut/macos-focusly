@@ -11,7 +11,7 @@
 
 <p align="center">
   <a href="https://github.com/Punshnut/macos-focusly/releases/latest">
-    <img src="https://img.shields.io/badge/Download-Alpha%200.2-blueviolet?style=for-the-badge" alt="Download Alpha 0.3">
+    <img src="https://img.shields.io/badge/Download-Alpha%200.3-blueviolet?style=for-the-badge" alt="Download Alpha 0.3">
   </a>
   <a href="https://github.com/Punshnut/macos-focusly/issues/new/choose">
     <img src="https://img.shields.io/badge/Share%20feedback-Issue%20tracker-ff7f50?style=for-the-badge" alt="Share feedback">

@@ -16,6 +16,7 @@ final class FocuslyAppCoordinator: NSObject {
         static let trackingProfile = "Focusly.WindowTrackingProfile"
         static let preferencesWindowGlassy = "Focusly.Preferences.GlassyChrome"
         static let maskingModes = "Focusly.DisplayMaskingModes"
+        static let desktopPeripheralReveal = "Focusly.DesktopPeripheralRevealEnabled"
     }
 
     private let environment: FocuslyEnvironment
@@ -31,6 +32,7 @@ final class FocuslyAppCoordinator: NSObject {
     private var localizationCancellable: AnyCancellable?
     private var trackingProfileCancellable: AnyCancellable?
     private var preferencesWindowAppearanceCancellable: AnyCancellable?
+    private var desktopPeripheralRevealCancellable: AnyCancellable?
 
     private var preferencesWindow: PreferencesWindowController?
     private var preferencesScreenModel: PreferencesViewModel?
@@ -98,6 +100,9 @@ final class FocuslyAppCoordinator: NSObject {
         if let storedGlassyPreference = defaults.object(forKey: UserDefaultsKey.preferencesWindowGlassy) as? Bool {
             globalSettings.preferencesWindowGlassy = storedGlassyPreference
         }
+        if let storedDesktopReveal = defaults.object(forKey: UserDefaultsKey.desktopPeripheralReveal) as? Bool {
+            globalSettings.desktopPeripheralRevealEnabled = storedDesktopReveal
+        }
         displayMaskingModes = FocuslyAppCoordinator.loadMaskingModes(from: defaults)
 
         super.init()
@@ -106,6 +111,7 @@ final class FocuslyAppCoordinator: NSObject {
         observeApplicationActivation()
         overlayService.delegate = overlayCoordinator
         overlayCoordinator.updateTrackingProfile(globalSettings.windowTrackingProfile)
+        overlayCoordinator.setDesktopPeripheralRevealEnabled(globalSettings.desktopPeripheralRevealEnabled)
         statusBarController.setDelegate(self)
         hotkeyCenter.setHandler({ [weak self] in
             self?.toggleOverlayActivation()
@@ -139,6 +145,15 @@ final class FocuslyAppCoordinator: NSObject {
                 guard let self else { return }
                 self.persistPreferencesWindowAppearance(isGlassy)
                 self.preferencesScreenModel?.preferencesWindowGlassy = isGlassy
+            }
+
+        desktopPeripheralRevealCancellable = globalSettings.$desktopPeripheralRevealEnabled
+            .removeDuplicates()
+            .sink { [weak self] isEnabled in
+                guard let self else { return }
+                self.persistDesktopPeripheralRevealPreference(isEnabled)
+                self.overlayCoordinator.setDesktopPeripheralRevealEnabled(isEnabled)
+                self.preferencesScreenModel?.desktopPeripheralRevealEnabled = isEnabled
             }
     }
 
@@ -323,6 +338,11 @@ final class FocuslyAppCoordinator: NSObject {
         environment.userDefaults.set(isGlassy, forKey: UserDefaultsKey.preferencesWindowGlassy)
     }
 
+    /// Persists whether Dock/Stage Manager should automatically clear blur on the desktop.
+    private func persistDesktopPeripheralRevealPreference(_ isEnabled: Bool) {
+        environment.userDefaults.set(isEnabled, forKey: UserDefaultsKey.desktopPeripheralReveal)
+    }
+
     /// Restores a previously persisted hotkey shortcut if one exists.
     private static func loadHotkeyShortcut(from defaults: UserDefaults, key: String) -> HotkeyShortcut? {
         guard let persistedData = defaults.data(forKey: key) else { return nil }
@@ -392,6 +412,7 @@ final class FocuslyAppCoordinator: NSObject {
             preferencesScreenModel?.selectedPresetIdentifier = overlayProfileStore.currentPreset().id
             preferencesScreenModel?.trackingProfile = globalSettings.windowTrackingProfile
             preferencesScreenModel?.preferencesWindowGlassy = globalSettings.preferencesWindowGlassy
+            preferencesScreenModel?.desktopPeripheralRevealEnabled = globalSettings.desktopPeripheralRevealEnabled
             let userEntries = ApplicationMaskingIgnoreList.shared.userEntries()
             let builtInEntries = ApplicationMaskingIgnoreList.shared.activeBuiltInEntries()
             preferencesScreenModel?.refreshApplicationExceptions(
@@ -417,6 +438,7 @@ final class FocuslyAppCoordinator: NSObject {
             trackingProfile: globalSettings.windowTrackingProfile,
             trackingProfileOptions: WindowTrackingProfile.allCases,
             preferencesWindowGlassy: globalSettings.preferencesWindowGlassy,
+            desktopPeripheralRevealEnabled: globalSettings.desktopPeripheralRevealEnabled,
             applicationEntries: ApplicationMaskingIgnoreList.shared.userEntries(),
             suggestedApplicationEntries: ApplicationMaskingIgnoreList.shared.activeBuiltInEntries(),
             callbacks: PreferencesViewModel.Callbacks(
@@ -520,6 +542,9 @@ final class FocuslyAppCoordinator: NSObject {
                 },
                 onRemoveApplicationExceptions: { identifiers in
                     identifiers.forEach { ApplicationMaskingIgnoreList.shared.removeEntry(bundleIdentifier: $0) }
+                },
+                onToggleDesktopPeripheralReveal: { [weak self] isEnabled in
+                    self?.globalSettings.desktopPeripheralRevealEnabled = isEnabled
                 }
             )
         )

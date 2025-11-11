@@ -19,10 +19,16 @@ final class OverlayController {
     }
 
     /// Describes a single carve-out request that will be applied to an overlay mask.
-    private struct MaskRequest {
+    private struct MaskRequest: Equatable {
         let rect: NSRect
         let cornerRadius: CGFloat
         let purpose: ActiveWindowSnapshot.MaskRegion.Purpose?
+
+        static func == (lhs: MaskRequest, rhs: MaskRequest) -> Bool {
+            lhs.rect.isApproximatelyEqual(to: rhs.rect, tolerance: 0.05) &&
+            abs(lhs.cornerRadius - rhs.cornerRadius) <= 0.05 &&
+            lhs.purpose == rhs.purpose
+        }
     }
 
     private let interactionBoostDuration: TimeInterval = 0.6
@@ -42,6 +48,13 @@ final class OverlayController {
     private var cachedSnapshotsByDisplayID: [DisplayID: ActiveWindowSnapshot] = [:]
     private var activeDisplayID: DisplayID?
     private var pointerInteractionMonitor: PointerInteractionMonitor?
+    private var pointerHoverMonitor: PointerHoverMonitor?
+    private var lastPointerLocation: NSPoint?
+    private var peripheralMaskRequestsByDisplayID: [DisplayID: [MaskRequest]] = [:]
+    private var cachedPeripheralRegions: [PeripheralInterfaceRegion] = []
+    private var lastPeripheralRegionRefresh = Date.distantPast
+    private let peripheralRegionCacheLifetime: TimeInterval = 0.25
+    private var isDesktopPeripheralRevealEnabled = true
     private lazy var supplementalSnapshotDisplayLink = DisplayLinkDriver { [weak self] in
         guard let self else { return }
         self.handleDisplayLinkTick()
@@ -72,6 +85,7 @@ final class OverlayController {
         guard !isMonitoringActive else { return }
         isMonitoringActive = true
         configurePointerInteractionMonitoring()
+        startPointerHoverMonitoring()
         startPolling()
         applyCachedOverlayMask()
         if cachedActiveSnapshot == nil {
@@ -85,6 +99,7 @@ final class OverlayController {
         isMonitoringActive = false
         stopPolling()
         stopPointerInteractionMonitoring()
+        stopPointerHoverMonitoring()
         stopDisplayLinkIfNeeded()
         cachedActiveSnapshot = nil
         cachedSnapshotsByDisplayID.removeAll()
@@ -156,6 +171,13 @@ final class OverlayController {
         applyCachedOverlayMask()
     }
 
+    /// Enables or disables automatic Dock/Stage Manager reveal when only the desktop is focused.
+    func setDesktopPeripheralRevealEnabled(_ enabled: Bool) {
+        guard isDesktopPeripheralRevealEnabled != enabled else { return }
+        isDesktopPeripheralRevealEnabled = enabled
+        rebuildPeripheralHoverState()
+    }
+
     /// Replaces the overlay window map, cleaning up removed displays and applying cached masks.
     func refreshOverlayWindows(_ updatedOverlayWindows: [DisplayID: OverlayWindow]) {
         let previousOverlayWindows = overlayWindowsByDisplayID
@@ -178,6 +200,8 @@ final class OverlayController {
             applyCachedOverlayMask()
         }
         updateApplicationWideSnapshotFlag()
+        refreshPeripheralRegionsIfNeeded(force: true)
+        updatePeripheralHoverState(for: NSEvent.mouseLocation)
     }
 
     /// Applies the supplied snapshot to all overlays, carving out the focused window and related UI.
@@ -186,7 +210,8 @@ final class OverlayController {
             cachedActiveSnapshot = nil
             cachedSnapshotsByDisplayID.removeAll()
             activeDisplayID = nil
-            overlayWindowsByDisplayID.values.forEach { $0.applyMask(regions: []) }
+            rebuildPeripheralHoverState()
+            applyOverlayMasksFromCache()
             return
         }
 
@@ -258,6 +283,8 @@ final class OverlayController {
         } else {
             activeDisplayID = nil
         }
+
+        rebuildPeripheralHoverState()
     }
 
     /// Applies cached highlight regions to every overlay window.
@@ -268,22 +295,31 @@ final class OverlayController {
         var staleDisplayIDs: [DisplayID] = []
 
         for (displayID, window) in overlayWindowsByDisplayID {
+            var applied = false
+
             if let cachedSnapshot = cachedSnapshotsByDisplayID[displayID] {
                 if apply(snapshot: cachedSnapshot, to: window, displayID: displayID) {
                     didApplyMask = true
-                    continue
+                    applied = true
                 } else {
                     staleDisplayIDs.append(displayID)
                 }
             }
 
-            if let fallbackSnapshot = cachedActiveSnapshot,
+            if !applied, let fallbackSnapshot = cachedActiveSnapshot,
                apply(snapshot: fallbackSnapshot, to: window, displayID: displayID) {
                 cachedSnapshotsByDisplayID[displayID] = fallbackSnapshot
                 activeDisplayID = displayID
                 didApplyMask = true
-            } else {
-                window.applyMask(regions: [])
+                applied = true
+            }
+
+            if !applied {
+                if applyPeripheralMasksIfNeeded(to: window, displayID: displayID) {
+                    didApplyMask = true
+                } else {
+                    window.applyMask(regions: [])
+                }
             }
         }
 
@@ -296,19 +332,53 @@ final class OverlayController {
             }
         }
 
-        if !didApplyMask, cachedSnapshotsByDisplayID.isEmpty, cachedActiveSnapshot == nil {
+        if !didApplyMask,
+           cachedSnapshotsByDisplayID.isEmpty,
+           cachedActiveSnapshot == nil,
+           peripheralMaskRequestsByDisplayID.isEmpty {
             overlayWindowsByDisplayID.values.forEach { $0.applyMask(regions: []) }
         }
     }
 
     /// Converts an active window snapshot into overlay mask regions for the supplied window.
     private func apply(snapshot: ActiveWindowSnapshot, to window: OverlayWindow, displayID: DisplayID) -> Bool {
+        var requests = maskRequests(for: snapshot, mode: maskingMode(for: displayID))
+        if let peripheralRequests = peripheralMaskRequestsByDisplayID[displayID], !peripheralRequests.isEmpty {
+            requests.append(contentsOf: peripheralRequests)
+        }
+        return apply(maskRequests: requests, to: window)
+    }
+
+    /// Builds mask requests for the supplied snapshot including supplementary carve-outs.
+    private func maskRequests(for snapshot: ActiveWindowSnapshot, mode: ApplicationMaskingMode) -> [MaskRequest] {
+        var requests: [MaskRequest] = [
+            MaskRequest(
+                rect: snapshot.frame,
+                cornerRadius: snapshot.cornerRadius,
+                purpose: .applicationWindow
+            )
+        ]
+
+        if !snapshot.supplementaryMasks.isEmpty {
+            for region in snapshot.supplementaryMasks {
+                if region.purpose == .applicationWindow, mode == .focusedWindow {
+                    continue
+                }
+                requests.append(
+                    MaskRequest(rect: region.frame, cornerRadius: region.cornerRadius, purpose: region.purpose)
+                )
+            }
+        }
+
+        return requests
+    }
+
+    /// Applies the supplied mask requests to the overlay window, accounting for blur tolerances.
+    private func apply(maskRequests: [MaskRequest], to window: OverlayWindow) -> Bool {
         guard let contentView = window.contentView else {
             window.applyMask(regions: [])
             return false
         }
-
-        let maskRequests = maskRequests(for: snapshot, mode: maskingMode(for: displayID))
         guard !maskRequests.isEmpty else {
             window.applyMask(regions: [])
             return false
@@ -316,6 +386,7 @@ final class OverlayController {
 
         let windowScreenFrame = window.frame
         var maskRegions: [OverlayWindow.MaskRegion] = []
+        maskRegions.reserveCapacity(maskRequests.count)
 
         let backingScale = window.backingScaleFactor
 
@@ -364,28 +435,13 @@ final class OverlayController {
         return true
     }
 
-    /// Builds mask requests for the supplied snapshot including supplementary carve-outs.
-    private func maskRequests(for snapshot: ActiveWindowSnapshot, mode: ApplicationMaskingMode) -> [MaskRequest] {
-        var requests: [MaskRequest] = [
-            MaskRequest(
-                rect: snapshot.frame,
-                cornerRadius: snapshot.cornerRadius,
-                purpose: .applicationWindow
-            )
-        ]
-
-        if !snapshot.supplementaryMasks.isEmpty {
-            for region in snapshot.supplementaryMasks {
-                if region.purpose == .applicationWindow, mode == .focusedWindow {
-                    continue
-                }
-                requests.append(
-                    MaskRequest(rect: region.frame, cornerRadius: region.cornerRadius, purpose: region.purpose)
-                )
-            }
+    /// Applies only peripheral carve-outs when no active window snapshot is available.
+    private func applyPeripheralMasksIfNeeded(to window: OverlayWindow, displayID: DisplayID) -> Bool {
+        guard let requests = peripheralMaskRequestsByDisplayID[displayID], !requests.isEmpty else {
+            window.applyMask(regions: [])
+            return false
         }
-
-        return requests
+        return apply(maskRequests: requests, to: window)
     }
 
     /// Attempts to map a window frame to a connected display identifier.
@@ -538,6 +594,142 @@ final class OverlayController {
         pointerInteractionMonitor = nil
         interactionBoostExpiration = nil
         stopDisplayLinkIfNeeded()
+    }
+
+    /// Begins tracking global pointer movement so Dock/Stage Manager can be carved out on hover.
+    private func startPointerHoverMonitoring() {
+        if pointerHoverMonitor == nil {
+            pointerHoverMonitor = PointerHoverMonitor { [weak self] location in
+                guard let self else { return }
+                self.updatePeripheralHoverState(for: location)
+            }
+        }
+        pointerHoverMonitor?.start()
+        let initialLocation = NSEvent.mouseLocation
+        lastPointerLocation = initialLocation
+        refreshPeripheralRegionsIfNeeded(force: true)
+        updatePeripheralHoverState(for: initialLocation)
+    }
+
+    /// Stops hover tracking and clears any stale peripheral carve-outs.
+    private func stopPointerHoverMonitoring() {
+        pointerHoverMonitor?.stop()
+        pointerHoverMonitor = nil
+        lastPointerLocation = nil
+        cachedPeripheralRegions = []
+        lastPeripheralRegionRefresh = .distantPast
+        if !peripheralMaskRequestsByDisplayID.isEmpty {
+            peripheralMaskRequestsByDisplayID.removeAll()
+            if isMonitoringActive {
+                applyCachedOverlayMask()
+            }
+        }
+    }
+
+    /// Keeps peripheral region caches fresh without hammering CoreGraphics every mouse move.
+    private func refreshPeripheralRegionsIfNeeded(force: Bool = false) {
+        let now = Date()
+        if !force, now.timeIntervalSince(lastPeripheralRegionRefresh) < peripheralRegionCacheLifetime {
+            return
+        }
+        let exclusionNumbers = activeOverlayWindowNumbers()
+        cachedPeripheralRegions = resolvePeripheralInterfaceRegions(excluding: exclusionNumbers)
+        lastPeripheralRegionRefresh = now
+    }
+
+    /// Recomputes hover-dependent carve-outs for Dock/Stage Manager surfaces.
+    private func updatePeripheralHoverState(for location: NSPoint) {
+        guard isMonitoringActive else { return }
+        lastPointerLocation = location
+        refreshPeripheralRegionsIfNeeded()
+        let revealAll = shouldForcePeripheralReveal()
+        let updatedRequests = buildPeripheralMaskRequests(for: location, forceRevealAll: revealAll)
+        if peripheralRequestsAreEqual(updatedRequests, peripheralMaskRequestsByDisplayID) {
+            return
+        }
+        peripheralMaskRequestsByDisplayID = updatedRequests
+        applyCachedOverlayMask()
+    }
+
+    /// Reapplies the current hover state using the last known pointer position.
+    private func rebuildPeripheralHoverState() {
+        let location = lastPointerLocation ?? NSEvent.mouseLocation
+        updatePeripheralHoverState(for: location)
+    }
+
+    /// Builds mask requests for any peripheral region currently under the pointer.
+    private func buildPeripheralMaskRequests(for location: NSPoint, forceRevealAll: Bool) -> [DisplayID: [MaskRequest]] {
+        guard !cachedPeripheralRegions.isEmpty else { return [:] }
+        var requests: [DisplayID: [MaskRequest]] = [:]
+        for region in cachedPeripheralRegions {
+            if !forceRevealAll && !region.hoverRect.contains(location) {
+                continue
+            }
+            guard overlayWindowsByDisplayID[region.displayID] != nil else { continue }
+            let request = MaskRequest(rect: region.frame, cornerRadius: region.cornerRadius, purpose: .systemMenu)
+            requests[region.displayID, default: []].append(request)
+        }
+        return requests
+    }
+
+    /// Determines whether Dock/Stage Manager should be revealed regardless of pointer position.
+    private func shouldForcePeripheralReveal() -> Bool {
+        guard isDesktopPeripheralRevealEnabled else { return false }
+        return cachedActiveSnapshot == nil
+    }
+
+    /// Returns whether two dictionaries of mask requests describe the same carve-outs.
+    private func peripheralRequestsAreEqual(
+        _ lhs: [DisplayID: [MaskRequest]],
+        _ rhs: [DisplayID: [MaskRequest]]
+    ) -> Bool {
+        if lhs.count != rhs.count { return false }
+        for (displayID, leftRequests) in lhs {
+            guard var rightRequests = rhs[displayID] else { return false }
+            if leftRequests.count != rightRequests.count { return false }
+            rightRequests = sortedMaskRequests(rightRequests)
+            let sortedLeft = sortedMaskRequests(leftRequests)
+            for (left, right) in zip(sortedLeft, rightRequests) where left != right {
+                return false
+            }
+        }
+        return true
+    }
+
+    /// Produces a stable ordering for mask request comparisons.
+    private func sortedMaskRequests(_ requests: [MaskRequest]) -> [MaskRequest] {
+        requests.sorted { lhs, rhs in
+            if lhs.rect.origin.y != rhs.rect.origin.y {
+                return lhs.rect.origin.y < rhs.rect.origin.y
+            }
+            if lhs.rect.origin.x != rhs.rect.origin.x {
+                return lhs.rect.origin.x < rhs.rect.origin.x
+            }
+            if lhs.rect.size.width != rhs.rect.size.width {
+                return lhs.rect.size.width < rhs.rect.size.width
+            }
+            if lhs.rect.size.height != rhs.rect.size.height {
+                return lhs.rect.size.height < rhs.rect.size.height
+            }
+            if lhs.cornerRadius != rhs.cornerRadius {
+                return lhs.cornerRadius < rhs.cornerRadius
+            }
+            let lhsPurpose = lhs.purpose ?? .applicationWindow
+            let rhsPurpose = rhs.purpose ?? .applicationWindow
+            return maskPurposeRank(lhsPurpose) < maskPurposeRank(rhsPurpose)
+        }
+    }
+
+    /// Provides a deterministic ordering so peripheral requests stay stable.
+    private func maskPurposeRank(_ purpose: ActiveWindowSnapshot.MaskRegion.Purpose) -> Int {
+        switch purpose {
+        case .applicationWindow:
+            return 0
+        case .applicationMenu:
+            return 1
+        case .systemMenu:
+            return 2
+        }
     }
 
     /// Resets and schedules the polling timer with a new interval.

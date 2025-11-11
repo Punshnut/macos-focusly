@@ -8,4 +8,6 @@ final class AppSettings: ObservableObject {
     @Published var windowTrackingProfile: WindowTrackingProfile = .standard
     /// Controls whether the preferences window should use the legacy glassy chrome.
     @Published var preferencesWindowGlassy: Bool = false
+    /// Determines whether Dock/Stage Manager should clear the blur when only the desktop is focused.
+    @Published var desktopPeripheralRevealEnabled: Bool = false
 }

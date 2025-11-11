@@ -48,6 +48,7 @@ final class PreferencesViewModel: ObservableObject {
         var onTogglePreferencesWindowGlassy: (Bool) -> Void
         var onUpdateApplicationException: (ApplicationMaskingIgnoreList.Entry) -> Void
         var onRemoveApplicationExceptions: ([String]) -> Void
+        var onToggleDesktopPeripheralReveal: (Bool) -> Void
     }
 
     @Published var displaySettings: [DisplaySettings]
@@ -62,6 +63,7 @@ final class PreferencesViewModel: ObservableObject {
     @Published var trackingProfile: WindowTrackingProfile
     @Published var preferencesWindowGlassy: Bool
     @Published var applicationExceptions: [ApplicationException]
+    @Published var desktopPeripheralRevealEnabled: Bool
     /// App coordination closures invoked when preferences mutate shared state.
     private let callbacks: Callbacks
     let iconStyleOptions: [StatusBarIconStyle]
@@ -88,6 +90,7 @@ final class PreferencesViewModel: ObservableObject {
         trackingProfile: WindowTrackingProfile,
         trackingProfileOptions: [WindowTrackingProfile],
         preferencesWindowGlassy: Bool,
+        desktopPeripheralRevealEnabled: Bool,
         applicationEntries: [ApplicationMaskingIgnoreList.Entry],
         suggestedApplicationEntries: [ApplicationMaskingIgnoreList.Entry],
         callbacks: Callbacks
@@ -105,6 +108,7 @@ final class PreferencesViewModel: ObservableObject {
         self.trackingProfile = trackingProfile
         self.trackingProfileOptions = trackingProfileOptions
         self.preferencesWindowGlassy = preferencesWindowGlassy
+        self.desktopPeripheralRevealEnabled = desktopPeripheralRevealEnabled
         self.applicationExceptions = PreferencesViewModel.makeApplicationExceptions(
             userEntries: applicationEntries,
             suggestedEntries: suggestedApplicationEntries
@@ -247,6 +251,13 @@ final class PreferencesViewModel: ObservableObject {
         guard preferencesWindowGlassy != isGlassy else { return }
         preferencesWindowGlassy = isGlassy
         callbacks.onTogglePreferencesWindowGlassy(isGlassy)
+    }
+
+    /// Enables or disables automatic Dock/Stage Manager reveal when only the desktop is visible.
+    func setDesktopPeripheralRevealEnabled(_ enabled: Bool) {
+        guard desktopPeripheralRevealEnabled != enabled else { return }
+        desktopPeripheralRevealEnabled = enabled
+        callbacks.onToggleDesktopPeripheralReveal(enabled)
     }
 
     /// Requests that the onboarding sequence be shown again.

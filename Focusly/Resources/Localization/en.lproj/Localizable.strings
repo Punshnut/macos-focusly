@@ -71,6 +71,10 @@
 "Presets" = "Presets";
 "Preset" = "Preset";
 "Press a key combination…" = "Press a key combination…";
+"Preferences.Interface.DockReveal" = "Dock & Stage Manager (Experimental)";
+"Preferences.Interface.DockReveal.Description" = "Early controls for how the Dock and Stage Manager clear the blur.";
+"Preferences.Interface.DockReveal.Toggle" = "Reveal Dock & Stage Manager when desktop is focused";
+"Preferences.Interface.DockReveal.Detail" = "Automatically clear blur around the Dock and Stage Manager when every window is minimized or the desktop is active.";
 "Punshnut" = "Punshnut";
 "Quick Actions" = "Quick Actions";
 "Quit %@" = "Quit %@";

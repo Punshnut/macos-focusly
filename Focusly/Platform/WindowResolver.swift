@@ -5,6 +5,55 @@ private let popUpMenuWindowLevel = Int(CGWindowLevelForKey(.popUpMenuWindow))
 private let floatingAccessoryWindowLevel = Int(CGWindowLevelForKey(.floatingWindow))
 private let menuKeywordSet: Set<String> = ["menu", "popover", "context"]
 
+/// Cardinal direction describing which screen edge a peripheral element hugs.
+enum PeripheralEdge: Equatable {
+    case leading
+    case trailing
+    case top
+    case bottom
+}
+
+/// Describes system surfaces such as the Dock or Stage Manager shelf so overlays can treat them like carve-outs.
+struct PeripheralInterfaceRegion: Equatable {
+    enum Kind: Equatable {
+        case dock(edge: PeripheralEdge, isAutoHidden: Bool)
+        case stageManagerShelf(edge: PeripheralEdge)
+    }
+
+    let displayID: DisplayID
+    let frame: NSRect
+    let hoverRect: NSRect
+    let cornerRadius: CGFloat
+    let kind: Kind
+}
+
+/// Snapshot of the current Dock preferences we care about for overlay carve-outs.
+struct DockConfiguration: Equatable {
+    let orientation: PeripheralEdge
+    let autohide: Bool
+    let tileSize: CGFloat
+}
+
+@MainActor
+func systemDockConfiguration() -> DockConfiguration {
+    let dockDefaults = UserDefaults(suiteName: "com.apple.dock")
+    let autohide = dockDefaults?.object(forKey: "autohide") as? Bool ?? false
+    let tileSizeValue = dockDefaults?.object(forKey: "tilesize") as? Double ?? 64
+    let rawOrientation = (dockDefaults?.string(forKey: "orientation") ?? "bottom").lowercased()
+    let orientation: PeripheralEdge
+    switch rawOrientation {
+    case "left": orientation = .leading
+    case "right": orientation = .trailing
+    case "top": orientation = .top
+    default: orientation = .bottom
+    }
+    return DockConfiguration(
+        orientation: orientation,
+        autohide: autohide,
+        tileSize: CGFloat(max(32, min(96, tileSizeValue)))
+    )
+}
+
 /// Resolves the currently focused window snapshot using the most permissive APIs available.
 /// Falls back to accessibility lookups when Core Graphics metadata is not available
 /// (e.g. when an app has no on-screen windows).
@@ -449,6 +498,259 @@ private func resolveSupplementaryMasks(
         cornerSnapshotCache: &cornerSnapshotCache,
         bundleIdentifierCache: &bundleIdentifierCache
     )
+}
+
+/// Expands existing rectangles so neighboring system surfaces are merged together.
+private func mergePeripheralRegion(_ rect: CGRect, into existing: CGRect?) -> CGRect {
+    var expanded = rect
+    expanded = expanded.insetBy(dx: -8, dy: -8)
+    if expanded.width <= 0 || expanded.height <= 0 {
+        expanded = rect
+    }
+    if var current = existing {
+        current = current.union(expanded)
+        return current
+    }
+    return expanded
+}
+
+/// Builds a placeholder Dock region when the system hides it until hovered.
+@MainActor
+private func syntheticDockRegion(using configuration: DockConfiguration) -> PeripheralInterfaceRegion? {
+    guard configuration.autohide else { return nil }
+    guard let screen = NSScreen.main,
+          let number = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber else {
+        return nil
+    }
+    let displayID = DisplayID(truncating: number)
+    let frame = estimatedDockFrame(on: screen, orientation: configuration.orientation, tileSize: configuration.tileSize)
+    return makePeripheralRegion(
+        displayID: displayID,
+        rect: frame,
+        kind: .dock(edge: configuration.orientation, isAutoHidden: true)
+    )
+}
+
+private func estimatedDockFrame(on screen: NSScreen, orientation: PeripheralEdge, tileSize: CGFloat) -> CGRect {
+    let screenFrame = screen.frame
+    let menuBarHeight = max(0, screenFrame.maxY - screen.visibleFrame.maxY)
+    let thickness = min(max(tileSize + 28, 72), orientation == .bottom || orientation == .top ? screenFrame.height * 0.35 : screenFrame.width * 0.35)
+    switch orientation {
+    case .bottom:
+        return CGRect(
+            x: screenFrame.minX,
+            y: screenFrame.minY,
+            width: screenFrame.width,
+            height: thickness
+        )
+    case .top:
+        return CGRect(
+            x: screenFrame.minX,
+            y: screenFrame.maxY - thickness,
+            width: screenFrame.width,
+            height: thickness
+        )
+    case .leading:
+        return CGRect(
+            x: screenFrame.minX,
+            y: screenFrame.minY,
+            width: thickness,
+            height: screenFrame.height - menuBarHeight
+        )
+    case .trailing:
+        return CGRect(
+            x: screenFrame.maxX - thickness,
+            y: screenFrame.minY,
+            width: thickness,
+            height: screenFrame.height - menuBarHeight
+        )
+    }
+}
+
+/// Builds a typed region with sane hover padding and corner radius values for overlays.
+private func makePeripheralRegion(
+    displayID: DisplayID,
+    rect: CGRect,
+    kind: PeripheralInterfaceRegion.Kind
+) -> PeripheralInterfaceRegion {
+    let frame = NSRect(x: rect.origin.x, y: rect.origin.y, width: rect.width, height: rect.height)
+    let (insetX, insetY, cornerRadius) = hoverInsetsAndCornerRadius(for: frame, kind: kind)
+    let hoverRect = frame.insetBy(dx: -insetX, dy: -insetY)
+    return PeripheralInterfaceRegion(
+        displayID: displayID,
+        frame: frame,
+        hoverRect: hoverRect,
+        cornerRadius: cornerRadius,
+        kind: kind
+    )
+}
+
+private func hoverInsetsAndCornerRadius(for frame: NSRect, kind: PeripheralInterfaceRegion.Kind) -> (CGFloat, CGFloat, CGFloat) {
+    let minDimension = max(1, min(frame.width, frame.height))
+    switch kind {
+    case .dock(let edge, let isAutoHidden):
+        let baseCorner = min(24, minDimension / 2)
+        let baseInset: CGFloat = isAutoHidden ? 32 : 18
+        switch edge {
+        case .bottom, .top:
+            return (max(baseInset, 22), baseInset, baseCorner)
+        case .leading, .trailing:
+            return (baseInset, max(baseInset, 24), baseCorner)
+        }
+    case .stageManagerShelf(let edge):
+        let corner = min(30, minDimension / 2)
+        switch edge {
+        case .leading:
+            return (38, 34, corner)
+        case .trailing:
+            return (38, 34, corner)
+        case .top, .bottom:
+            return (34, 34, corner)
+        }
+    }
+}
+
+/// Heuristically separates Dock vs. Stage Manager windows owned by the Dock process.
+private enum PeripheralWindowClassification {
+    case dock(edge: PeripheralEdge)
+    case stageManagerShelf(edge: PeripheralEdge)
+}
+
+/// Identifies Dock/Stage Manager surfaces owned by the Dock process.
+private func classifyPeripheralWindow(
+    frame: CGRect,
+    screenFrame: CGRect,
+    layerIndex: Int,
+    ownerName: String
+) -> PeripheralWindowClassification? {
+    guard frame.width >= 16, frame.height >= 16 else { return nil }
+
+    let edgeTolerance: CGFloat = 90
+    let nearLeft = abs(frame.minX - screenFrame.minX) <= edgeTolerance
+    let nearRight = abs(frame.maxX - screenFrame.maxX) <= edgeTolerance
+    let nearBottom = abs(frame.minY - screenFrame.minY) <= edgeTolerance
+
+    let width = max(frame.width, 1)
+    let height = max(frame.height, 1)
+    let screenWidth = max(screenFrame.width, 1)
+    let screenHeight = max(screenFrame.height, 1)
+    let widthRatio = width / screenWidth
+    let heightRatio = height / screenHeight
+
+    let normalizedOwner = ownerName.trimmingCharacters(in: .whitespacesAndNewlines)
+    if normalizedOwner == "Dock" {
+        let horizontalDock = nearBottom && widthRatio >= 0.18 && heightRatio <= 0.5
+        let verticalDock = (nearLeft || nearRight) && heightRatio >= 0.18 && widthRatio <= 0.28
+        if horizontalDock {
+            return .dock(edge: .bottom)
+        }
+        if verticalDock {
+            return .dock(edge: nearLeft ? .leading : .trailing)
+        }
+
+        let avoidsBottomEdge = frame.minY >= screenFrame.minY + 28
+        let avoidsTopEdge = frame.maxY <= screenFrame.maxY - 28
+        let shelfAligned = (nearLeft || nearRight) && avoidsBottomEdge && avoidsTopEdge
+        let shelfWidthOK = widthRatio <= 0.6 && widthRatio >= 0.05
+        let shelfHeightOK = heightRatio >= 0.18 && heightRatio <= 0.95
+        let shelfLayer = layerIndex >= max(4, floatingAccessoryWindowLevel - 2)
+        if shelfAligned && shelfWidthOK && shelfHeightOK && shelfLayer {
+            return .stageManagerShelf(edge: nearLeft ? .leading : .trailing)
+        }
+    }
+
+    return nil
+}
+
+/// Resolves Dock and Stage Manager shelf surfaces so overlays can selectively carve them out.
+@MainActor
+func resolvePeripheralInterfaceRegions(
+    excluding windowNumbers: Set<Int> = []
+) -> [PeripheralInterfaceRegion] {
+    let options: CGWindowListOption = [.optionOnScreenOnly, .excludeDesktopElements]
+    guard let windowDictionaries = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]], !windowDictionaries.isEmpty else {
+        return []
+    }
+
+    let dockConfiguration = systemDockConfiguration()
+    var dockRegions: [DisplayID: CGRect] = [:]
+    var dockEdges: [DisplayID: PeripheralEdge] = [:]
+    var stageRegions: [DisplayID: CGRect] = [:]
+    var stageEdges: [DisplayID: PeripheralEdge] = [:]
+
+    for window in windowDictionaries {
+        guard let windowNumber = window[kCGWindowNumber as String] as? Int else { continue }
+        if windowNumbers.contains(windowNumber) { continue }
+
+        guard let ownerName = window[kCGWindowOwnerName as String] as? String, ownerName == "Dock" else { continue }
+        guard
+            let boundsDictionary = window[kCGWindowBounds as String] as? [String: Any],
+            let cgBounds = CGRect(dictionaryRepresentation: boundsDictionary as CFDictionary)
+        else {
+            continue
+        }
+        guard cgBounds.width >= 24, cgBounds.height >= 24 else { continue }
+
+        let cocoaBounds = convertCGWindowBoundsToCocoa(cgBounds)
+        guard let targetScreen = screenMatching(cocoaBounds),
+              let screenNumber = targetScreen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber else {
+            continue
+        }
+
+        let displayID = DisplayID(truncating: screenNumber)
+        let layerIndex = window[kCGWindowLayer as String] as? Int ?? 0
+
+        guard let classification = classifyPeripheralWindow(
+            frame: cocoaBounds,
+            screenFrame: targetScreen.frame,
+            layerIndex: layerIndex,
+            ownerName: ownerName
+        ) else {
+            continue
+        }
+
+        switch classification {
+        case .dock(let edge):
+            dockRegions[displayID] = mergePeripheralRegion(cocoaBounds, into: dockRegions[displayID])
+            dockEdges[displayID] = edge
+        case .stageManagerShelf(let edge):
+            stageRegions[displayID] = mergePeripheralRegion(cocoaBounds, into: stageRegions[displayID])
+            stageEdges[displayID] = edge
+        }
+    }
+
+    var resolvedRegions: [PeripheralInterfaceRegion] = []
+    for (displayID, rect) in dockRegions {
+        let edge = dockEdges[displayID] ?? dockConfiguration.orientation
+        resolvedRegions.append(makePeripheralRegion(
+            displayID: displayID,
+            rect: rect,
+            kind: .dock(edge: edge, isAutoHidden: dockConfiguration.autohide)
+        ))
+    }
+    for (displayID, rect) in stageRegions {
+        let edge = stageEdges[displayID] ?? .leading
+        resolvedRegions.append(makePeripheralRegion(
+            displayID: displayID,
+            rect: rect,
+            kind: .stageManagerShelf(edge: edge)
+        ))
+    }
+
+    if dockRegions.isEmpty, dockConfiguration.autohide,
+       let syntheticDock = syntheticDockRegion(using: dockConfiguration) {
+        resolvedRegions.append(syntheticDock)
+    }
+
+    return resolvedRegions.sorted { lhs, rhs in
+        if lhs.displayID != rhs.displayID {
+            return lhs.displayID < rhs.displayID
+        }
+        if lhs.frame.origin.x != rhs.frame.origin.x {
+            return lhs.frame.origin.x < rhs.frame.origin.x
+        }
+        return lhs.frame.origin.y < rhs.frame.origin.y
+    }
 }
 
 /// Menu surfaces ship with a subtle rounding; we keep it conservative to avoid bleeding into content.
