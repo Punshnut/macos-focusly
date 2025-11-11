@@ -1,22 +1,16 @@
 # Swift Package Manager
 .build/
+.swiftpm/
 Packages/
 
-# Xcode
+# Xcode / Derived data
 DerivedData/
 *.xcworkspace/
 *.xcuserstate
 *.xccheckout
 *.xcscmblueprint
 
-# vscode
-.vscode/
-
-
-# macOS
-.DS_Store
-
-# builds
+# Build outputs
 *.app
 *.xcarchive
 *.pkg
@@ -26,11 +20,21 @@ Focusly.zip
 Focusly Dev Install.dmg
 Focusly v03a.dmg
 
-# Codex CLI sandbox artifacts
-.sandbox-home/
+# Editors
+.vscode/
+.idea/
 
-# Notary workflow artifacts
+# macOS
+.DS_Store
+
+# Automation & sandbox artifacts
+.sandbox-home/
 .notarytool-submissions/
+
+# Cache noise
+.clangd/
+.cache/
+*.dSYM
 
 # Local scripts (kept private)
 build_app.sh

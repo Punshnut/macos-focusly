@@ -93,7 +93,7 @@
 "Warm" = "Warm";
 "Welcome to Focusly" = "Welcome to Focusly";
 "Window Tracking Performance" = "Window Tracking Performance";
-"WindowTrackingProfile.Description.General" = "Adjust how quickly Focusly tracks windows while you move or resize them.";
+"WindowTrackingProfile.Description.General" = "Adjust how quickly Focusly tracks windows while you move or resize them. (GPU Acceleration currently in development)";
 "WindowTrackingProfile.EnergySaving.Description" = "Updates dragged windows 30 times per second to conserve energy.";
 "WindowTrackingProfile.EnergySaving.Title" = "Energy Saving (30 Hz)";
 "WindowTrackingProfile.HighPerformance.Description" = "Follows window movement at 90 Hz for the smoothest tracking.";

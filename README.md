@@ -23,7 +23,7 @@
 </p>
 
 <p align="center">
-  <img src="Sources/Assets/Focusly_Logo.png" alt="Focusly logo" width="260">
+  <img src="Focusly/Resources/Media/Focusly_Logo.png" alt="Focusly logo" width="260">
 </p>
 
 
@@ -90,7 +90,7 @@ Being a minimalist, productivity-first app means - at least to me as the develop
 - **18 languages shipping today** (English, German, Spanish EU + MX, French, Italian, Portuguese EU + BR, Arabic MSA, Kiswahili, Hausa, Simplified Chinese, Ukrainian, Russian, Japanese, Korean, Thai, Turkish) so teammates worldwide see Focusly in their native voice the moment it launches.
 - **Right-to-left + Latin scripts** are tested against the same onboarding stories and menus, keeping cultural nuances intact.
 - **Locale-aware presets** let each translation bundle tweak color names and descriptions without touching code.
-- **Community glossary** lives in `Sources/Resources/*.lproj`, making it easy for translators to submit improvements with context screenshots.
+- **Community glossary** lives in `Focusly/Resources/Localization/*.lproj`, making it easy for translators to submit improvements with context screenshots.
 - **Native speaker call**: I need native speakers to keep shaping their languages, but please hold PRs/issues until Alpha 0.5 lands-major localization changes are planned through that release and strings are still moving.
 
 <p align="center">
@@ -144,6 +144,18 @@ xcodebuild -scheme Focusly -configuration Release
 open .build/Release/Focusly.app
 ```
 
+### Repository Layout
+
+- `Focusly/App` — entry point, app delegate, and coordinator wiring for the menu bar lifecycle.
+- `Focusly/Features/*` — surface-level features including overlays, hotkeys, onboarding, preferences, and status bar UI.
+- `Focusly/Infrastructure` — shared services such as localization, app settings, login helpers, and bundle utilities.
+- `Focusly/Domain` — focus profile models, preset catalogs, and persistence.
+- `Focusly/Platform` — low-level AppKit + Accessibility integrations (window tracker, display link driver, AX helpers).
+- `Focusly/Resources/Localization` — `.lproj` bundles that power every shipped language.
+- `Focusly/Resources/Media` — packaged artwork (centered logo, menu icons) while brand-only files stay excluded from the build.
+- `Resources/` — Info.plist + app icon that get baked into the signed `.app` via the shell scripts.
+- `Scripts/` + root `.sh` helpers — release automation, signing, notarization, and localization checks.
+
 ---
 
 <details>
@@ -176,7 +188,7 @@ spctl --assess --type exec Focusly.app
 - **Debug overlay**: toggle `FOCUSLY_DEBUG_WINDOW=1` (or the `FocuslyDebugWindow` preference) to visualize tracked frames.
 - **Tracking profiles**: `WindowTrackingProfile` presets define cadence + responsiveness inside `OverlayController`.
 - **Launch at login**: `LaunchAtLoginManager` piggybacks on `SMAppService` - Focusly must run from a bundled, signed `.app` before the toggle appears.
-- **Localization & presets**: everything lives beside the code in `Sources/Resources/*.lproj` so translators + designers stay in sync.
+- **Localization & presets**: everything lives beside the code in `Focusly/Resources/Localization/*.lproj` so translators + designers stay in sync.
 
 </details>
 
