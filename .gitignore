@@ -38,3 +38,4 @@ build_dmg.sh
 sign_and_notarize.sh
 notarize_async.sh
 sign_dev_dmg.sh
+check_localizations.sh

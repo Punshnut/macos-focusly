@@ -7,9 +7,9 @@
 	<key>CFBundleName</key>
 	<string>Focusly</string>
 	<key>CFBundleShortVersionString</key>
-	<string>0.3.0</string>
+	<string>0.3.1</string>
 	<key>CFBundleVersion</key>
-	<string>300</string>
+	<string>301</string>
 	<key>CFBundleExecutable</key>
 	<string>Focusly</string>
 	<key>CFBundlePackageType</key>

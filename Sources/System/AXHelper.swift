@@ -34,6 +34,7 @@ public struct AXWindowInfo: Hashable, Sendable {
 struct AXWindowCornerSnapshot: Sendable {
     let frame: NSRect
     let cornerRadius: CGFloat?
+    let title: String?
 }
 
 /// Snapshot of the currently focused window including carve-outs for related UI.
@@ -203,8 +204,19 @@ func axWindowCornerSnapshots(for pid: pid_t) -> [AXWindowCornerSnapshot] {
 
     for windowElement in accessibilityWindows {
         guard let frame = axFrame(for: windowElement) else { continue }
+
+        var titleValue: CFTypeRef?
+        _ = AXUIElementCopyAttributeValue(windowElement, kAXTitleAttribute as CFString, &titleValue)
+        let resolvedTitle = titleValue as? String
+
         let radius = axWindowCornerRadius(for: windowElement)
-        snapshots.append(AXWindowCornerSnapshot(frame: frame, cornerRadius: radius))
+        snapshots.append(
+            AXWindowCornerSnapshot(
+                frame: frame,
+                cornerRadius: radius,
+                title: resolvedTitle
+            )
+        )
     }
 
     return snapshots

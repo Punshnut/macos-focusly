@@ -392,6 +392,12 @@ final class FocuslyAppCoordinator: NSObject {
             preferencesScreenModel?.selectedPresetIdentifier = overlayProfileStore.currentPreset().id
             preferencesScreenModel?.trackingProfile = globalSettings.windowTrackingProfile
             preferencesScreenModel?.preferencesWindowGlassy = globalSettings.preferencesWindowGlassy
+            let userEntries = ApplicationMaskingIgnoreList.shared.userEntries()
+            let builtInEntries = ApplicationMaskingIgnoreList.shared.activeBuiltInEntries()
+            preferencesScreenModel?.refreshApplicationExceptions(
+                userEntries: userEntries,
+                suggestedEntries: builtInEntries
+            )
             preferencesScreenModel?.updateHotkeys(hotkeyStatesSnapshot())
             controller.updateLocalization(localization: localization)
             synchronizePreferencesDisplays()
@@ -411,6 +417,8 @@ final class FocuslyAppCoordinator: NSObject {
             trackingProfile: globalSettings.windowTrackingProfile,
             trackingProfileOptions: WindowTrackingProfile.allCases,
             preferencesWindowGlassy: globalSettings.preferencesWindowGlassy,
+            applicationEntries: ApplicationMaskingIgnoreList.shared.userEntries(),
+            suggestedApplicationEntries: ApplicationMaskingIgnoreList.shared.activeBuiltInEntries(),
             callbacks: PreferencesViewModel.Callbacks(
                 onDisplayChange: { [weak self] displayID, style in
                     guard let self else { return }
@@ -506,6 +514,12 @@ final class FocuslyAppCoordinator: NSObject {
                 },
                 onTogglePreferencesWindowGlassy: { [weak self] isGlassy in
                     self?.globalSettings.preferencesWindowGlassy = isGlassy
+                },
+                onUpdateApplicationException: { entry in
+                    ApplicationMaskingIgnoreList.shared.setPreference(entry.preference, bundleIdentifier: entry.bundleIdentifier)
+                },
+                onRemoveApplicationExceptions: { identifiers in
+                    identifiers.forEach { ApplicationMaskingIgnoreList.shared.removeEntry(bundleIdentifier: $0) }
                 }
             )
         )

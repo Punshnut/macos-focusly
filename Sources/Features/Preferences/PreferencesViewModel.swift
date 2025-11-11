@@ -20,6 +20,16 @@ final class PreferencesViewModel: ObservableObject {
         }
     }
 
+    /// Visual representation of an ignored application row.
+    struct ApplicationException: Identifiable, Equatable {
+        let id: String
+        var bundleIdentifier: String
+        var displayName: String
+        var icon: NSImage?
+        var preference: ApplicationMaskingIgnoreList.Preference
+        var isUserDefined: Bool
+    }
+
     /// Glue closures that let the preferences UI trigger app-level changes.
     struct Callbacks {
         /// Glue closure bundle so the view model can stay UI focused without knowing about app coordination.
@@ -36,6 +46,8 @@ final class PreferencesViewModel: ObservableObject {
         var onUpdateTrackingProfile: (WindowTrackingProfile) -> Void
         var onToggleDisplayExclusion: (DisplayID, Bool) -> Void
         var onTogglePreferencesWindowGlassy: (Bool) -> Void
+        var onUpdateApplicationException: (ApplicationMaskingIgnoreList.Entry) -> Void
+        var onRemoveApplicationExceptions: ([String]) -> Void
     }
 
     @Published var displaySettings: [DisplaySettings]
@@ -49,6 +61,7 @@ final class PreferencesViewModel: ObservableObject {
     @Published var statusIconStyle: StatusBarIconStyle
     @Published var trackingProfile: WindowTrackingProfile
     @Published var preferencesWindowGlassy: Bool
+    @Published var applicationExceptions: [ApplicationException]
     /// App coordination closures invoked when preferences mutate shared state.
     private let callbacks: Callbacks
     let iconStyleOptions: [StatusBarIconStyle]
@@ -75,6 +88,8 @@ final class PreferencesViewModel: ObservableObject {
         trackingProfile: WindowTrackingProfile,
         trackingProfileOptions: [WindowTrackingProfile],
         preferencesWindowGlassy: Bool,
+        applicationEntries: [ApplicationMaskingIgnoreList.Entry],
+        suggestedApplicationEntries: [ApplicationMaskingIgnoreList.Entry],
         callbacks: Callbacks
     ) {
         self.displaySettings = displaySettings
@@ -90,6 +105,10 @@ final class PreferencesViewModel: ObservableObject {
         self.trackingProfile = trackingProfile
         self.trackingProfileOptions = trackingProfileOptions
         self.preferencesWindowGlassy = preferencesWindowGlassy
+        self.applicationExceptions = PreferencesViewModel.makeApplicationExceptions(
+            userEntries: applicationEntries,
+            suggestedEntries: suggestedApplicationEntries
+        )
     }
 
     /// Persists live opacity changes for a display and notifies the app.
@@ -254,6 +273,72 @@ final class PreferencesViewModel: ObservableObject {
         hotkeyStates = updated
     }
 
+    /// Replaces the current set of ignored applications.
+    func refreshApplicationExceptions(
+        userEntries: [ApplicationMaskingIgnoreList.Entry],
+        suggestedEntries: [ApplicationMaskingIgnoreList.Entry]
+    ) {
+        applicationExceptions = PreferencesViewModel.makeApplicationExceptions(
+            userEntries: userEntries,
+            suggestedEntries: suggestedEntries
+        )
+    }
+
+    /// Imports an application bundle from disk so it can be ignored during masking.
+    func importApplication(at url: URL) {
+        guard let bundle = Bundle(url: url), let identifier = bundle.bundleIdentifier else { return }
+        let normalizedID = identifier.focuslyNormalizedToken() ?? identifier.lowercased()
+        let friendlyName = FileManager.default.displayName(atPath: url.path)
+        let displayName = friendlyName.isEmpty ? identifier : friendlyName
+        let icon = PreferencesViewModel.icon(forApplicationAt: url)
+        let existingPreference = applicationExceptions.first(where: { $0.id == normalizedID })?.preference ?? .excludeCompletely
+        upsertApplicationException(ApplicationException(
+            id: normalizedID,
+            bundleIdentifier: identifier,
+            displayName: displayName,
+            icon: icon,
+            preference: existingPreference,
+            isUserDefined: true
+        ), persistPreference: true)
+    }
+
+    /// Updates the preference mode for the supplied application.
+    func updateApplicationPreference(for bundleIdentifier: String, preference: ApplicationMaskingIgnoreList.Preference) {
+        let normalized = bundleIdentifier.focuslyNormalizedToken() ?? bundleIdentifier.lowercased()
+        guard let index = applicationExceptions.firstIndex(where: { $0.id == normalized }) else { return }
+        guard applicationExceptions[index].preference != preference else { return }
+        applicationExceptions[index].preference = preference
+        applicationExceptions[index].isUserDefined = true
+        callbacks.onUpdateApplicationException(ApplicationMaskingIgnoreList.Entry(
+            bundleIdentifier: applicationExceptions[index].bundleIdentifier,
+            preference: preference
+        ))
+    }
+
+    /// Removes a collection of applications from the ignore list.
+    func removeApplications(withIDs identifiers: [String]) {
+        guard canRemoveApplications(withIDs: identifiers) else { return }
+        let normalizedSet = Set(identifiers.map { $0.focuslyNormalizedToken() ?? $0.lowercased() })
+        let removedBundles = applicationExceptions
+            .filter { normalizedSet.contains($0.id) && $0.isUserDefined }
+            .map(\.bundleIdentifier)
+        guard !removedBundles.isEmpty else { return }
+        applicationExceptions.removeAll { normalizedSet.contains($0.id) && $0.isUserDefined }
+        callbacks.onRemoveApplicationExceptions(removedBundles)
+    }
+
+    /// Indicates whether the current selection can be removed.
+    func canRemoveApplications(withIDs identifiers: [String]) -> Bool {
+        guard !identifiers.isEmpty else { return false }
+        let normalized = identifiers.map { $0.focuslyNormalizedToken() ?? $0.lowercased() }
+        for id in normalized {
+            guard let match = applicationExceptions.first(where: { $0.id == id }), match.isUserDefined else {
+                return false
+            }
+        }
+        return true
+    }
+
     /// Converts UI-managed display settings into a `FocusOverlayStyle` and emits callbacks.
     private func commit(displaySettings: DisplaySettings) {
         let normalizedTintColor = displaySettings.tint.usingColorSpace(.genericRGB) ?? displaySettings.tint
@@ -297,6 +382,79 @@ final class PreferencesViewModel: ObservableObject {
             normalized[action] = HotkeyState(shortcut: nil, isEnabled: true)
         }
         return normalized
+    }
+
+    private func upsertApplicationException(_ exception: ApplicationException, persistPreference: Bool) {
+        if let index = applicationExceptions.firstIndex(where: { $0.id == exception.id }) {
+            applicationExceptions[index] = exception
+        } else {
+            applicationExceptions.append(exception)
+        }
+        applicationExceptions.sort {
+            $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending
+        }
+        guard persistPreference else { return }
+        callbacks.onUpdateApplicationException(ApplicationMaskingIgnoreList.Entry(
+            bundleIdentifier: exception.bundleIdentifier,
+            preference: exception.preference
+        ))
+    }
+
+    private static func makeApplicationExceptions(
+        userEntries: [ApplicationMaskingIgnoreList.Entry],
+        suggestedEntries: [ApplicationMaskingIgnoreList.Entry]
+    ) -> [ApplicationException] {
+        let workspace = NSWorkspace.shared
+        let fileManager = FileManager.default
+        var results: [ApplicationException] = []
+        var seen: Set<String> = []
+
+        func append(entry: ApplicationMaskingIgnoreList.Entry, isUserDefined: Bool) {
+            let normalized = entry.bundleIdentifier.focuslyNormalizedToken() ?? entry.bundleIdentifier.lowercased()
+            guard !normalized.isEmpty else { return }
+            guard !seen.contains(normalized) else { return }
+            seen.insert(normalized)
+
+            let resolvedURL = workspace.urlForApplication(withBundleIdentifier: entry.bundleIdentifier)
+            let displayName: String
+            if let url = resolvedURL {
+                let friendly = fileManager.displayName(atPath: url.path)
+                displayName = friendly.isEmpty ? entry.bundleIdentifier : friendly
+            } else {
+                displayName = entry.bundleIdentifier
+            }
+            let iconImage = resolvedURL.flatMap { icon(forApplicationAt: $0) }
+                ?? icon(forBundleIdentifier: entry.bundleIdentifier, workspace: workspace)
+
+            results.append(ApplicationException(
+                id: normalized,
+                bundleIdentifier: entry.bundleIdentifier,
+                displayName: displayName,
+                icon: iconImage,
+                preference: entry.preference,
+                isUserDefined: isUserDefined
+            ))
+        }
+
+        userEntries.forEach { append(entry: $0, isUserDefined: true) }
+        suggestedEntries.forEach { append(entry: $0, isUserDefined: false) }
+
+        return results.sorted {
+            $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending
+        }
+    }
+
+    private static func icon(forBundleIdentifier identifier: String, workspace: NSWorkspace) -> NSImage? {
+        guard let url = workspace.urlForApplication(withBundleIdentifier: identifier) else {
+            return nil
+        }
+        return icon(forApplicationAt: url)
+    }
+
+    private static func icon(forApplicationAt url: URL) -> NSImage? {
+        let icon = NSWorkspace.shared.icon(forFile: url.path)
+        icon.size = NSSize(width: 28, height: 28)
+        return icon
     }
 
     /// Finds the matching preset for the supplied identifier, updating selection if necessary.

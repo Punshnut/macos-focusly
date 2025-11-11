@@ -1,9 +1,11 @@
 import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 enum PreferencesTab: Int, CaseIterable, Identifiable {
     case general
     case screen
+    case apps
     case about
 
     var id: Int { rawValue }
@@ -12,6 +14,7 @@ enum PreferencesTab: Int, CaseIterable, Identifiable {
         switch self {
         case .general: return "gearshape"
         case .screen: return "sparkles.rectangle.stack"
+        case .apps: return "app.badge"
         case .about: return "info.circle"
         }
     }
@@ -20,6 +23,7 @@ enum PreferencesTab: Int, CaseIterable, Identifiable {
         switch self {
         case .general: return "Preferences.Tab.General"
         case .screen: return "Preferences.Tab.Screen"
+        case .apps: return "Preferences.Tab.Apps"
         case .about: return "Preferences.Tab.About"
         }
     }
@@ -28,6 +32,7 @@ enum PreferencesTab: Int, CaseIterable, Identifiable {
         switch self {
         case .general: return "General"
         case .screen: return "Screen"
+        case .apps: return "Apps"
         case .about: return "About"
         }
     }
@@ -51,8 +56,10 @@ final class PreferencesTabRelay {
 struct PreferencesView: View {
     @ObservedObject private var viewModel: PreferencesViewModel
     @EnvironmentObject private var localization: LocalizationService
+    @Environment(\.colorScheme) private var colorScheme
     @State private var activeTab: PreferencesTab = .general
     @State private var selectedDisplayID: DisplayID?
+    @State private var selectedApplicationIDs: Set<String> = []
     @Namespace private var tabSelectionNamespace
     @State private var hostingWindow: NSWindow?
     private let tabChangeRelay: PreferencesTabRelay?
@@ -133,6 +140,9 @@ struct PreferencesView: View {
                 return
             }
         }
+        .onChange(of: viewModel.applicationExceptions.map(\.id)) { applicationIDs in
+            selectedApplicationIDs = Set(selectedApplicationIDs.filter { applicationIDs.contains($0) })
+        }
         .onChange(of: activeTab) { tab in
             tabChangeRelay?.notify(tab)
         }
@@ -164,26 +174,58 @@ struct PreferencesView: View {
     }
 
     private var topBarTitle: some View {
-        HStack(spacing: 8) {
+        let isDarkMode = colorScheme == .dark
+        let titleColor = isDarkMode ? Color.white.opacity(0.95) : Color.black.opacity(0.82)
+        let subtitleColor = isDarkMode ? Color.white.opacity(0.78) : Color.black.opacity(0.5)
+        let highlightShadow = isDarkMode ? Color.black.opacity(0.6) : Color.black.opacity(0.12)
+        let capsuleFill = LinearGradient(
+            colors: isDarkMode
+                ? [Color.black.opacity(0.65), Color.black.opacity(0.35)]
+                : [
+                    Color.white.opacity(viewModel.preferencesWindowGlassy ? 1.0 : 0.9),
+                    Color.white.opacity(viewModel.preferencesWindowGlassy ? 0.9 : 0.82)
+                ],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
+        let capsuleHighlight = LinearGradient(
+            colors: isDarkMode
+                ? [Color.white.opacity(0.08), Color.clear]
+                : [Color.white.opacity(0.35), Color.white.opacity(0.15)],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
+        let capsuleStroke = isDarkMode ? Color.white.opacity(0.28) : Color.black.opacity(0.08)
+        let outerGlow = isDarkMode ? Color.white.opacity(0.12) : Color.white.opacity(0.4)
+        let shadowColor = isDarkMode ? Color.black.opacity(0.65) : Color.black.opacity(0.15)
+
+        return HStack(spacing: 8) {
             Text(appDisplayName())
                 .font(.system(size: 16, weight: .heavy, design: .rounded))
-                .foregroundColor(Color.black.opacity(0.82))
-                .shadow(color: Color.black.opacity(0.12), radius: 1.5, y: 1)
+                .foregroundColor(titleColor)
+                .shadow(color: highlightShadow, radius: isDarkMode ? 2.5 : 1.5, y: isDarkMode ? 2 : 1)
             Text(FocuslyBuildInfo.marketingVersion)
                 .font(.system(size: 13, weight: .semibold, design: .rounded))
-                .foregroundColor(Color.black.opacity(0.5))
+                .foregroundColor(subtitleColor)
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 6)
         .background(
-            Capsule(style: .continuous)
-                .fill(Color.white.opacity(viewModel.preferencesWindowGlassy ? 0.92 : 0.88))
-                .overlay(
-                    Capsule(style: .continuous)
-                        .stroke(Color.black.opacity(0.08), lineWidth: 1)
-                )
+            ZStack {
+                Capsule(style: .continuous)
+                    .fill(capsuleFill)
+                Capsule(style: .continuous)
+                    .fill(capsuleHighlight)
+                    .blendMode(.screen)
+                Capsule(style: .continuous)
+                    .strokeBorder(capsuleStroke, lineWidth: 1)
+                Capsule(style: .continuous)
+                    .stroke(outerGlow, lineWidth: isDarkMode ? 0.6 : 0.8)
+                    .blur(radius: isDarkMode ? 6 : 4)
+                    .opacity(isDarkMode ? 0.6 : 0.35)
+            }
         )
-        .shadow(color: Color.black.opacity(0.15), radius: 12, y: 6)
+        .shadow(color: shadowColor, radius: isDarkMode ? 22 : 12, y: isDarkMode ? 12 : 6)
         .allowsHitTesting(false)
     }
 
@@ -243,6 +285,8 @@ struct PreferencesView: View {
             generalTab
         case .screen:
             screenTab
+        case .apps:
+            appsTab
         case .about:
             aboutTab
         }
@@ -316,6 +360,22 @@ struct PreferencesView: View {
         }
     }
 
+    private var appsTab: some View {
+        settingsPanel(
+            icon: "app.badge.checkmark",
+            titleKey: "Preferences.Apps.Title",
+            fallbackTitle: "Applications",
+            subtitleKey: "Preferences.Apps.Description",
+            subtitleFallback: "Choose which apps Focusly should ignore or keep masking their settings."
+        ) {
+            VStack(spacing: 14) {
+                appExceptionsList
+                panelDivider
+                appListFooter
+            }
+        }
+    }
+
     private var aboutTab: some View {
         settingsPanel(
             icon: "info.circle.fill",
@@ -332,6 +392,316 @@ struct PreferencesView: View {
                 aboutActions
             }
             .frame(maxWidth: .infinity, alignment: .center)
+        }
+    }
+
+    private var appExceptionsList: some View {
+        VStack(spacing: 0) {
+            appListHeader
+
+            Divider()
+                .overlay(Color.white.opacity(0.1))
+                .blendMode(.softLight)
+
+            if viewModel.applicationExceptions.isEmpty {
+                appEmptyState
+                    .frame(minHeight: 220)
+                    .frame(maxWidth: .infinity)
+                    .padding(32)
+            } else {
+                appListContent
+            }
+        }
+        .background(glassListBackground(highlight: true))
+        .clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 26, style: .continuous)
+                .stroke(LinearGradient(
+                    colors: [Color.white.opacity(0.45), Color.white.opacity(0.08)],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                ), lineWidth: 1.1)
+                .blendMode(.plusLighter)
+        )
+        .shadow(color: Color.black.opacity(0.4), radius: 25, y: 20)
+        .padding(.horizontal, 2)
+        .padding(.top, 2)
+    }
+
+    private var appListHeader: some View {
+        HStack {
+            Text(localized("Preferences.Apps.Table.Application", fallback: "Application"))
+            Spacer(minLength: 0)
+            Text(localized("Preferences.Apps.Table.Behavior", fallback: "Behavior"))
+        }
+        .font(.system(size: 11, weight: .semibold, design: .rounded))
+        .textCase(.uppercase)
+        .foregroundColor(Color.primary.opacity(0.65))
+        .padding(.horizontal, 20)
+        .padding(.vertical, 12)
+        .background(
+            LinearGradient(
+                colors: [
+                    Color.white.opacity(0.08),
+                    Color.white.opacity(0.02)
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        )
+    }
+
+    private var appListContent: some View {
+        ScrollView(.vertical, showsIndicators: true) {
+            LazyVStack(spacing: 12) {
+                ForEach(viewModel.applicationExceptions) { exception in
+                    appExceptionRow(for: exception, isSelected: selectedApplicationIDs.contains(exception.id))
+                        .id(exception.id)
+                        .animation(.spring(response: 0.25, dampingFraction: 0.9), value: selectedApplicationIDs)
+                        .onTapGesture {
+                            toggleSelection(for: exception)
+                        }
+                }
+            }
+            .padding(.vertical, 18)
+            .padding(.horizontal, 20)
+        }
+        .frame(minHeight: 220, maxHeight: 320)
+        .glassListScrollBackground()
+        .overlay(
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .stroke(Color.white.opacity(0.05), lineWidth: 0.8)
+        )
+    }
+
+    private func appExceptionRow(
+        for exception: PreferencesViewModel.ApplicationException,
+        isSelected: Bool
+    ) -> some View {
+        HStack(alignment: .center, spacing: 18) {
+            applicationRow(for: exception)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            preferencePicker(for: exception)
+                .frame(maxWidth: 260, alignment: .trailing)
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(GlassListRowBackground(isSelected: isSelected))
+        .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+    }
+
+    private func glassListBackground(cornerRadius: CGFloat = 22, highlight: Bool = false) -> some View {
+        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+            .fill(.ultraThinMaterial)
+            .overlay(
+                LinearGradient(
+                    colors: highlight
+                        ? [Color.white.opacity(0.28), Color.white.opacity(0.05)]
+                        : [Color.white.opacity(0.22), Color.white.opacity(0.04)],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .stroke(Color.white.opacity(0.12), lineWidth: 0.6)
+            )
+    }
+
+    private var appEmptyState: some View {
+        VStack(spacing: 10) {
+            Image(systemName: "app")
+                .font(.system(size: 30, weight: .medium))
+                .foregroundColor(.secondary)
+            Text(localized("Preferences.Apps.Empty", fallback: "No apps are excluded yet. Add one to stop Focusly from masking it."))
+                .multilineTextAlignment(.center)
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 24)
+    }
+
+    private var appListFooter: some View {
+        let removableSelection = Array(selectedApplicationIDs)
+        let canRemove = viewModel.canRemoveApplications(withIDs: removableSelection)
+        return HStack(spacing: 12) {
+            HStack(spacing: 8) {
+                Button {
+                    presentApplicationPicker()
+                } label: {
+                    Image(systemName: "plus")
+                        .frame(width: 18, height: 18)
+                }
+                .buttonStyle(.plain)
+                .padding(6)
+                .background(toolbarButtonBackground)
+                .accessibilityLabel(Text(localized("Preferences.Apps.AddButton", fallback: "Add Application")))
+
+                Button {
+                    removeSelectedApplications()
+                } label: {
+                    Image(systemName: "minus")
+                        .frame(width: 18, height: 18)
+                }
+                .buttonStyle(.plain)
+                .padding(6)
+                .background(toolbarButtonBackground)
+                .disabled(!canRemove)
+                .opacity(canRemove ? 1 : 0.4)
+                .accessibilityLabel(Text(localized("Preferences.Apps.RemoveButton", fallback: "Remove Application")))
+            }
+
+            Text(localized("Preferences.Apps.Footer", fallback: "Keep overlay helpers visible while still masking their Settings windows when you need to tweak them."))
+                .font(.caption)
+                .foregroundColor(.secondary)
+            Spacer()
+        }
+    }
+
+    private var toolbarButtonBackground: some View {
+        RoundedRectangle(cornerRadius: 6, style: .continuous)
+            .fill(Color.white.opacity(0.05))
+            .overlay(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .stroke(Color.white.opacity(0.08), lineWidth: 0.8)
+            )
+    }
+
+    private func applicationRow(for exception: PreferencesViewModel.ApplicationException) -> some View {
+        HStack(spacing: 10) {
+            appIcon(for: exception)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(exception.displayName)
+                    .font(.body)
+                Text(exception.bundleIdentifier)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+            if !exception.isUserDefined {
+                Text(localized("Preferences.Apps.DefaultBadge", fallback: "Default"))
+                    .font(.caption2)
+                    .fontWeight(.semibold)
+                    .foregroundColor(Color.white.opacity(0.85))
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 2)
+                    .background(
+                        Capsule(style: .continuous)
+                            .fill(Color.accentColor.opacity(0.6))
+                    )
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.vertical, 4)
+    }
+
+    private func appIcon(for exception: PreferencesViewModel.ApplicationException) -> some View {
+        Group {
+            if let icon = exception.icon {
+                Image(nsImage: icon)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+            } else {
+                Image(systemName: "app.dashed")
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundColor(.secondary)
+            }
+        }
+        .frame(width: 28, height: 28)
+        .background(
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .fill(Color.white.opacity(0.04))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .stroke(Color.white.opacity(0.08), lineWidth: 0.6)
+        )
+    }
+
+    private func preferencePicker(for exception: PreferencesViewModel.ApplicationException) -> some View {
+        Picker(
+            localized("Preferences.Apps.Preference.Label", fallback: "Masking Behavior"),
+            selection: Binding(
+                get: { exception.preference },
+                set: { viewModel.updateApplicationPreference(for: exception.bundleIdentifier, preference: $0) }
+            )
+        ) {
+            Text(localized("Preferences.Apps.Preference.Exclude", fallback: "Always blur entire app"))
+                .tag(ApplicationMaskingIgnoreList.Preference.excludeCompletely)
+            Text(localized("Preferences.Apps.Preference.SettingsOnly", fallback: "Always blur app except Settings menu"))
+                .tag(ApplicationMaskingIgnoreList.Preference.excludeExceptSettingsWindow)
+            Text(localized("Preferences.Apps.Preference.AlwaysMask", fallback: "Don't blur any window of this app"))
+                .tag(ApplicationMaskingIgnoreList.Preference.alwaysMask)
+        }
+        .labelsHidden()
+        .pickerStyle(.menu)
+        .padding(.vertical, 6)
+        .padding(.horizontal, 14)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            Color.white.opacity(0.16),
+                            Color.white.opacity(0.05)
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .stroke(Color.white.opacity(0.18), lineWidth: 1)
+                )
+        )
+        .shadow(color: Color.black.opacity(0.25), radius: 8, y: 4)
+    }
+
+    private func presentApplicationPicker() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        panel.allowsMultipleSelection = false
+        if #available(macOS 12, *) {
+            panel.allowedContentTypes = [.applicationBundle]
+        } else {
+            panel.allowedFileTypes = ["app"]
+        }
+        panel.prompt = localized("Preferences.Apps.AddPrompt", fallback: "Add")
+        panel.message = localized("Preferences.Apps.AddMessage", fallback: "Select an application to keep off the overlay.")
+
+        let completion: (NSApplication.ModalResponse) -> Void = { response in
+            guard response == .OK, let url = panel.url else { return }
+            viewModel.importApplication(at: url)
+            if let identifier = Bundle(url: url)?.bundleIdentifier {
+                let normalized = identifier.focuslyNormalizedToken() ?? identifier.lowercased()
+                DispatchQueue.main.async {
+                    selectedApplicationIDs = [normalized]
+                }
+            }
+        }
+
+        if let window = hostingWindow {
+            panel.beginSheetModal(for: window, completionHandler: completion)
+        } else {
+            panel.begin(completionHandler: completion)
+        }
+    }
+
+    private func removeSelectedApplications() {
+        let identifiers = Array(selectedApplicationIDs)
+        guard viewModel.canRemoveApplications(withIDs: identifiers) else { return }
+        viewModel.removeApplications(withIDs: identifiers)
+        selectedApplicationIDs.removeAll()
+    }
+
+    private func toggleSelection(for exception: PreferencesViewModel.ApplicationException) {
+        if selectedApplicationIDs.contains(exception.id) {
+            selectedApplicationIDs.remove(exception.id)
+        } else {
+            selectedApplicationIDs.insert(exception.id)
         }
     }
 
@@ -1133,6 +1503,71 @@ struct PreferencesView: View {
     }
 }
 
+/// Frosted pill background used for each app exception row.
+private struct GlassListRowBackground: View {
+    let isSelected: Bool
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: 18, style: .continuous)
+            .fill(rowGradient)
+            .overlay(glossOverlay)
+            .overlay(
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .stroke(borderGradient, lineWidth: 1.2)
+            )
+            .shadow(color: Color.black.opacity(isSelected ? 0.45 : 0.25), radius: isSelected ? 26 : 12, y: isSelected ? 16 : 8)
+    }
+
+    private var rowGradient: LinearGradient {
+        if isSelected {
+            return LinearGradient(
+                colors: [
+                    Color.accentColor.opacity(0.55),
+                    Color.accentColor.opacity(0.22)
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        }
+
+        return LinearGradient(
+            colors: [
+                Color.white.opacity(0.12),
+                Color.black.opacity(0.25)
+            ],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
+    }
+
+    private var glossOverlay: some View {
+        RoundedRectangle(cornerRadius: 18, style: .continuous)
+            .fill(
+                LinearGradient(
+                    colors: [
+                        Color.white.opacity(isSelected ? 0.18 : 0.08),
+                        Color.white.opacity(0.02)
+                    ],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+            )
+            .blendMode(.softLight)
+            .allowsHitTesting(false)
+    }
+
+    private var borderGradient: LinearGradient {
+        LinearGradient(
+            colors: [
+                Color.white.opacity(isSelected ? 0.85 : 0.2),
+                Color.white.opacity(isSelected ? 0.45 : 0.08)
+            ],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
+    }
+}
+
 /// Menu row preview for status bar icon styles.
 private struct StatusBarIconStyleMenuPreview: View {
     let style: StatusBarIconStyle
@@ -1498,5 +1933,25 @@ private struct WindowDragSafeSlider: NSViewRepresentable {
 private final class DragSafeNSSlider: NSSlider {
     override var mouseDownCanMoveWindow: Bool {
         false
+    }
+}
+
+private extension View {
+    func glassListScrollBackground() -> some View {
+        modifier(GlassListScrollBackgroundModifier())
+    }
+
+}
+
+private struct GlassListScrollBackgroundModifier: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(macOS 13, *) {
+            content
+                .scrollContentBackground(.hidden)
+                .background(Color.clear)
+        } else {
+            content
+                .background(Color.clear)
+        }
     }
 }
