@@ -1,6 +1,6 @@
 # **Focusly - macOS Ambience & Focus Companion**
 
-> 🔏 **Developer-signed build** - the latest DMG ships with my Developer ID cert; macOS still needs you to allow it once under **System Settings › Privacy & Security** because notarization is still in flight.
+> 🔏 **Signed releases run immediately** - the public DMG ships signed + notarized, so you can drag it into `/Applications` and launch right away. I’ll explicitly label any unsigned/dev drops-only those require the Gatekeeper “Open Anyway” detour once.
 
 <p align="center">
   <img src="https://img.shields.io/badge/platform-macOS-blue" alt="Platform macOS">
@@ -109,7 +109,7 @@ Being a minimalist, productivity-first app means - at least to me as the develop
 
 - [ ] **Overlay Performance** - higher refresh via smarter blur scheduling *(feature-complete locally; validating on diverse GPUs before calling it done)*.
 - [ ] **Settings Refresh** - enhancing the usability of the app settings window
-- [ ] **Full notarization** - finish Apple's notary review so Gatekeeper skips the **Open Anyway** dance (current DMG is already Developer ID signed).
+- [x] **Full notarization** - signed builds now clear Gatekeeper automatically; only unsigned/test drops (clearly labeled) need **Open Anyway** once.
 
 </details>
 
@@ -121,13 +121,14 @@ Being a minimalist, productivity-first app means - at least to me as the develop
 <summary>Tap for install steps</summary>
 
 1. Mount `Focusly.dmg` and drag `Focusly.app` into `/Applications`.
-2. Launch `Focusly.app` once. macOS will block it because the build is Developer ID–signed but not notarized yet-open **System Settings › Privacy & Security**, click **Open Anyway** next to Focusly, confirm the prompt, and relaunch.
-3. Approve **Accessibility** under **System Settings › Privacy & Security › Accessibility** to unlock precise window tracking.
-4. Tap the menu bar icon and toggle **Enable Overlays**.
+2. Launch `Focusly.app` from `/Applications`. Signed releases (the default) open immediately - I’ll call out any build that isn’t.
+3. If you intentionally grabbed an unsigned/dev build, macOS will block it: open **System Settings › Privacy & Security**, click **Open Anyway** next to Focusly, confirm, then relaunch.
+4. Approve **Accessibility** under **System Settings › Privacy & Security › Accessibility** to unlock precise window tracking.
+5. Tap the menu bar icon and toggle **Enable Overlays**.
 
 Latest alpha DMG lives on [GitHub Releases](https://github.com/Punshnut/macos-focusly/releases).
 
-> 🛡️ First launch is the only time macOS will block the app-after you click **Open Anyway** in **System Settings › Privacy & Security**, the system remembers the approval.
+> 🛡️ Gatekeeper’s **Open Anyway** step only applies to unsigned/test drops. Signed releases are already notarized, so drag-copy-launch is enough.
 
 > Need to roll your own build? Jump to **Build or Customize** below for the one-liner.
 
@@ -146,15 +147,15 @@ open .build/Release/Focusly.app
 
 ### Repository Layout
 
-- `Focusly/App` — entry point, app delegate, and coordinator wiring for the menu bar lifecycle.
-- `Focusly/Features/*` — surface-level features including overlays, hotkeys, onboarding, preferences, and status bar UI.
-- `Focusly/Infrastructure` — shared services such as localization, app settings, login helpers, and bundle utilities.
-- `Focusly/Domain` — focus profile models, preset catalogs, and persistence.
-- `Focusly/Platform` — low-level AppKit + Accessibility integrations (window tracker, display link driver, AX helpers).
-- `Focusly/Resources/Localization` — `.lproj` bundles that power every shipped language.
-- `Focusly/Resources/Media` — packaged artwork (centered logo, menu icons) while brand-only files stay excluded from the build.
-- `Resources/` — Info.plist + app icon that get baked into the signed `.app` via the shell scripts.
-- `Scripts/` + root `.sh` helpers — release automation, signing, notarization, and localization checks.
+- `Focusly/App` - entry point, app delegate, and coordinator wiring for the menu bar lifecycle.
+- `Focusly/Features/*` - surface-level features including overlays, hotkeys, onboarding, preferences, and status bar UI.
+- `Focusly/Infrastructure` - shared services such as localization, app settings, login helpers, and bundle utilities.
+- `Focusly/Domain` - focus profile models, preset catalogs, and persistence.
+- `Focusly/Platform` - low-level AppKit + Accessibility integrations (window tracker, display link driver, AX helpers).
+- `Focusly/Resources/Localization` - `.lproj` bundles that power every shipped language.
+- `Focusly/Resources/Media` - packaged artwork (centered logo, menu icons) while brand-only files stay excluded from the build.
+- `Resources/` - Info.plist + app icon that get baked into the signed `.app` via the shell scripts.
+- `Scripts/` + root `.sh` helpers - release automation, signing, notarization, and localization checks.
 
 ---
 
@@ -177,7 +178,7 @@ spctl --assess --type exec Focusly.app
 ```
 
 - Swap the identity for your Developer ID certificate (or use `--identity "-"` for ad-hoc testing).
-- The latest public DMG is Developer ID signed; until notarization lands, testers must allow it once via **System Settings › Privacy & Security › Open Anyway**.
+- Signed release DMGs are Developer ID signed **and notarized**, so Gatekeeper lets them launch immediately. Only unsigned/ad-hoc test drops (I’ll label them loudly) require **System Settings › Privacy & Security › Open Anyway** once.
 - `Resources/Info.plist` now ships with marketing + build versions, the Productivity category, a human-readable copyright,
   and the automation usage blurb Gatekeeper surfaces alongside Accessibility prompts.
 - `Focusly.entitlements` is a tracked hardened-runtime manifest; the signing/notarization scripts pick it up automatically so any added capabilities are visible in code review.

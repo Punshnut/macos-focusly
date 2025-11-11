@@ -2,6 +2,10 @@
 
 Focusly’s latest alpha ships with a tabbed, glassy Preferences window and a refreshed onboarding tour that mirrors what is described in the README. Use this guide to stay aligned with the current build.
 
+## Installation Check-In
+- Signed + notarized DMGs launch immediately after you drag Focusly into `/Applications`.
+- I call out any unsigned/dev drops in the release notes - only those require visiting **System Settings › Privacy & Security › Open Anyway** once before continuing.
+
 ## Opening Preferences
 - Launch Focusly, click its status bar icon (Standard, Halo, or Equalizer), and choose `Preferences…`, or press `⌘,`.
 - The window now uses four tabs-**General**, **Screen**, **Applications**, and **About**-so you can jump straight to the area you need.
