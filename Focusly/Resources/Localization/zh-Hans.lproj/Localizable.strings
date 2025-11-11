@@ -55,10 +55,11 @@
 "Minimal Dot" = "极简圆点";
 "Standard Icon" = "标准图标";
 "Monochrome" = "单色";
+"Moss" = "苔藓";
 "Nametag: %@" = "名牌：%@";
 "Next" = "下一步";
 "No displays detected. Connect a monitor to adjust overlay styling." = "未检测到显示器。连接显示器以调整叠加层样式。";
-"Open Preferences to choose opacity, tint, and one of the Focus, Warm, Ocean, or Monochrome presets per display." = "打开“偏好设置”，为每个显示器选择不透明度、色调，以及 Focus、Warm、Ocean 或 Monochrome 预设。";
+"Open Preferences to choose opacity, tint, and one of the Focus, Warm, Moss, Ocean, or Monochrome presets per display." = "打开“偏好设置”，为每个显示器选择不透明度、色调，以及 Focus、Warm、Moss、Ocean 或 Monochrome 预设。";
 "Options" = "选项";
 "Focus Preset" = "Focus 预设";
 "Overlay preview" = "叠加层预览";

@@ -55,10 +55,11 @@
 "Minimal Dot" = "Punto minimalista";
 "Standard Icon" = "Ícono estándar";
 "Monochrome" = "Monocromo";
+"Moss" = "Musgo";
 "Nametag: %@" = "Etiqueta de nombre: %@";
 "Next" = "Siguiente";
 "No displays detected. Connect a monitor to adjust overlay styling." = "No se detectaron pantallas. Conecta un monitor para ajustar el estilo de la superposición.";
-"Open Preferences to choose opacity, tint, and one of the Focus, Warm, Ocean, or Monochrome presets per display." = "Abre Preferencias para elegir la opacidad, el tono y uno de los ajustes Focus, Cálido, Océano o Monocromo por pantalla.";
+"Open Preferences to choose opacity, tint, and one of the Focus, Warm, Moss, Ocean, or Monochrome presets per display." = "Abre Preferencias para elegir la opacidad, el tono y uno de los ajustes Focus, Cálido, Musgo, Océano o Monocromo por pantalla.";
 "Options" = "Opciones";
 "Focus Preset" = "Preajuste Enfoque";
 "Overlay preview" = "Vista previa de la superposición";

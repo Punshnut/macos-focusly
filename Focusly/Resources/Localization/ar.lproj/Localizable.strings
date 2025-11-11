@@ -55,10 +55,11 @@
 "Minimal Dot" = "نقطة مصغّرة";
 "Standard Icon" = "أيقونة قياسية";
 "Monochrome" = "أحادي اللون";
+"Moss" = "طحلب";
 "Nametag: %@" = "شارة الاسم: %@";
 "Next" = "التالي";
 "No displays detected. Connect a monitor to adjust overlay styling." = "لم يتم اكتشاف شاشات. وصّل شاشة لضبط نمط التراكب.";
-"Open Preferences to choose opacity, tint, and one of the Focus, Warm, Ocean, or Monochrome presets per display." = "افتح التفضيلات لاختيار التعتيم والصبغة وأحد إعدادات تركيز أو دافئ أو محيط أو أحادي اللون لكل شاشة.";
+"Open Preferences to choose opacity, tint, and one of the Focus, Warm, Moss, Ocean, or Monochrome presets per display." = "افتح التفضيلات لاختيار التعتيم والصبغة وأحد إعدادات تركيز أو دافئ أو طحلب أو محيط أو أحادي اللون لكل شاشة.";
 "Options" = "خيارات";
 "Focus Preset" = "الإعداد المسبق للتركيز";
 "Overlay preview" = "معاينة التراكب";

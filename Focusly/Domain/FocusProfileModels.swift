@@ -10,6 +10,7 @@ struct FocusTint: Codable, Equatable {
     static let neutral = FocusTint(red: 0.12, green: 0.16, blue: 0.20, alpha: 0.75)
     static let ember = FocusTint(red: 0.62, green: 0.21, blue: 0.13, alpha: 0.78)
     static let lagoon = FocusTint(red: 0.10, green: 0.36, blue: 0.52, alpha: 0.72)
+    static let moss = FocusTint(red: 0.16, green: 0.34, blue: 0.20, alpha: 0.78)
     static let slate = FocusTint(red: 0.20, green: 0.23, blue: 0.27, alpha: 0.82)
     static let ink = FocusTint(red: 0.06, green: 0.07, blue: 0.09, alpha: 0.88)
     static let frost = FocusTint(red: 0.90, green: 0.93, blue: 0.97, alpha: 0.78)
@@ -193,6 +194,7 @@ struct FocusOverlayStyle: Codable, Equatable {
 
     static let blurFocus = FocusOverlayStyle(opacity: 0.78, tint: .neutral, animationDuration: 0.28, blurRadius: 38)
     static let warm = FocusOverlayStyle(opacity: 0.82, tint: .ember, animationDuration: 0.36, blurRadius: 32)
+    static let moss = FocusOverlayStyle(opacity: 0.86, tint: FocusTint.moss, animationDuration: 0.34, blurRadius: 30)
     static let colorful = FocusOverlayStyle(opacity: 0.88, tint: .lagoon, animationDuration: 0.32, blurRadius: 28)
     static let dark = FocusOverlayStyle(opacity: 0.88, tint: .ink, animationDuration: 0.30, colorTreatment: .dark, blurRadius: 38)
     static let whiteOverlay = FocusOverlayStyle(opacity: 0.86, tint: .frost, animationDuration: 0.28, colorTreatment: .whiteOverlay, blurRadius: 34)

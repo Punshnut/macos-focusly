@@ -72,7 +72,7 @@ Focusly is built on the principle that privacy isn’t an afterthought - it’s 
 <summary>Tap to preview the menu bar tricks</summary>
 
 - **Context-aware masking** keeps the foreground app clear while gently blurring everything else so your brain stays in flow.
-- **Preset Library** ships with Smart Blur, Warm, Dark, White, Paper, and Ocean looks plus per-display tint + opacity overrides.
+- **Preset Library** ships with Smart Blur, Warm, Dark, White, Paper, Moss, and Ocean looks plus per-display tint + opacity overrides.
 - **Per-monitor ambience** lets you tune multi-display setups individually - brighten the reference monitor, dim the chat screen.
 - **Shift-click focus** lets you flip between masking only the focused window or every window from the same app, per display, without opening Preferences.
 - **Dual hotkeys** give you one shortcut to toggle overlays and another to cycle the masking mode, so you can keep hands on the keyboard.

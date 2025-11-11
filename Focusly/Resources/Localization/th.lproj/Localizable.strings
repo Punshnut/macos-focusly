@@ -55,10 +55,11 @@
 "Minimal Dot" = "จุดมินิมอล";
 "Standard Icon" = "ไอคอนมาตรฐาน";
 "Monochrome" = "ขาวดำ";
+"Moss" = "มอส";
 "Nametag: %@" = "ชื่อป้าย: %@";
 "Next" = "ถัดไป";
 "No displays detected. Connect a monitor to adjust overlay styling." = "ไม่พบหน้าจอ เชื่อมต่อจอภาพเพื่อปรับสไตล์ของโอเวอร์เลย์.";
-"Open Preferences to choose opacity, tint, and one of the Focus, Warm, Ocean, or Monochrome presets per display." = "เปิดค่ากำหนดเพื่อเลือกความทึบ โทนสี และหนึ่งในพรีเซ็ต Focus, Warm, Ocean หรือ Monochrome สำหรับแต่ละหน้าจอ.";
+"Open Preferences to choose opacity, tint, and one of the Focus, Warm, Moss, Ocean, or Monochrome presets per display." = "เปิดค่ากำหนดเพื่อเลือกความทึบ โทนสี และหนึ่งในพรีเซ็ต Focus, Warm, Moss, Ocean หรือ Monochrome สำหรับแต่ละหน้าจอ.";
 "Options" = "ตัวเลือก";
 "Focus Preset" = "พรีเซ็ตโฟกัส";
 "Overlay preview" = "ดูตัวอย่างโอเวอร์เลย์";

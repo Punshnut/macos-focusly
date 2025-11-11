@@ -55,10 +55,11 @@
 "Minimal Dot" = "Minimal Dot";
 "Standard Icon" = "Standard Icon";
 "Monochrome" = "Monochrome";
+"Moss" = "Moss";
 "Nametag: %@" = "Nametag: %@";
 "Next" = "Next";
 "No displays detected. Connect a monitor to adjust overlay styling." = "No displays detected. Connect a monitor to adjust overlay styling.";
-"Open Preferences to choose opacity, tint, and one of the Focus, Warm, Ocean, or Monochrome presets per display." = "Open Preferences to choose opacity, tint, and one of the Focus, Warm, Ocean, or Monochrome presets per display.";
+"Open Preferences to choose opacity, tint, and one of the Focus, Warm, Moss, Ocean, or Monochrome presets per display." = "Open Preferences to choose opacity, tint, and one of the Focus, Warm, Moss, Ocean, or Monochrome presets per display.";
 "Options" = "Options";
 "Focus Preset" = "Focus Preset";
 "Overlay preview" = "Overlay preview";

@@ -55,10 +55,11 @@
 "Minimal Dot" = "미니멀 점";
 "Standard Icon" = "표준 아이콘";
 "Monochrome" = "흑백";
+"Moss" = "모스";
 "Nametag: %@" = "이름표: %@";
 "Next" = "다음";
 "No displays detected. Connect a monitor to adjust overlay styling." = "디스플레이를 감지하지 못했습니다. 모니터를 연결해 오버레이 스타일을 조정하세요.";
-"Open Preferences to choose opacity, tint, and one of the Focus, Warm, Ocean, or Monochrome presets per display." = "각 디스플레이에서 불투명도와 색조를 고르고 포커스·웜·오션·흑백 프리셋 중 하나를 선택하려면 환경설정을 여세요.";
+"Open Preferences to choose opacity, tint, and one of the Focus, Warm, Moss, Ocean, or Monochrome presets per display." = "각 디스플레이에서 불투명도와 색조를 고르고 포커스·웜·모스·오션·흑백 프리셋 중 하나를 선택하려면 환경설정을 여세요.";
 "Options" = "옵션";
 "Focus Preset" = "포커스 프리셋";
 "Overlay preview" = "오버레이 미리보기";

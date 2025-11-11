@@ -55,10 +55,11 @@
 "Minimal Dot" = "Мінімальна крапка";
 "Standard Icon" = "Стандартна піктограма";
 "Monochrome" = "Монохром";
+"Moss" = "Мох";
 "Nametag: %@" = "Бейдж: %@";
 "Next" = "Далі";
 "No displays detected. Connect a monitor to adjust overlay styling." = "Дисплеї не виявлено. Підключіть монітор, щоб налаштувати стиль накладок.";
-"Open Preferences to choose opacity, tint, and one of the Focus, Warm, Ocean, or Monochrome presets per display." = "Відкрийте налаштування, щоб обрати непрозорість, тон і один із пресетів Focus, Warm, Ocean або Monochrome для кожного дисплея.";
+"Open Preferences to choose opacity, tint, and one of the Focus, Warm, Moss, Ocean, or Monochrome presets per display." = "Відкрийте налаштування, щоб обрати непрозорість, тон і один із пресетів Focus, Warm, Мох, Ocean або Monochrome для кожного дисплея.";
 "Options" = "Параметри";
 "Focus Preset" = "Пресет «Фокус»";
 "Overlay preview" = "Попередній перегляд накладки";

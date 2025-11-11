@@ -55,10 +55,11 @@
 "Minimal Dot" = "Минимальная точка";
 "Standard Icon" = "Стандартная иконка";
 "Monochrome" = "Монохром";
+"Moss" = "Мох";
 "Nametag: %@" = "Имя: %@";
 "Next" = "Далее";
 "No displays detected. Connect a monitor to adjust overlay styling." = "Дисплеи не обнаружены. Подключите монитор, чтобы настроить стиль оверлея.";
-"Open Preferences to choose opacity, tint, and one of the Focus, Warm, Ocean, or Monochrome presets per display." = "Откройте настройки, чтобы выбрать непрозрачность, оттенок и один из пресетов Focus, Тёплый, Океан или Монохром для каждого дисплея.";
+"Open Preferences to choose opacity, tint, and one of the Focus, Warm, Moss, Ocean, or Monochrome presets per display." = "Откройте настройки, чтобы выбрать непрозрачность, оттенок и один из пресетов Focus, Тёплый, Мох, Океан или Монохром для каждого дисплея.";
 "Options" = "Параметры";
 "Focus Preset" = "Пресет «Фокус»";
 "Overlay preview" = "Предпросмотр оверлея";

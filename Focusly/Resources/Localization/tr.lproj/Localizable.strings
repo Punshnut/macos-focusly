@@ -55,10 +55,11 @@
 "Minimal Dot" = "Minimal Nokta";
 "Standard Icon" = "Standart simge";
 "Monochrome" = "Siyah Beyaz";
+"Moss" = "Yosun";
 "Nametag: %@" = "İsim etiketi: %@";
 "Next" = "İleri";
 "No displays detected. Connect a monitor to adjust overlay styling." = "Ekran algılanmadı. Kaplamayı ayarlamak için bir monitör bağlayın.";
-"Open Preferences to choose opacity, tint, and one of the Focus, Warm, Ocean, or Monochrome presets per display." = "Her ekran için opaklığı, tonu ve Focus, Warm, Okyanus veya Monochrome ön ayarlarından birini seçmek üzere Tercihler’i açın.";
+"Open Preferences to choose opacity, tint, and one of the Focus, Warm, Moss, Ocean, or Monochrome presets per display." = "Her ekran için opaklığı, tonu ve Focus, Warm, Yosun, Okyanus veya Monochrome ön ayarlarından birini seçmek üzere Tercihler’i açın.";
 "Options" = "Seçenekler";
 "Focus Preset" = "Focus ön ayarı";
 "Overlay preview" = "Kaplama önizlemesi";

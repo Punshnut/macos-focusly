@@ -55,10 +55,11 @@
 "Minimal Dot" = "Doa ndogo";
 "Standard Icon" = "Alama ya kawaida";
 "Monochrome" = "Rangi moja";
+"Moss" = "Moss";
 "Nametag: %@" = "Lebeli ya jina: %@";
 "Next" = "Ifuatayo";
 "No displays detected. Connect a monitor to adjust overlay styling." = "Hakuna skrini zilizogunduliwa. Unganisha kifuatilia ili kurekebisha mtindo wa tabaka.";
-"Open Preferences to choose opacity, tint, and one of the Focus, Warm, Ocean, or Monochrome presets per display." = "Fungua Mapendeleo ili kuchagua ubonyevu, rangi, na mojawapo ya mipangilio ya Focus, Warm, Bahari au Rangi moja kwa kila skrini.";
+"Open Preferences to choose opacity, tint, and one of the Focus, Warm, Moss, Ocean, or Monochrome presets per display." = "Fungua Mapendeleo ili kuchagua ubonyevu, rangi, na mojawapo ya mipangilio ya Focus, Warm, Moss, Bahari au Rangi moja kwa kila skrini.";
 "Options" = "Chaguo";
 "Focus Preset" = "Kiolezo cha Focus";
 "Overlay preview" = "Mwonekano wa tabaka";

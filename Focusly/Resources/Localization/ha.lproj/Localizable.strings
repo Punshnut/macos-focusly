@@ -55,10 +55,11 @@
 "Minimal Dot" = "Digo kadan";
 "Standard Icon" = "Gunkin da aka saba";
 "Monochrome" = "Launi daya";
+"Moss" = "Moss";
 "Nametag: %@" = "Tambarin suna: %@";
 "Next" = "Na gaba";
 "No displays detected. Connect a monitor to adjust overlay styling." = "Babu allo da aka gano. Hada monitor don daidaita salon shimfida.";
-"Open Preferences to choose opacity, tint, and one of the Focus, Warm, Ocean, or Monochrome presets per display." = "Bude Saituna don zabar kauri, inuwa, da daya daga cikin saitunan Focus, Warm, Teku ko Launi daya ga kowane allo.";
+"Open Preferences to choose opacity, tint, and one of the Focus, Warm, Moss, Ocean, or Monochrome presets per display." = "Bude Saituna don zabar kauri, inuwa, da daya daga cikin saitunan Focus, Warm, Moss, Teku ko Launi daya ga kowane allo.";
 "Options" = "Zabubbuka";
 "Focus Preset" = "Saitin Focus";
 "Overlay preview" = "Duban shimfida";
