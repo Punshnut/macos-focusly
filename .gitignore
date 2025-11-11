@@ -30,6 +30,7 @@ Focusly v03a.dmg
 # Automation & sandbox artifacts
 .sandbox-home/
 .notarytool-submissions/
+.translation-work/
 
 # Cache noise
 .clangd/
@@ -39,7 +40,8 @@ Focusly v03a.dmg
 # Local scripts (kept private)
 build_app.sh
 build_dmg.sh
-sign_and_notarize.sh
+sign_and_notarizeDONTUSE.sh
 notarize_async.sh
 sign_dev_dmg.sh
 check_localizations.sh
+translate_localizations.sh
