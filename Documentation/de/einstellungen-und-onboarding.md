@@ -1,52 +1,74 @@
-# Focusly Einstellungen & Erste Schritte
+# Focusly Settings & First-Run Guide
 
-Dieser Leitfaden führt durch das Einstellungsfenster von macOS und die Hinweise beim ersten Start, damit Focusly Ablenkungen aus deinem Sichtfeld hält.
+Focusly’s latest alpha ships with a tabbed, glassy Preferences window and a refreshed onboarding tour that mirrors what is described in the README. Use this guide to stay aligned with the current build.
 
-## Focusly-Einstellungen öffnen
-- Starte Focusly und suche nach dem Symbol in der Menüleiste (Minimal Dot, Halo oder Equalizer – je nach aktuellem Stil).
-- Klicke auf das Symbol und wähle `Einstellungen…` oder drücke `⌘,`, während Focusly aktiv ist, um das Einstellungsfenster zu öffnen.
-- Das Fenster ist scrollbar; die Abschnitte reichen von Darstellung über Automatisierung bis zur Sprache.
+## Opening Preferences
+- Launch Focusly, click its status bar icon (Standard, Halo, or Equalizer), and choose `Preferences…`, or press `⌘,`.
+- The window now uses four tabs-**General**, **Screen**, **Applications**, and **About**-so you can jump straight to the area you need.
+- Preferences inherits the frosted chrome from the onboarding flow; use the scroll gesture or the left-hand tabs to traverse sections quickly.
 
-## Rundgang durch die Einstellungen
+## General Tab
+### Launch & Shortcuts
+- **Launch Focusly at login** keeps overlays consistent across restarts; the toggle only appears once macOS trusts the signed `.app`.
+- Two global hotkeys ship by default: `Toggle overlays` and `Cycle masking mode`. Each row has enable/disable switches plus Record/Clear buttons so you can manage shortcuts independently.
+- Tooltips inline with the controls reiterate what each action touches, matching the README’s emphasis on dual hotkeys.
 
-### Darstellung
-- `Focus Preset`: Wähle Smart Blur, Warm, Colorful oder Monochrome. Jeder Wechsel aktualisiert sofort alle Displays.
-- `Status Bar Icon`: Wechsle zwischen Minimal Dot, Halo und Equalizer, damit das Symbol zur Menüleiste passt.
-- Tipp: Kombiniere ein weicheres Preset mit dem Symbol, das du am schnellsten erkennst, ohne aus dem Fokus zu geraten.
+### Menu Bar Presence
+- Pick the menu bar icon that matches your setup: Standard, Halo, or Equalizer. The picker previews both idle and active states so you can see contrast at a glance.
+- Icon changes apply immediately to the status item and to the quick menu referenced throughout onboarding.
 
-### Fensterverfolgung
-- Wähle Standard (60 Hz), Energiesparen (30 Hz) oder Höchstleistung (90 Hz), um festzulegen, wie oft Focusly Fensterbewegungen verfolgt.
-- Die Beschriftung erklärt, wie sich das Profil auf Reaktionsgeschwindigkeit und Akkuverbrauch auswirkt.
-- Tipp: Standard ist der beste Kompromiss; wechsle zu Höchstleistung, wenn du oft Fenster verschiebst.
+### Appearance
+- Toggle **Make the settings window minimal** to collapse the extra border/chrome and keep only the glassy content view. This mirrors the macOS-style aesthetic highlighted in the project overview.
 
-### Displays
-- Jede erkannte Anzeige erscheint als Chip. Klicke einen Chip an, um dieses Display zu justieren.
-- Nutze `Dieses Display ausschließen`, wenn Focusly einen Bildschirm vollständig ignorieren soll.
-- **Unschärfe-Details**: Ziehe den Regler `Blur Style`, um macOS-Materialien wie HUD Window, Menü, Popover, Sidebar, Sheet, Full Screen oder Window Background auszuprobieren und den passenden Look zu finden.
-- **Farbeffekte**: Passe `Overlay Strength`, `Overlay Tint` an und wechsle zwischen `Preserve Color` und `Monochrome`.
-- **Standard-Einstellungen**: `Reset to Preset` setzt das aktuelle Display zurück; `Apply to Other Displays` kopiert den Look auf den restlichen Arbeitsplatz.
-- Tipp: Reduziere die Deckkraft auf Zweitdisplays, damit Referenzinhalte sichtbar bleiben und trotzdem ablenkungsärmer wirken.
+### Language & Guidance
+- Override the system language via **App Language** if you want to preview one of the 18 bundled localizations. “Follow macOS Language (Default)” keeps Focusly synced with System Settings.
+- Use **Revisit Introduction…** to reopen onboarding without restarting the app; the same command is available from the status bar (`Show Introduction…`).
 
-### Tastenkürzel
-- Aktiviere **Enable Focus Toggle Shortcut**, um den globalen Hotkey zu nutzen.
-- Drücke **Record**, um eine Kombination festzuhalten (z. B. `⌃⌥⌘F`), und **Clear**, um sie zu entfernen.
-- Tipp: Wähle eine Einhand-Kombination, mit der du den Desktop kurz freilegst, ohne den Arbeitsfluss zu unterbrechen.
+## Screen Tab
+### Focus Presets
+- Switch between the current preset library: **Smart Blur, Warm, Dark, White, Paper, Moss, and Ocean**. Selecting a preset updates every display instantly and matches the quick menu preset list.
 
-### Beim Anmelden starten
-- Aktiviere **Launch Focusly at login**, damit die Overlays zusammen mit macOS starten. Sollte macOS die Einstellung blockieren, zeigt Focusly Hinweise zu Systemeinstellungen → Benutzer & Gruppen → Anmeldeobjekte.
-- Tipp: Durch das Starten beim Anmelden bleiben Overlays nach Neustarts und beim Anstecken externer Displays konsistent.
+### Window Tracking Performance
+- Choose **Energy Saving (30 Hz)**, **Standard (60 Hz)**, or **High Performance (90 Hz)** to control how often the Accessibility tracker runs.
+- Explanations under the segmented control describe the responsiveness vs. battery trade-off so new testers know when to bump the cadence (e.g., rapid window management).
 
-### App-Sprache
-- Wähle **App Language**, um die macOS-Vorgabe zu überschreiben, sofort zwischen Übersetzungen zu wechseln und Beiträge zu prüfen.
-- Tipp: Lass die Auswahl auf „Follow macOS Language (Default)“, wenn Focusly der Systemsprache folgen soll.
+### Displays Panel
+- Every connected monitor appears as a tile under **Connected Displays**. Selecting one opens a detailed inspector with:
+  - **Preview & Exclusion**: A live tint preview and an `Exclude This Display` switch that leaves certain monitors untouched.
+  - **Blur Style slider**: Browse built-in macOS materials (HUD Window → Window Background) so overlays can inherit the correct texture.
+  - **Overlay Strength & Tint**: A 35–100% slider plus a Color Picker with opacity support; use `Preserve Color` or `Monochrome` via the segmented control to keep reference content accurate.
+  - **Actions**: `Reset to Preset`, `Multi-Monitor Actions`, and `Apply to Other Displays` buttons make it easy to clone a tuned look across the entire desk.
+- Tips under each block suggest practical defaults (e.g., keep secondary displays lighter to avoid hiding chat/reference apps).
 
-### Einführung erneut ansehen
-- Klicke auf `Einführung erneut ansehen…`, um den Onboarding-Durchlauf jederzeit zu öffnen.
-- Du kannst ihn auch über das Menüleistensymbol starten (`Einführung anzeigen…`).
+### Dock & Stage Manager (Experimental)
+- A dedicated panel toggles **Reveal Dock & Stage Manager when desktop is focused**. When enabled, Focusly automatically clears the blur around the Dock or Stage Manager strip if every window is minimized or you click the desktop, matching the experimental behavior described in the status updates.
 
-## Erste Schritte für fokussiertes Arbeiten
-1. **Overlays einschalten**: Aktiviere im Schnellmenü `Overlays aktivieren` für jeden Monitor, um Hintergrundrauschen zu reduzieren.
-2. **Preset pro Bereich wählen**: Smart Blur eignet sich für neutrale Konzentration, Warm für Abendstunden, Colorful für Präsentationen und Monochrome für dezente Referenzbildschirme.
-3. **Displays feinabstimmen**: Senke die Overlay-Intensität auf Bildschirmen mit Messenger-Apps und erhöhe die Unschärfe am Hauptarbeitsplatz, um unruhige Hintergründe auszublenden.
-4. **Bedienung festlegen**: Lege einen globalen Hotkey fest, um den Desktop bei Bedarf freizulegen, und aktiviere „Beim Anmelden starten“, damit Focusly immer bereit ist.
-5. **Einführung nach Änderungen wiederholen**: Starte die Einführung über das Menüleistensymbol neu, wenn du Displays umstellst oder Presets wechselst, damit die schnellsten Wege präsent bleiben.
+## Applications Tab
+- Use **Add Application…** to import any `.app` bundle and tell Focusly how to treat its windows.
+- Each row supports three behaviors that map to the current `ApplicationMaskingIgnoreList` options:
+  1. **Always blur entire app** (`excludeCompletely`)
+  2. **Always blur app except Settings menu** (`excludeExceptSettingsWindow`) - perfect for tools like Alcove.
+  3. **Don’t blur any window of this app** (`alwaysMask`)
+- Select one or more apps, adjust their masking policy, or remove them entirely. Suggested entries appear automatically when Focusly detects known utilities.
+
+## About Tab
+- Shows version/build info, credits, and quick links (privacy details, help center, GitHub repository).
+- Includes the same **Revisit Introduction…** action as the General tab plus a prominent link to the project’s GitHub page so testers can file issues right away.
+
+## Onboarding Walkthrough
+Focusly displays a five-card onboarding flow on first launch (or whenever you choose **Show Introduction…**):
+1. **Welcome to Focusly** – Explains the difference between the status bar menu and the glassy Preferences window; advancing opens Preferences beside the onboarding card.
+2. **Switch overlays on** – Guides you to toggle overlays per display from the status bar.
+3. **Shift-click for focus** – Teaches the Shift-click gesture that flips between “focused window only” and “all windows from the active app,” with each display remembering its own mode.
+4. **Pick a filter** – Prompts you to use the Screen tab to adjust opacity, tint, and presets (Smart Blur, Warm, Dark, White, Paper, Moss, Ocean).
+5. **Set your controls** – Encourages binding hotkeys and enabling Launch at Login under the General tab so Focusly is available immediately after boot.
+
+The onboarding window mirrors the Preferences chrome, includes Back/Next navigation, and automatically focuses the relevant Preferences tab on steps 3 and 4 so testers can follow along without hunting.
+
+## First-Run Tips
+1. **Allow Accessibility access** when macOS prompts you; Focusly relies on it for masking without capturing the screen.
+2. **Toggle overlays per display** from the status bar, then dial in blur strength inside Preferences to match each workspace.
+3. **Use Shift-click muscle memory** to promote tool palettes or entire apps without opening Preferences.
+4. **Capture both hotkeys**-one shortcut for overlay power and another for masking mode-to stay keyboard-driven.
+5. **Tune the Applications tab** for creative suites or streaming apps whose UIs you never want blurred.
+6. **Reopen onboarding after hardware changes** so the app can automatically anchor Preferences beside the welcome flow and remind you of the new tabs.
