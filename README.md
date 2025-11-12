@@ -1,7 +1,5 @@
 # **Focusly - macOS Ambience & Focus Companion**
 
-> 🔏 **Signed releases run immediately** - the public DMG ships signed + notarized, so you can drag it into `/Applications` and launch right away. I’ll explicitly label any unsigned/dev drops-only those require the Gatekeeper “Open Anyway” detour once.
-
 <p align="center">
   <img src="https://img.shields.io/badge/platform-macOS-blue" alt="Platform macOS">
   <img src="https://img.shields.io/badge/Swift-6.2-orange" alt="Swift 6.2">
@@ -16,10 +14,6 @@
   <a href="https://github.com/Punshnut/macos-focusly/issues/new/choose">
     <img src="https://img.shields.io/badge/Share%20feedback-Issue%20tracker-ff7f50?style=for-the-badge" alt="Share feedback">
   </a>
-</p>
-
-<p align="center">
-  <strong>Quick tour:</strong> <a href="#-what-is-focusly">Overview</a> · <a href="#-built-for-every-desk">Localization</a> · <a href="#-menu-bar-superpowers">Features</a> · <a href="#-try-the-alpha-build-today">Install</a> · <a href="#-roadmap-to-public-launch">Roadmap</a> · <a href="#-build-or-customize">Build</a>
 </p>
 
 <p align="center">
@@ -48,7 +42,7 @@
 
 ## **About Focusly**
 
-**Focusly** is a lightweight menu bar companion that softens the edges of every display, keeps the active window crisp, and lets you dial in ambience without touching your creative tools.
+**Focusly** is a lightweight menu bar companion that softens the edges of every display, keeps the active window crisp, and lets you dial in ambience without touching your creative tools - perfect for people who want deep focus without living in full-screen mode.
 
 It’s built to feel like a **native macOS control** - fast, glassy, localized, and respectful of your privacy.
 
@@ -221,7 +215,7 @@ Current coverage focuses on `ProfileStore` persistence and preset override logic
 
 Released under the **MIT License** - see [LICENSE](./LICENSE) for details.
 
-> Focusly remains free during the alpha cycle; optional paid tiers may appear once the notarized launch ships.
+> All currently included features will stay free forever; optional paid tiers may appear after the full release.
 
 ---
 
