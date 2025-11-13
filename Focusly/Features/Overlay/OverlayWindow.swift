@@ -13,6 +13,18 @@ final class OverlayWindow: NSPanel {
         let cornerRadius: CGFloat
     }
 
+    /// Summarizes how often mask rendering falls back to CPU-bound bitmap mode.
+    struct OverlayMaskRenderingDiagnostics {
+        let vectorFrames: UInt64
+        let bitmapFrames: UInt64
+
+        var totalFrames: UInt64 { vectorFrames + bitmapFrames }
+        var bitmapRatio: Double {
+            guard totalFrames > 0 else { return 0 }
+            return Double(bitmapFrames) / Double(totalFrames)
+        }
+    }
+
     /// Semi-transparent tint view that sits on top of the blur to colorize the overlay.
     private let tintView: NSView = {
         let view = NSView()
@@ -21,6 +33,8 @@ final class OverlayWindow: NSPanel {
         let layer = CALayer()
         layer.backgroundColor = NSColor.systemIndigo.withAlphaComponent(0.08).cgColor
         layer.isOpaque = false
+        layer.drawsAsynchronously = true
+        layer.allowsGroupOpacity = true
         view.layer = layer
         return view
     }()
@@ -53,6 +67,12 @@ final class OverlayWindow: NSPanel {
         configureWindow()
         configureContent()
         updateToScreenFrame()
+    }
+
+    /// Exposes aggregate mask rendering stats so controllers can detect fallback hot-spots.
+    @MainActor
+    static func maskRenderingDiagnostics() -> OverlayMaskRenderingDiagnostics {
+        OverlayMaskLayer.diagnosticsSnapshot()
     }
 
     /// Convenience initializer that derives the display identifier from the screen.
@@ -237,6 +257,7 @@ final class OverlayWindow: NSPanel {
         backgroundColor = .clear
         isOpaque = false
         hasShadow = false
+        allowsConcurrentViewDrawing = true
         ignoresMouseEvents = true
         animationBehavior = .none
         collectionBehavior = [
@@ -252,6 +273,10 @@ final class OverlayWindow: NSPanel {
         guard let contentView else { return }
         contentView.translatesAutoresizingMaskIntoConstraints = true
         contentView.autoresizingMask = [.width, .height]
+        contentView.wantsLayer = true
+        contentView.layerContentsRedrawPolicy = .onSetNeedsDisplay
+        contentView.layerContentsPlacement = .scaleAxesIndependently
+        contentView.layer?.drawsAsynchronously = true
 
         contentView.addSubview(overlayBlurView)
         contentView.addSubview(tintView)
@@ -488,6 +513,26 @@ private final class OverlayMaskLayer: CALayer {
         case bitmap
     }
 
+    private final class DiagnosticsTracker: @unchecked Sendable {
+        private var vectorFrames: UInt64 = 0
+        private var bitmapFrames: UInt64 = 0
+
+        func recordVectorFrame() {
+            vectorFrames &+= 1
+        }
+
+        func recordBitmapFrame() {
+            bitmapFrames &+= 1
+        }
+
+        func snapshot() -> OverlayWindow.OverlayMaskRenderingDiagnostics {
+            OverlayWindow.OverlayMaskRenderingDiagnostics(
+                vectorFrames: vectorFrames,
+                bitmapFrames: bitmapFrames
+            )
+        }
+    }
+
     private struct HoleRegion {
         var rect: CGRect
         var cornerRadius: CGFloat
@@ -499,6 +544,7 @@ private final class OverlayMaskLayer: CALayer {
         layer.anchorPoint = .zero
         layer.fillRule = .evenOdd
         layer.fillColor = NSColor.white.cgColor
+        layer.drawsAsynchronously = true
         layer.actions = [
             "path": NSNull(),
             "bounds": NSNull(),
@@ -510,6 +556,7 @@ private final class OverlayMaskLayer: CALayer {
     private let bitmapMaskLayer: CALayer = {
         let layer = CALayer()
         layer.anchorPoint = .zero
+        layer.drawsAsynchronously = true
         layer.actions = [
             "contents": NSNull(),
             "bounds": NSNull(),
@@ -520,9 +567,11 @@ private final class OverlayMaskLayer: CALayer {
     }()
 
     private var renderingMode: RenderingMode = .none
+    private static let diagnosticsTracker = DiagnosticsTracker()
 
     override init() {
         super.init()
+        drawsAsynchronously = true
         configureLayerHierarchy()
     }
 
@@ -600,7 +649,7 @@ private final class OverlayMaskLayer: CALayer {
             return
         }
 
-        if holesOverlap(holeRegions, tolerance: tolerance) {
+        if holesOverlap(holeRegions, tolerance: tolerance, scale: resolvedScale) {
             applyBitmapMask(bounds: bounds, scale: resolvedScale, holes: holeRegions)
         } else {
             applyVectorMask(bounds: bounds, scale: resolvedScale, holes: holeRegions)
@@ -647,15 +696,23 @@ private final class OverlayMaskLayer: CALayer {
     }
 
     /// Determines whether any existing holes intersect enough to warrant bitmap masking.
-    private func holesOverlap(_ holes: [HoleRegion], tolerance: CGFloat) -> Bool {
+    private func holesOverlap(_ holes: [HoleRegion], tolerance: CGFloat, scale: CGFloat) -> Bool {
         guard holes.count > 1 else { return false }
+        let pixelScale = max(scale, 1)
+        let minPixelOverlap: CGFloat = 96
+        let minimumArea = max(minPixelOverlap / (pixelScale * pixelScale), tolerance * tolerance * 6)
         for index in 0..<(holes.count - 1) {
             let first = holes[index].rect
             for comparisonIndex in (index + 1)..<holes.count {
                 let second = holes[comparisonIndex].rect
                 let intersection = first.intersection(second)
                 guard !intersection.isNull else { continue }
-                if (intersection.width * intersection.height) > tolerance {
+                let overlapArea = intersection.width * intersection.height
+                guard overlapArea > minimumArea else { continue }
+                let firstArea = max(first.width * first.height, .ulpOfOne)
+                let secondArea = max(second.width * second.height, .ulpOfOne)
+                let overlapRatio = overlapArea / min(firstArea, secondArea)
+                if overlapRatio >= 0.5 {
                     return true
                 }
             }
@@ -675,6 +732,7 @@ private final class OverlayMaskLayer: CALayer {
         bitmapMaskLayer.contents = nil
         bitmapMaskLayer.isHidden = true
         renderingMode = .vector
+        Self.diagnosticsTracker.recordVectorFrame()
     }
 
     /// Falls back to a bitmap mask when regions intersect and vector subtraction would bleed.
@@ -689,6 +747,7 @@ private final class OverlayMaskLayer: CALayer {
         vectorMaskLayer.path = nil
         vectorMaskLayer.isHidden = true
         renderingMode = .bitmap
+        Self.diagnosticsTracker.recordBitmapFrame()
     }
 
     /// Builds the even-odd vector path representing all static and dynamic carve-outs.
@@ -787,6 +846,11 @@ private final class OverlayMaskLayer: CALayer {
             height: height / scale
         )
     }
+
+    /// Shares the accumulated diagnostics so callers can monitor fallback usage.
+    static func diagnosticsSnapshot() -> OverlayWindow.OverlayMaskRenderingDiagnostics {
+        diagnosticsTracker.snapshot()
+    }
 }
 
 /// Visual effect view that drives the blur material beneath the tinted overlay.
@@ -806,6 +870,7 @@ final class OverlayBlurView: NSVisualEffectView {
         wantsLayer = true
         layerUsesCoreImageFilters = true
         layer?.masksToBounds = false
+        layer?.drawsAsynchronously = true
         applyFilters()
     }
 
