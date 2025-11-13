@@ -186,6 +186,74 @@ func axEnumerateAllWindows(limitPerApp: Int = 200) -> [AXWindowInfo] {
     return collectedWindowInfos
 }
 
+/// Returns window metadata for a single running application, capped to a provided limit.
+@MainActor
+func axWindowInfos(for pid: pid_t, limit: Int = 200) -> [AXWindowInfo] {
+    guard isAccessibilityAccessGranted() else { return [] }
+    guard let application = NSRunningApplication(processIdentifier: pid), application.activationPolicy != .prohibited else {
+        return []
+    }
+
+    let accessibilityApplication = AXUIElementCreateApplication(pid)
+    var windowsValue: CFTypeRef?
+    guard AXUIElementCopyAttributeValue(accessibilityApplication, kAXWindowsAttribute as CFString, &windowsValue) == .success,
+          let accessibilityWindows = windowsValue as? [AXUIElement],
+          !accessibilityWindows.isEmpty else {
+        return []
+    }
+
+    var collectedWindowInfos: [AXWindowInfo] = []
+    var processedWindowCount = 0
+    for windowElement in accessibilityWindows {
+        var titleValue: CFTypeRef?
+        _ = AXUIElementCopyAttributeValue(windowElement, kAXTitleAttribute as CFString, &titleValue)
+        let windowTitle = titleValue as? String
+
+        var positionValue: CFTypeRef?
+        var sizeValue: CFTypeRef?
+        _ = AXUIElementCopyAttributeValue(windowElement, kAXPositionAttribute as CFString, &positionValue)
+        _ = AXUIElementCopyAttributeValue(windowElement, kAXSizeAttribute as CFString, &sizeValue)
+        guard let windowPosition = axPoint(positionValue), let windowSize = axSize(sizeValue) else { continue }
+
+        var minimizedValue: CFTypeRef?
+        var isMinimized = false
+        if AXUIElementCopyAttributeValue(windowElement, kAXMinimizedAttribute as CFString, &minimizedValue) == .success,
+           let minimizedFlag = minimizedValue as? Bool {
+            isMinimized = minimizedFlag
+        }
+
+        var mainValue: CFTypeRef?
+        var isMainWindow = false
+        if AXUIElementCopyAttributeValue(windowElement, kAXMainAttribute as CFString, &mainValue) == .success,
+           let mainFlag = mainValue as? Bool {
+            isMainWindow = mainFlag
+        }
+
+        var focusedValue: CFTypeRef?
+        var isFocusedWindow = false
+        if AXUIElementCopyAttributeValue(windowElement, kAXFocusedAttribute as CFString, &focusedValue) == .success,
+           let focusedFlag = focusedValue as? Bool {
+            isFocusedWindow = focusedFlag
+        }
+
+        let frame = NSRect(x: windowPosition.x, y: windowPosition.y, width: windowSize.width, height: windowSize.height)
+        let info = AXWindowInfo(
+            pid: pid,
+            appName: application.localizedName ?? "(unknown)",
+            windowTitle: windowTitle,
+            frame: frame,
+            isMinimized: isMinimized,
+            isMain: isMainWindow,
+            isFocused: isFocusedWindow && application.isActive
+        )
+        collectedWindowInfos.append(info)
+
+        processedWindowCount += 1
+        if processedWindowCount >= limit { break }
+    }
+    return collectedWindowInfos
+}
+
 /// Returns all accessibility windows for the supplied process along with their corner radii.
 @MainActor
 func axWindowCornerSnapshots(for pid: pid_t) -> [AXWindowCornerSnapshot] {

@@ -24,11 +24,41 @@ final class OverlayController {
         let rect: NSRect
         let cornerRadius: CGFloat
         let purpose: ActiveWindowSnapshot.MaskRegion.Purpose?
+        let peripheralKind: PeripheralInterfaceRegion.Kind?
+        let isSynthesizedPeripheral: Bool
+
+        init(
+            rect: NSRect,
+            cornerRadius: CGFloat,
+            purpose: ActiveWindowSnapshot.MaskRegion.Purpose?,
+            peripheralKind: PeripheralInterfaceRegion.Kind? = nil,
+            isSynthesizedPeripheral: Bool = false
+        ) {
+            self.rect = rect
+            self.cornerRadius = cornerRadius
+            self.purpose = purpose
+            self.peripheralKind = peripheralKind
+            self.isSynthesizedPeripheral = isSynthesizedPeripheral
+        }
+
+        var describesAutoHiddenDock: Bool {
+            guard let peripheralKind else { return false }
+            if case .dock(_, let isAutoHidden) = peripheralKind {
+                return isAutoHidden
+            }
+            return false
+        }
+
+        var requiresAutoHiddenDockAnimation: Bool {
+            describesAutoHiddenDock
+        }
 
         static func == (lhs: MaskRequest, rhs: MaskRequest) -> Bool {
             lhs.rect.isApproximatelyEqual(to: rhs.rect, tolerance: 0.05) &&
             abs(lhs.cornerRadius - rhs.cornerRadius) <= 0.05 &&
-            lhs.purpose == rhs.purpose
+            lhs.purpose == rhs.purpose &&
+            lhs.peripheralKind == rhs.peripheralKind &&
+            lhs.isSynthesizedPeripheral == rhs.isSynthesizedPeripheral
         }
     }
 
@@ -56,7 +86,13 @@ final class OverlayController {
     private var cachedPeripheralRegions: [PeripheralInterfaceRegion] = []
     private var lastPeripheralRegionRefresh = Date.distantPast
     private let peripheralRegionCacheLifetime: TimeInterval = 0.25
+    private let peripheralAnimationSampleInterval: TimeInterval = 1.0 / 60.0
+    private var peripheralAnimationTimer: Timer?
     private var isDesktopPeripheralRevealEnabled = true
+    private let desktopRevealEvaluationInterval: TimeInterval = 0.35
+    private var lastDesktopRevealEvaluation = Date.distantPast
+    private var cachedDesktopRevealDecision = false
+    private var cachedDesktopRevealProcessID: pid_t?
     private lazy var supplementalSnapshotDisplayLink = DisplayLinkDriver { [weak self] timing in
         guard let self else { return }
         self.handleDisplayLinkTick(timing: timing)
@@ -77,6 +113,8 @@ final class OverlayController {
     private var defaultApplicationMaskingMode: ApplicationMaskingMode = .allApplicationWindows
     private var maskingModeOverrides: [DisplayID: ApplicationMaskingMode] = [:]
     private var isApplicationWideSnapshotEnabled = true
+    private var lastImmediateSnapshotRefresh = Date.distantPast
+    private let immediateSnapshotRefreshCooldown: TimeInterval = 1.0 / 90.0
 
     init(
         activeWindowSnapshotResolver: @escaping (Set<Int>, Bool) -> ActiveWindowSnapshot? = { windowNumbers, includeApplicationWindows in
@@ -196,6 +234,7 @@ final class OverlayController {
     func setDesktopPeripheralRevealEnabled(_ enabled: Bool) {
         guard isDesktopPeripheralRevealEnabled != enabled else { return }
         isDesktopPeripheralRevealEnabled = enabled
+        resetDesktopRevealEvaluation()
         rebuildPeripheralHoverState()
     }
 
@@ -240,6 +279,7 @@ final class OverlayController {
             activeDisplayID = nil
             motionPredictor.reset()
             updateDisplayLinkPreferredDisplay()
+            resetDesktopRevealEvaluation()
             rebuildPeripheralHoverState()
             applyOverlayMasksFromCache()
             return
@@ -319,6 +359,7 @@ final class OverlayController {
     private func cacheActiveSnapshot(_ snapshot: ActiveWindowSnapshot, resolvedDisplayID: DisplayID? = nil) {
         cachedActiveSnapshot = snapshot
         motionPredictor.record(frame: snapshot.frame)
+        resetDesktopRevealEvaluation()
 
         let resolvedID: DisplayID?
         if let providedID = resolvedDisplayID {
@@ -656,8 +697,10 @@ final class OverlayController {
                 switch state {
                 case .began, .dragged:
                     self.enterInteractionBoost(minimumDuration: self.interactionBoostDuration)
+                    self.requestImmediateSnapshotRefreshIfNeeded()
                 case .ended:
                     self.enterInteractionBoost(minimumDuration: self.interactionCooldownDuration)
+                    self.requestImmediateSnapshotRefreshIfNeeded()
                 }
             }
         }
@@ -682,15 +725,15 @@ final class OverlayController {
         }
         pointerHoverMonitor?.start()
         let initialLocation = NSEvent.mouseLocation
-        lastPointerLocation = initialLocation
-        refreshPeripheralRegionsIfNeeded(force: true)
-        updatePeripheralHoverState(for: initialLocation)
+        updatePeripheralHoverState(for: initialLocation, forceRefresh: true)
     }
 
     /// Stops hover tracking and clears any stale peripheral carve-outs.
     private func stopPointerHoverMonitoring() {
         pointerHoverMonitor?.stop()
         pointerHoverMonitor = nil
+        stopPeripheralAnimationDriver()
+        resetDesktopRevealEvaluation()
         lastPointerLocation = nil
         cachedPeripheralRegions = []
         lastPeripheralRegionRefresh = .distantPast
@@ -713,11 +756,25 @@ final class OverlayController {
         lastPeripheralRegionRefresh = now
     }
 
+    /// Forces a snapshot refresh outside the normal polling cadence so masks can collapse faster.
+    private func requestImmediateSnapshotRefreshIfNeeded() {
+        let now = Date()
+        guard now.timeIntervalSince(lastImmediateSnapshotRefresh) >= immediateSnapshotRefreshCooldown else {
+            return
+        }
+        lastImmediateSnapshotRefresh = now
+        _ = refreshActiveWindowSnapshot()
+    }
+
     /// Recomputes hover-dependent carve-outs for Dock/Stage Manager surfaces.
-    private func updatePeripheralHoverState(for location: NSPoint) {
+    private func updatePeripheralHoverState(for location: NSPoint, forceRefresh: Bool = false) {
         guard isMonitoringActive else { return }
         lastPointerLocation = location
-        refreshPeripheralRegionsIfNeeded()
+        if forceRefresh {
+            refreshPeripheralRegionsIfNeeded(force: true)
+        } else {
+            refreshPeripheralRegionsIfNeeded()
+        }
         let revealAll = shouldForcePeripheralReveal()
         let updatedRequests = buildPeripheralMaskRequests(for: location, forceRevealAll: revealAll)
         if peripheralRequestsAreEqual(updatedRequests, peripheralMaskRequestsByDisplayID) {
@@ -725,6 +782,7 @@ final class OverlayController {
         }
         peripheralMaskRequestsByDisplayID = updatedRequests
         applyCachedOverlayMask()
+        updatePeripheralAnimationDriver()
     }
 
     /// Reapplies the current hover state using the last known pointer position.
@@ -739,19 +797,125 @@ final class OverlayController {
         var requests: [DisplayID: [MaskRequest]] = [:]
         for region in cachedPeripheralRegions {
             if !forceRevealAll && !region.hoverRect.contains(location) {
-                continue
+                let shouldRevealDock = region.kind.isAutoHiddenDock && !region.isSynthesized
+                if !shouldRevealDock {
+                    continue
+                }
             }
             guard overlayWindowsByDisplayID[region.displayID] != nil else { continue }
-            let request = MaskRequest(rect: region.frame, cornerRadius: region.cornerRadius, purpose: .systemMenu)
+            let request = MaskRequest(
+                rect: region.frame,
+                cornerRadius: region.cornerRadius,
+                purpose: .systemMenu,
+                peripheralKind: region.kind,
+                isSynthesizedPeripheral: region.isSynthesized
+            )
             requests[region.displayID, default: []].append(request)
         }
         return requests
     }
 
+    /// Enables or disables the animation driver depending on active auto-hidden Dock carve-outs.
+    private func updatePeripheralAnimationDriver() {
+        if hasActiveAutoHiddenDockMask() {
+            startPeripheralAnimationDriver()
+        } else {
+            stopPeripheralAnimationDriver()
+        }
+    }
+
+    /// Returns whether any active mask request describes a dock that macOS auto-hides.
+    private func hasActiveAutoHiddenDockMask() -> Bool {
+        for requests in peripheralMaskRequestsByDisplayID.values {
+            if requests.contains(where: { $0.requiresAutoHiddenDockAnimation }) {
+                return true
+            }
+        }
+        return false
+    }
+
+    /// Starts a short-lived timer so Dock carve-outs follow macOS' autohide animation.
+    private func startPeripheralAnimationDriver() {
+        guard peripheralAnimationTimer == nil else { return }
+        let timer = Timer(timeInterval: peripheralAnimationSampleInterval, repeats: true) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.handlePeripheralAnimationTick()
+            }
+        }
+        peripheralAnimationTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
+    }
+
+    /// Stops the animation driver when it is no longer needed.
+    private func stopPeripheralAnimationDriver() {
+        guard let timer = peripheralAnimationTimer else { return }
+        timer.invalidate()
+        peripheralAnimationTimer = nil
+    }
+
+    /// Keeps sampling Dock regions while the system animates them on or off screen.
+    private func handlePeripheralAnimationTick() {
+        guard isMonitoringActive else {
+            stopPeripheralAnimationDriver()
+            return
+        }
+        guard hasActiveAutoHiddenDockMask() else {
+            stopPeripheralAnimationDriver()
+            return
+        }
+        let location = lastPointerLocation ?? NSEvent.mouseLocation
+        updatePeripheralHoverState(for: location, forceRefresh: true)
+    }
+
     /// Determines whether Dock/Stage Manager should be revealed regardless of pointer position.
     private func shouldForcePeripheralReveal() -> Bool {
         guard isDesktopPeripheralRevealEnabled else { return false }
-        return cachedActiveSnapshot == nil
+        if cachedActiveSnapshot == nil {
+            return true
+        }
+        return evaluateDesktopRevealDecision()
+    }
+
+    /// Returns the cached desktop reveal decision, recomputing if the frontmost app changed or cache expired.
+    private func evaluateDesktopRevealDecision() -> Bool {
+        let frontmostPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
+        let now = Date()
+        let needsRefresh = frontmostPID != cachedDesktopRevealProcessID ||
+            now.timeIntervalSince(lastDesktopRevealEvaluation) >= desktopRevealEvaluationInterval
+        if needsRefresh {
+            cachedDesktopRevealDecision = resolveDesktopRevealDecision(currentPID: frontmostPID)
+            cachedDesktopRevealProcessID = frontmostPID
+            lastDesktopRevealEvaluation = now
+        }
+        return cachedDesktopRevealDecision
+    }
+
+    /// Determines whether the frontmost application currently has any visible, non-minimized windows.
+    private func resolveDesktopRevealDecision(currentPID: pid_t?) -> Bool {
+        guard let pid = currentPID else { return false }
+        if pid == ProcessInfo.processInfo.processIdentifier {
+            return false
+        }
+        guard isAccessibilityAccessGranted() else { return false }
+
+        let windowInfos = axWindowInfos(for: pid, limit: 80)
+        guard !windowInfos.isEmpty else {
+            return true
+        }
+
+        let hasVisibleWindow = windowInfos.contains { info in
+            guard !info.isMinimized else { return false }
+            let minDimension: CGFloat = 32
+            return info.frame.width > minDimension && info.frame.height > minDimension
+        }
+        return !hasVisibleWindow
+    }
+
+    /// Clears cached desktop reveal state so the next evaluation runs immediately.
+    private func resetDesktopRevealEvaluation() {
+        cachedDesktopRevealDecision = false
+        cachedDesktopRevealProcessID = nil
+        lastDesktopRevealEvaluation = .distantPast
     }
 
     /// Returns whether two dictionaries of mask requests describe the same carve-outs.
@@ -1020,5 +1184,14 @@ extension OverlayController: OverlayServiceDelegate {
     /// Receives overlay updates from the service and replaces the managed window set.
     func overlayService(_ service: OverlayService, didUpdateOverlays updatedOverlayWindows: [DisplayID: OverlayWindow]) {
         refreshOverlayWindows(updatedOverlayWindows)
+    }
+}
+
+private extension PeripheralInterfaceRegion.Kind {
+    var isAutoHiddenDock: Bool {
+        if case .dock(_, let isAutoHidden) = self {
+            return isAutoHidden
+        }
+        return false
     }
 }

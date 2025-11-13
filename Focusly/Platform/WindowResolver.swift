@@ -25,6 +25,7 @@ struct PeripheralInterfaceRegion: Equatable {
     let hoverRect: NSRect
     let cornerRadius: CGFloat
     let kind: Kind
+    let isSynthesized: Bool
 }
 
 /// Snapshot of the current Dock preferences we care about for overlay carve-outs.
@@ -527,7 +528,8 @@ private func syntheticDockRegion(using configuration: DockConfiguration) -> Peri
     return makePeripheralRegion(
         displayID: displayID,
         rect: frame,
-        kind: .dock(edge: configuration.orientation, isAutoHidden: true)
+        kind: .dock(edge: configuration.orientation, isAutoHidden: true),
+        isSynthesized: true
     )
 }
 
@@ -571,7 +573,8 @@ private func estimatedDockFrame(on screen: NSScreen, orientation: PeripheralEdge
 private func makePeripheralRegion(
     displayID: DisplayID,
     rect: CGRect,
-    kind: PeripheralInterfaceRegion.Kind
+    kind: PeripheralInterfaceRegion.Kind,
+    isSynthesized: Bool = false
 ) -> PeripheralInterfaceRegion {
     let frame = NSRect(x: rect.origin.x, y: rect.origin.y, width: rect.width, height: rect.height)
     let (insetX, insetY, cornerRadius) = hoverInsetsAndCornerRadius(for: frame, kind: kind)
@@ -581,7 +584,8 @@ private func makePeripheralRegion(
         frame: frame,
         hoverRect: hoverRect,
         cornerRadius: cornerRadius,
-        kind: kind
+        kind: kind,
+        isSynthesized: isSynthesized
     )
 }
 
