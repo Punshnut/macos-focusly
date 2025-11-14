@@ -53,6 +53,14 @@ final class OverlayController {
             return false
         }
 
+        var describesDock: Bool {
+            guard let peripheralKind else { return false }
+            if case .dock = peripheralKind {
+                return true
+            }
+            return false
+        }
+
         var requiresAutoHiddenDockAnimation: Bool {
             describesAutoHiddenDock
         }
@@ -905,7 +913,8 @@ final class OverlayController {
             refreshPeripheralRegionsIfNeeded()
         }
         let revealAll = shouldForcePeripheralReveal()
-        let updatedRequests = buildPeripheralMaskRequests(for: location, forceRevealAll: revealAll)
+        var updatedRequests = buildPeripheralMaskRequests(for: location, forceRevealAll: revealAll)
+        updatedRequests = sustainDockMaskRequestsIfNeeded(currentRequests: updatedRequests, pointerLocation: location)
         if peripheralRequestsAreEqual(updatedRequests, peripheralMaskRequestsByDisplayID) {
             return
         }
@@ -943,16 +952,152 @@ final class OverlayController {
                 }
             }
             guard overlayWindowsByDisplayID[region.displayID] != nil else { continue }
+            let sanitizedKind = region.kind.sanitizedForMaskRequests
+            if case .stageManagerShelf(let edge, let cards) = region.kind {
+                let stageRequests = stageManagerMaskRequests(
+                    for: region,
+                    sanitizedKind: sanitizedKind,
+                    edge: edge,
+                    cards: cards
+                )
+                guard !stageRequests.isEmpty else { continue }
+                requests[region.displayID, default: []].append(contentsOf: stageRequests)
+                continue
+            }
             let request = MaskRequest(
                 rect: region.frame,
                 cornerRadius: region.cornerRadius,
                 purpose: .systemMenu,
-                peripheralKind: region.kind,
+                peripheralKind: sanitizedKind,
                 isSynthesizedPeripheral: region.isSynthesized
             )
             requests[region.displayID, default: []].append(request)
         }
         return requests
+    }
+
+    /// Keeps existing Dock carve-outs alive while the pointer is still within their masked area.
+    private func sustainDockMaskRequestsIfNeeded(
+        currentRequests: [DisplayID: [MaskRequest]],
+        pointerLocation: NSPoint
+    ) -> [DisplayID: [MaskRequest]] {
+        guard !peripheralMaskRequestsByDisplayID.isEmpty else { return currentRequests }
+        var mergedRequests = currentRequests
+        for (displayID, previousRequests) in peripheralMaskRequestsByDisplayID {
+            let sustained = previousRequests.filter { request in
+                request.describesDock && request.rect.contains(pointerLocation)
+            }
+            guard !sustained.isEmpty else { continue }
+            var updatedDisplayRequests = mergedRequests[displayID, default: []]
+            for request in sustained {
+                if updatedDisplayRequests.contains(where: { $0 == request }) {
+                    continue
+                }
+                updatedDisplayRequests.append(request)
+            }
+            mergedRequests[displayID] = updatedDisplayRequests
+        }
+        return mergedRequests
+    }
+
+    private func stageManagerMaskRequests(
+        for region: PeripheralInterfaceRegion,
+        sanitizedKind: PeripheralInterfaceRegion.Kind,
+        edge: PeripheralEdge,
+        cards: [PeripheralInterfaceRegion.StageManagerCard]
+    ) -> [MaskRequest] {
+        guard !cards.isEmpty else {
+            return [
+                MaskRequest(
+                    rect: region.frame,
+                    cornerRadius: region.cornerRadius,
+                    purpose: .systemMenu,
+                    peripheralKind: sanitizedKind,
+                    isSynthesizedPeripheral: region.isSynthesized
+                )
+            ]
+        }
+        var maskRequests: [MaskRequest] = []
+        for card in cards {
+            let cardCornerRadius = stageManagerCardCornerRadius(for: card.frame)
+            let previewRects = trapezoidalCardRects(for: card.frame, shelfEdge: edge)
+            for rect in previewRects {
+                maskRequests.append(
+                    MaskRequest(
+                        rect: rect,
+                        cornerRadius: cardCornerRadius,
+                        purpose: .systemMenu,
+                        peripheralKind: sanitizedKind,
+                        isSynthesizedPeripheral: region.isSynthesized
+                    )
+                )
+            }
+            if let iconRect = stageManagerIconRect(for: card.frame, shelfEdge: edge) {
+                let iconCornerRadius = min(iconRect.width, iconRect.height) / 2
+                maskRequests.append(
+                    MaskRequest(
+                        rect: iconRect,
+                        cornerRadius: iconCornerRadius,
+                        purpose: .systemMenu,
+                        peripheralKind: sanitizedKind,
+                        isSynthesizedPeripheral: region.isSynthesized
+                    )
+                )
+            }
+        }
+        return maskRequests
+    }
+
+    private func trapezoidalCardRects(for cardFrame: NSRect, shelfEdge edge: PeripheralEdge) -> [NSRect] {
+        let proposedTopHeight = max(cardFrame.height * 0.42, 48)
+        let clampedTopHeight = min(proposedTopHeight, cardFrame.height * 0.8)
+        let bottomHeight = max(cardFrame.height - clampedTopHeight, 36)
+        let topHeight = max(cardFrame.height - bottomHeight, 24)
+        let skew = max(cardFrame.width * 0.08, 10)
+        let bottomRect = NSRect(
+            x: cardFrame.minX,
+            y: cardFrame.minY,
+            width: cardFrame.width,
+            height: bottomHeight
+        )
+        var topRect = NSRect(
+            x: cardFrame.minX,
+            y: cardFrame.maxY - topHeight,
+            width: cardFrame.width,
+            height: topHeight
+        )
+        switch edge {
+        case .leading:
+            topRect.origin.x = min(cardFrame.maxX, topRect.origin.x + skew)
+            topRect.size.width = max(cardFrame.width - skew, cardFrame.width * 0.35)
+        case .trailing:
+            topRect.size.width = max(cardFrame.width - skew, cardFrame.width * 0.35)
+        case .top, .bottom:
+            break
+        }
+        return [bottomRect, topRect]
+    }
+
+    private func stageManagerCardCornerRadius(for frame: NSRect) -> CGFloat {
+        let minDimension = max(1, min(frame.width, frame.height))
+        return min(minDimension * 0.18, 34)
+    }
+
+    private func stageManagerIconRect(for frame: NSRect, shelfEdge edge: PeripheralEdge) -> NSRect? {
+        let iconSize = min(frame.width, frame.height) * 0.28
+        guard iconSize >= 12 else { return nil }
+        let inset = iconSize * 0.25
+        let y = frame.minY + inset
+        let x: CGFloat
+        switch edge {
+        case .leading:
+            x = frame.minX + inset
+        case .trailing:
+            x = frame.maxX - iconSize - inset
+        case .top, .bottom:
+            x = frame.minX + inset
+        }
+        return NSRect(x: x, y: y, width: iconSize, height: iconSize)
     }
 
     /// Enables or disables the animation driver depending on active auto-hidden Dock carve-outs.
@@ -1362,10 +1507,10 @@ private extension PeripheralInterfaceRegion.Kind {
 
     /// Determines whether forced desktop reveals should still wait for pointer hover.
     var requiresHoverForForcedReveal: Bool {
-        if case .dock = self {
+        switch self {
+        case .dock, .stageManagerShelf:
             return true
         }
-        return false
     }
 
     var dockEdge: PeripheralEdge? {
@@ -1386,6 +1531,15 @@ private extension PeripheralInterfaceRegion.Kind {
             return location.x <= frame.minX + tolerance
         case .trailing:
             return location.x >= frame.maxX - tolerance
+        }
+    }
+
+    var sanitizedForMaskRequests: PeripheralInterfaceRegion.Kind {
+        switch self {
+        case .stageManagerShelf(let edge, _):
+            return .stageManagerShelf(edge: edge, cards: [])
+        case .dock:
+            return self
         }
     }
 }

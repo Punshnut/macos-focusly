@@ -4,6 +4,8 @@ import CoreGraphics
 private let popUpMenuWindowLevel = Int(CGWindowLevelForKey(.popUpMenuWindow))
 private let floatingAccessoryWindowLevel = Int(CGWindowLevelForKey(.floatingWindow))
 private let menuKeywordSet: Set<String> = ["menu", "popover", "context"]
+private let stageManagerReplicaCoverageThreshold: CGFloat = 0.62
+private let stageManagerReplicaPadding: CGFloat = 12
 
 /// Cardinal direction describing which screen edge a peripheral element hugs.
 enum PeripheralEdge: Equatable {
@@ -15,9 +17,13 @@ enum PeripheralEdge: Equatable {
 
 /// Describes system surfaces such as the Dock or Stage Manager shelf so overlays can treat them like carve-outs.
 struct PeripheralInterfaceRegion: Equatable {
+    struct StageManagerCard: Equatable {
+        let frame: NSRect
+    }
+
     enum Kind: Equatable {
         case dock(edge: PeripheralEdge, isAutoHidden: Bool)
-        case stageManagerShelf(edge: PeripheralEdge)
+        case stageManagerShelf(edge: PeripheralEdge, cards: [StageManagerCard])
     }
 
     let displayID: DisplayID
@@ -26,6 +32,12 @@ struct PeripheralInterfaceRegion: Equatable {
     let cornerRadius: CGFloat
     let kind: Kind
     let isSynthesized: Bool
+}
+
+private struct StageShelfRegion {
+    var rect: CGRect
+    var edge: PeripheralEdge
+    var cardFrames: [CGRect]
 }
 
 /// Snapshot of the current Dock preferences we care about for overlay carve-outs.
@@ -330,6 +342,7 @@ private func collectSupplementaryMasks(
 ) -> [ActiveWindowSnapshot.MaskRegion] {
     var maskRegions: [ActiveWindowSnapshot.MaskRegion] = []
     var visitedWindowNumbers: Set<Int> = []
+    let stageShelfRegions = stageManagerShelfRegions(in: windowDictionaries, excludingWindowNumbers: excludingNumbers)
 
     for window in windowDictionaries {
         guard let number = window[kCGWindowNumber as String] as? Int else { continue }
@@ -353,6 +366,10 @@ private func collectSupplementaryMasks(
             height: correctedBounds.size.height
         )
 
+        if isStageManagerReplicaWindow(frame: maskFrame, stageShelfRegions: stageShelfRegions) {
+            continue
+        }
+
         let resolvedProcessID: pid_t?
         if let pidValue = window[kCGWindowOwnerPID as String] as? Int {
             resolvedProcessID = pid_t(pidValue)
@@ -363,6 +380,19 @@ private func collectSupplementaryMasks(
         }
 
         let ownerApplicationName = window[kCGWindowOwnerName as String] as? String
+        if let ownerApplicationName, ownerApplicationName == "Dock",
+           let screen = screenMatching(CGRect(x: maskFrame.origin.x, y: maskFrame.origin.y, width: maskFrame.width, height: maskFrame.height)),
+           let classification = classifyPeripheralWindow(
+               frame: maskFrame,
+               screenFrame: screen.frame,
+               layerIndex: layerIndex,
+               ownerName: ownerApplicationName
+           ) {
+            switch classification {
+            case .dock, .stageManagerShelf:
+                continue
+            }
+        }
         let resolvedWindowName = resolveWindowName(
             providedName: window[kCGWindowName as String] as? String,
             pid: resolvedProcessID,
@@ -446,6 +476,140 @@ private func collectSupplementaryMasks(
         return lhs.frame.height < rhs.frame.height
     }
 }
+
+/// Tracks Stage Manager shelf rectangles so replica windows can be ignored.
+private func stageManagerShelfRegions(
+    in windowDictionaries: [[String: Any]],
+    excludingWindowNumbers: Set<Int>
+) -> [DisplayID: StageShelfRegion] {
+    var stageRectByDisplay: [DisplayID: CGRect] = [:]
+    var stageEdgeByDisplay: [DisplayID: PeripheralEdge] = [:]
+    var stageCardFrames: [DisplayID: [CGRect]] = [:]
+
+    for window in windowDictionaries {
+        guard let windowNumber = window[kCGWindowNumber as String] as? Int else { continue }
+        if excludingWindowNumbers.contains(windowNumber) { continue }
+        guard
+            let boundsDictionary = window[kCGWindowBounds as String] as? [String: Any],
+            let cgBounds = CGRect(dictionaryRepresentation: boundsDictionary as CFDictionary)
+        else {
+            continue
+        }
+        guard cgBounds.width >= 24, cgBounds.height >= 24 else { continue }
+        let cocoaBounds = convertCGWindowBoundsToCocoa(cgBounds)
+        guard let targetScreen = screenMatching(cocoaBounds),
+              let screenNumber = targetScreen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber else {
+            continue
+        }
+        let displayID = DisplayID(truncating: screenNumber)
+        let layerIndex = window[kCGWindowLayer as String] as? Int ?? 0
+        let ownerName = (window[kCGWindowOwnerName as String] as? String) ?? ""
+
+        if let classification = classifyPeripheralWindow(
+            frame: cocoaBounds,
+            screenFrame: targetScreen.frame,
+            layerIndex: layerIndex,
+            ownerName: ownerName
+        ), case .stageManagerShelf(let edge) = classification {
+            stageRectByDisplay[displayID] = mergePeripheralRegion(cocoaBounds, into: stageRectByDisplay[displayID])
+            stageEdgeByDisplay[displayID] = edge
+        }
+
+        if let stageEdge = stageManagerReplicaEdge(
+            frame: cocoaBounds,
+            screenFrame: targetScreen.frame,
+            layerIndex: layerIndex
+        ) {
+            stageRectByDisplay[displayID] = mergePeripheralRegion(cocoaBounds, into: stageRectByDisplay[displayID])
+            if stageEdgeByDisplay[displayID] == nil {
+                stageEdgeByDisplay[displayID] = stageEdge
+            }
+            var existing = stageCardFrames[displayID] ?? []
+            let nsFrame = NSRect(x: cocoaBounds.origin.x, y: cocoaBounds.origin.y, width: cocoaBounds.width, height: cocoaBounds.height)
+            if !existing.contains(where: { NSRect(x: $0.origin.x, y: $0.origin.y, width: $0.width, height: $0.height).isApproximatelyEqual(to: nsFrame, tolerance: 6) }) {
+                existing.append(cocoaBounds)
+                stageCardFrames[displayID] = existing
+            }
+        }
+    }
+
+    guard !stageRectByDisplay.isEmpty else { return [:] }
+
+    var stageRegions: [DisplayID: StageShelfRegion] = [:]
+    for (displayID, rect) in stageRectByDisplay {
+        guard let edge = stageEdgeByDisplay[displayID] else { continue }
+        let cards = stageCardFrames[displayID] ?? []
+        stageRegions[displayID] = StageShelfRegion(rect: rect, edge: edge, cardFrames: cards)
+    }
+
+    return stageRegions
+}
+
+/// Determines whether a window resembles a Stage Manager card and which edge it hugs.
+private func stageManagerReplicaEdge(
+    frame: CGRect,
+    screenFrame: CGRect,
+    layerIndex: Int
+) -> PeripheralEdge? {
+    let edgeTolerance: CGFloat = 220
+    let nearLeading = abs(frame.minX - screenFrame.minX) <= edgeTolerance
+    let nearTrailing = abs(frame.maxX - screenFrame.maxX) <= edgeTolerance
+    guard nearLeading || nearTrailing else { return nil }
+    let screenWidth = max(screenFrame.width, 1)
+    let screenHeight = max(screenFrame.height, 1)
+    let widthRatio = frame.width / screenWidth
+    let heightRatio = frame.height / screenHeight
+    guard widthRatio >= 0.04, widthRatio <= 0.55 else { return nil }
+    guard heightRatio >= 0.08, heightRatio <= 0.9 else { return nil }
+    let elevatedLayer = layerIndex >= max(2, floatingAccessoryWindowLevel - 6)
+    guard elevatedLayer else { return nil }
+    return nearLeading ? .leading : .trailing
+}
+
+/// Determines whether a given window lies almost entirely within Stage Manager's shelf column.
+private func isStageManagerReplicaWindow(
+    frame: NSRect,
+    stageShelfRegions: [DisplayID: StageShelfRegion]
+) -> Bool {
+    guard !stageShelfRegions.isEmpty else { return false }
+    let cgFrame = CGRect(x: frame.origin.x, y: frame.origin.y, width: frame.width, height: frame.height)
+    guard let screen = screenMatching(cgFrame),
+          let screenNumber = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber else {
+        return false
+    }
+    let displayID = DisplayID(truncating: screenNumber)
+    guard let stageShelf = stageShelfRegions[displayID] else { return false }
+    let nsFrame = frame
+    if !stageShelf.cardFrames.isEmpty {
+        for card in stageShelf.cardFrames {
+            let cardRect = NSRect(x: card.origin.x, y: card.origin.y, width: card.width, height: card.height)
+            let paddedCard = cardRect.insetBy(dx: -stageManagerReplicaPadding, dy: -stageManagerReplicaPadding)
+            if paddedCard.intersection(nsFrame).width > 0, paddedCard.intersection(nsFrame).height > 0 {
+                let frameArea = max(nsFrame.width * nsFrame.height, 1)
+                let overlap = paddedCard.intersection(nsFrame)
+                let coverage = (overlap.width * overlap.height) / frameArea
+                if coverage >= stageManagerReplicaCoverageThreshold {
+                    return true
+                }
+            }
+        }
+        return false
+    }
+
+        let stageRect = NSRect(x: stageShelf.rect.origin.x, y: stageShelf.rect.origin.y, width: stageShelf.rect.size.width, height: stageShelf.rect.size.height)
+        let paddedStageRect = stageRect.insetBy(dx: -stageManagerReplicaPadding, dy: -stageManagerReplicaPadding)
+        let intersection = paddedStageRect.intersection(nsFrame)
+        guard intersection.width > 0, intersection.height > 0 else { return false }
+        let frameArea = max(nsFrame.width * nsFrame.height, 1)
+        let overlapArea = intersection.width * intersection.height
+        let coverage = overlapArea / frameArea
+        if coverage >= stageManagerReplicaCoverageThreshold {
+            return true
+        }
+        let stageArea = max(stageRect.width * stageRect.height, 1)
+        let normalizedCoverage = overlapArea / stageArea
+        return normalizedCoverage >= 0.15
+    }
 
 /// Resolves a close-match corner radius for a supplementary window by caching AX window snapshots.
 @MainActor
@@ -601,7 +765,7 @@ private func hoverInsetsAndCornerRadius(for frame: NSRect, kind: PeripheralInter
         case .leading, .trailing:
             return (baseInset, max(baseInset, 24), baseCorner)
         }
-    case .stageManagerShelf(let edge):
+    case .stageManagerShelf(let edge, _):
         let corner = min(30, minDimension / 2)
         switch edge {
         case .leading:
@@ -652,13 +816,11 @@ private func classifyPeripheralWindow(
             return .dock(edge: nearLeft ? .leading : .trailing)
         }
 
-        let avoidsBottomEdge = frame.minY >= screenFrame.minY + 28
-        let avoidsTopEdge = frame.maxY <= screenFrame.maxY - 28
-        let shelfAligned = (nearLeft || nearRight) && avoidsBottomEdge && avoidsTopEdge
-        let shelfWidthOK = widthRatio <= 0.6 && widthRatio >= 0.05
-        let shelfHeightOK = heightRatio >= 0.18 && heightRatio <= 0.95
-        let shelfLayer = layerIndex >= max(4, floatingAccessoryWindowLevel - 2)
-        if shelfAligned && shelfWidthOK && shelfHeightOK && shelfLayer {
+        let shelfEdgeAligned = nearLeft || nearRight
+        let shelfWidthOK = widthRatio <= 0.62 && widthRatio >= 0.035
+        let shelfHeightOK = heightRatio >= 0.16
+        let shelfLayer = layerIndex >= max(2, floatingAccessoryWindowLevel - 4)
+        if shelfEdgeAligned && shelfWidthOK && shelfHeightOK && shelfLayer {
             return .stageManagerShelf(edge: nearLeft ? .leading : .trailing)
         }
     }
@@ -679,8 +841,10 @@ func resolvePeripheralInterfaceRegions(
     let dockConfiguration = systemDockConfiguration()
     var dockRegions: [DisplayID: CGRect] = [:]
     var dockEdges: [DisplayID: PeripheralEdge] = [:]
-    var stageRegions: [DisplayID: CGRect] = [:]
-    var stageEdges: [DisplayID: PeripheralEdge] = [:]
+    let detectedStageRegions = stageManagerShelfRegions(
+        in: windowDictionaries,
+        excludingWindowNumbers: windowNumbers
+    )
 
     for window in windowDictionaries {
         guard let windowNumber = window[kCGWindowNumber as String] as? Int else { continue }
@@ -717,9 +881,8 @@ func resolvePeripheralInterfaceRegions(
         case .dock(let edge):
             dockRegions[displayID] = mergePeripheralRegion(cocoaBounds, into: dockRegions[displayID])
             dockEdges[displayID] = edge
-        case .stageManagerShelf(let edge):
-            stageRegions[displayID] = mergePeripheralRegion(cocoaBounds, into: stageRegions[displayID])
-            stageEdges[displayID] = edge
+        case .stageManagerShelf:
+            continue
         }
     }
 
@@ -732,12 +895,16 @@ func resolvePeripheralInterfaceRegions(
             kind: .dock(edge: edge, isAutoHidden: dockConfiguration.autohide)
         ))
     }
-    for (displayID, rect) in stageRegions {
-        let edge = stageEdges[displayID] ?? .leading
+    for (displayID, region) in detectedStageRegions {
+        let cards = region.cardFrames.map { frame in
+            PeripheralInterfaceRegion.StageManagerCard(
+                frame: NSRect(x: frame.origin.x, y: frame.origin.y, width: frame.width, height: frame.height)
+            )
+        }
         resolvedRegions.append(makePeripheralRegion(
             displayID: displayID,
-            rect: rect,
-            kind: .stageManagerShelf(edge: edge)
+            rect: region.rect,
+            kind: .stageManagerShelf(edge: region.edge, cards: cards)
         ))
     }
 
