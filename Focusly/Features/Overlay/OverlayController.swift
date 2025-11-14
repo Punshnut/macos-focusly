@@ -95,6 +95,7 @@ final class OverlayController {
     private var lastPeripheralRegionRefresh = Date.distantPast
     private let peripheralRegionCacheLifetime: TimeInterval = 0.25
     private let peripheralAnimationSampleInterval: TimeInterval = 1.0 / 60.0
+    private let autoHiddenDockEdgeContactTolerance: CGFloat = 4
     private var peripheralAnimationTimer: Timer?
     private var isDesktopPeripheralRevealEnabled = true
     private let desktopRevealEvaluationInterval: TimeInterval = 0.35
@@ -924,7 +925,18 @@ final class OverlayController {
         guard !cachedPeripheralRegions.isEmpty else { return [:] }
         var requests: [DisplayID: [MaskRequest]] = [:]
         for region in cachedPeripheralRegions {
-            if !forceRevealAll && !region.hoverRect.contains(location) {
+            if region.kind.isAutoHiddenDock && region.isSynthesized {
+                let touchesEdge = region.kind.pointerTouchesDockEdge(
+                    for: location,
+                    frame: region.frame,
+                    tolerance: autoHiddenDockEdgeContactTolerance
+                )
+                if !touchesEdge {
+                    continue
+                }
+            }
+            let bypassHoverRequirement = forceRevealAll && !region.kind.requiresHoverForForcedReveal
+            if !bypassHoverRequirement && !region.hoverRect.contains(location) {
                 let shouldRevealDock = region.kind.isAutoHiddenDock && !region.isSynthesized
                 if !shouldRevealDock {
                     continue
@@ -1346,5 +1358,34 @@ private extension PeripheralInterfaceRegion.Kind {
             return isAutoHidden
         }
         return false
+    }
+
+    /// Determines whether forced desktop reveals should still wait for pointer hover.
+    var requiresHoverForForcedReveal: Bool {
+        if case .dock = self {
+            return true
+        }
+        return false
+    }
+
+    var dockEdge: PeripheralEdge? {
+        if case .dock(let edge, _) = self {
+            return edge
+        }
+        return nil
+    }
+
+    func pointerTouchesDockEdge(for location: NSPoint, frame: NSRect, tolerance: CGFloat) -> Bool {
+        guard let edge = dockEdge else { return false }
+        switch edge {
+        case .bottom:
+            return location.y <= frame.minY + tolerance
+        case .top:
+            return location.y >= frame.maxY - tolerance
+        case .leading:
+            return location.x <= frame.minX + tolerance
+        case .trailing:
+            return location.x >= frame.maxX - tolerance
+        }
     }
 }
