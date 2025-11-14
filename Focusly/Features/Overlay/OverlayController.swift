@@ -64,8 +64,10 @@ final class OverlayController {
 
     private let interactionBoostDuration: TimeInterval = 0.6
     private let interactionCooldownDuration: TimeInterval = 0.25
+    private let animationBoostDuration: TimeInterval = 0.45
     private let activeWindowSnapshotResolver: (Set<Int>, Bool) -> ActiveWindowSnapshot?
     private let minimumPredictionDelta: CGFloat = 0.32
+    private let predictiveLeadCompensationFraction: Double = 0.35
 
     private var overlayWindowsByDisplayID: [DisplayID: OverlayWindow] = [:]
     private var snapshotPollingTimer: Timer?
@@ -82,6 +84,8 @@ final class OverlayController {
     private var pointerInteractionMonitor: PointerInteractionMonitor?
     private var pointerHoverMonitor: PointerHoverMonitor?
     private var lastPointerLocation: NSPoint?
+    private var pointerDisplayIDHint: DisplayID?
+    private var workspaceAnimationObservers: [NSObjectProtocol] = []
     private var peripheralMaskRequestsByDisplayID: [DisplayID: [MaskRequest]] = [:]
     private var cachedPeripheralRegions: [PeripheralInterfaceRegion] = []
     private var lastPeripheralRegionRefresh = Date.distantPast
@@ -100,7 +104,8 @@ final class OverlayController {
     private var isDisplayLinkRunning = false
     private var lastDisplayLinkRefreshInterval: TimeInterval = 1.0 / 60.0
     private let motionPredictor = WindowMotionPredictor()
-    private let fastFrameSampleInterval: TimeInterval = 1.0 / 75.0
+    private var fastFrameSampleInterval: TimeInterval = 1.0 / 75.0
+    private let fastFrameSamplingBounds = (minimum: 1.0 / 240.0, maximum: 1.0 / 45.0)
     private var lastFastFrameHostTime: UInt64 = 0
     private static let hostTimeToSecondsFactor: Double = {
         var info = mach_timebase_info()
@@ -138,6 +143,8 @@ final class OverlayController {
         isMonitoringActive = true
         configurePointerInteractionMonitoring()
         startPointerHoverMonitoring()
+        startWorkspaceAnimationMonitoring()
+        capturePointerDisplayHintFromSystem()
         startPolling()
         applyCachedOverlayMask()
         if cachedActiveSnapshot == nil {
@@ -152,11 +159,13 @@ final class OverlayController {
         stopPolling()
         stopPointerInteractionMonitoring()
         stopPointerHoverMonitoring()
+        stopWorkspaceAnimationMonitoring()
         stopDisplayLinkIfNeeded()
         cachedActiveSnapshot = nil
         cachedSnapshotsByDisplayID.removeAll()
         predictedSnapshotsByDisplayID.removeAll()
         activeDisplayID = nil
+        pointerDisplayIDHint = nil
         motionPredictor.reset()
         updateDisplayLinkPreferredDisplay()
         lastDisplayLinkRefreshInterval = 1.0 / 60.0
@@ -336,7 +345,8 @@ final class OverlayController {
 
     /// Keeps the display-link driver in sync with the display being actively carved out.
     private func updateDisplayLinkPreferredDisplay() {
-        supplementalSnapshotDisplayLink.setPreferredDisplayID(activeDisplayID)
+        let preferredDisplay = activeDisplayID ?? pointerDisplayIDHint
+        supplementalSnapshotDisplayLink.setPreferredDisplayID(preferredDisplay)
     }
 
     /// Periodically logs how often we fall back to bitmap mask rendering.
@@ -694,6 +704,7 @@ final class OverlayController {
         if pointerInteractionMonitor == nil {
             pointerInteractionMonitor = PointerInteractionMonitor { [weak self] state in
                 guard let self else { return }
+                self.capturePointerDisplayHintFromSystem()
                 switch state {
                 case .began, .dragged:
                     self.enterInteractionBoost(minimumDuration: self.interactionBoostDuration)
@@ -735,6 +746,10 @@ final class OverlayController {
         stopPeripheralAnimationDriver()
         resetDesktopRevealEvaluation()
         lastPointerLocation = nil
+        if pointerDisplayIDHint != nil {
+            pointerDisplayIDHint = nil
+            updateDisplayLinkPreferredDisplay()
+        }
         cachedPeripheralRegions = []
         lastPeripheralRegionRefresh = .distantPast
         if !peripheralMaskRequestsByDisplayID.isEmpty {
@@ -743,6 +758,38 @@ final class OverlayController {
                 applyCachedOverlayMask()
             }
         }
+    }
+
+    /// Keeps an eye on workspace-level animations (Stage Manager, Cmd+Tab, Spaces) to boost tracking.
+    private func startWorkspaceAnimationMonitoring() {
+        guard workspaceAnimationObservers.isEmpty else { return }
+        let center = NSWorkspace.shared.notificationCenter
+        let observedNames: [NSNotification.Name] = [
+            NSWorkspace.activeSpaceDidChangeNotification,
+            NSWorkspace.didActivateApplicationNotification
+        ]
+        workspaceAnimationObservers = observedNames.map { name in
+            center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    self?.handleWorkspaceAnimationEvent()
+                }
+            }
+        }
+    }
+
+    /// Stops listening for workspace animation hints.
+    private func stopWorkspaceAnimationMonitoring() {
+        guard !workspaceAnimationObservers.isEmpty else { return }
+        let center = NSWorkspace.shared.notificationCenter
+        workspaceAnimationObservers.forEach { center.removeObserver($0) }
+        workspaceAnimationObservers.removeAll()
+    }
+
+    /// Temporarily enters the high-frequency tracking mode when macOS animates the frontmost app.
+    private func handleWorkspaceAnimationEvent() {
+        guard isMonitoringActive else { return }
+        enterInteractionBoost(minimumDuration: animationBoostDuration)
+        requestImmediateSnapshotRefreshIfNeeded()
     }
 
     /// Keeps peripheral region caches fresh without hammering CoreGraphics every mouse move.
@@ -766,10 +813,35 @@ final class OverlayController {
         _ = refreshActiveWindowSnapshot()
     }
 
+    /// Reads the current mouse location and updates the display-link preference.
+    private func capturePointerDisplayHintFromSystem() {
+        updatePointerDisplayHint(for: NSEvent.mouseLocation)
+    }
+
+    /// Updates the display-link preference using the supplied pointer location.
+    private func updatePointerDisplayHint(for location: NSPoint) {
+        let resolvedID = pointerDisplayIdentifier(for: location)
+        guard resolvedID != pointerDisplayIDHint else { return }
+        pointerDisplayIDHint = resolvedID
+        updateDisplayLinkPreferredDisplay()
+    }
+
+    /// Maps a global pointer coordinate to a display identifier if possible.
+    private func pointerDisplayIdentifier(for location: NSPoint) -> DisplayID? {
+        for screen in NSScreen.screens where screen.frame.contains(location) {
+            guard let number = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber else {
+                continue
+            }
+            return DisplayID(truncating: number)
+        }
+        return nil
+    }
+
     /// Recomputes hover-dependent carve-outs for Dock/Stage Manager surfaces.
     private func updatePeripheralHoverState(for location: NSPoint, forceRefresh: Bool = false) {
         guard isMonitoringActive else { return }
         lastPointerLocation = location
+        updatePointerDisplayHint(for: location)
         if forceRefresh {
             refreshPeripheralRegionsIfNeeded(force: true)
         } else {
@@ -1054,6 +1126,7 @@ final class OverlayController {
         guard isMonitoringActive else { return }
         let normalizedInterval = normalizedRefreshInterval(timing.refreshPeriod)
         lastDisplayLinkRefreshInterval = normalizedInterval
+        updateFastFrameSamplingInterval(for: normalizedInterval)
         applyPredictedFrameIfPossible(leadTime: normalizedInterval)
         if shouldPerformFastFrameSample(hostTime: timing.hostTime) {
             lastFastFrameHostTime = timing.hostTime
@@ -1079,6 +1152,18 @@ final class OverlayController {
         let minimum = 1.0 / 240.0
         let maximum = 1.0 / 24.0
         return min(max(period, minimum), maximum)
+    }
+
+    /// Adjusts the fast-frame sampling interval to follow the currently active display cadence.
+    private func updateFastFrameSamplingInterval(for displayInterval: TimeInterval) {
+        guard displayInterval.isFinite, displayInterval > 0 else { return }
+        let multiplier: Double = displayInterval < (1.0 / 90.0) ? 0.85 : 1.05
+        let candidate = displayInterval * multiplier
+        let clamped = min(
+            max(candidate, fastFrameSamplingBounds.minimum),
+            fastFrameSamplingBounds.maximum
+        )
+        fastFrameSampleInterval = clamped
     }
 
     /// Boosts the lead time for higher-refresh displays so overlays stay ahead of rapid panels.
@@ -1112,7 +1197,8 @@ final class OverlayController {
         guard let snapshot = cachedActiveSnapshot else { return }
         guard let displayID = activeDisplayID else { return }
         guard overlayWindowsByDisplayID[displayID] != nil else { return }
-        let boostedLead = leadTime * predictiveLeadMultiplier(for: leadTime)
+        let leadMultiplier = predictiveLeadMultiplier(for: leadTime)
+        let boostedLead = leadTime * (leadMultiplier + predictiveLeadCompensationFraction)
         guard let predictedFrame = motionPredictor.predictedFrame(leadTime: boostedLead) else { return }
 
         let tolerance: CGFloat = 0.18

@@ -277,6 +277,8 @@ final class OverlayWindow: NSPanel {
         contentView.layerContentsRedrawPolicy = .onSetNeedsDisplay
         contentView.layerContentsPlacement = .scaleAxesIndependently
         contentView.layer?.drawsAsynchronously = true
+        contentView.layer?.allowsEdgeAntialiasing = true
+        contentView.layer?.contentsFormat = .RGBA16Float
 
         contentView.addSubview(overlayBlurView)
         contentView.addSubview(tintView)
