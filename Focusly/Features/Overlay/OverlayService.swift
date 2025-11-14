@@ -17,6 +17,7 @@ final class OverlayService {
     private var overlayWindowsByDisplayID: [DisplayID: OverlayWindow] = [:]
     private var menuBarWindowsByDisplayID: [DisplayID: MenuBarBackdropWindow] = [:]
     private var areOverlaysActive = false
+    private var pendingOverlayTeardownWorkItem: DispatchWorkItem?
     weak var delegate: OverlayServiceDelegate?
 
     /// Hooks into the profile store and settings to keep overlays up to date.
@@ -35,6 +36,7 @@ final class OverlayService {
         guard areOverlaysActive != isEnabled else { return }
         areOverlaysActive = isEnabled
         if isEnabled {
+            cancelPendingOverlayTearDown()
             refreshDisplays(animated: false, shouldApplyStyles: false)
             overlayWindowsByDisplayID.values.forEach { overlayWindow in
                 let displayID = overlayWindow.associatedDisplayID()
@@ -57,6 +59,8 @@ final class OverlayService {
         } else {
             overlayWindowsByDisplayID.values.forEach { $0.hide(animated: animated) }
             menuBarWindowsByDisplayID.values.forEach { $0.hide(animated: animated) }
+            let teardownDelay: TimeInterval = animated ? 0.4 : 0
+            scheduleOverlayTearDown(after: teardownDelay)
         }
         delegate?.overlayService(self, didUpdateOverlays: overlayWindowsByDisplayID)
     }
@@ -74,16 +78,20 @@ final class OverlayService {
             activeDisplayIDs.insert(displayID)
 
             if profileStore.isDisplayExcluded(displayID) {
-                if let existing = overlayWindowsByDisplayID[displayID] {
-                    existing.orderOut(nil)
-                    overlayWindowsByDisplayID.removeValue(forKey: displayID)
-                }
-                if let backdrop = menuBarWindowsByDisplayID[displayID] {
-                    backdrop.orderOut(nil)
-                    menuBarWindowsByDisplayID.removeValue(forKey: displayID)
+                if areOverlaysActive {
+                    if let existing = overlayWindowsByDisplayID[displayID] {
+                        existing.orderOut(nil)
+                        overlayWindowsByDisplayID.removeValue(forKey: displayID)
+                    }
+                    if let backdrop = menuBarWindowsByDisplayID[displayID] {
+                        backdrop.orderOut(nil)
+                        menuBarWindowsByDisplayID.removeValue(forKey: displayID)
+                    }
                 }
                 continue
             }
+
+            guard areOverlaysActive else { continue }
 
             if let overlayWindow = overlayWindowsByDisplayID[displayID] {
                 overlayWindow.updateFrame(to: screen)
@@ -128,6 +136,8 @@ final class OverlayService {
 
         profileStore.removeInvalidOverrides(validDisplayIDs: activeDisplayIDs)
 
+        guard areOverlaysActive else { return }
+
         let disconnectedDisplayIDs = overlayWindowsByDisplayID.keys.filter { !activeDisplayIDs.contains($0) }
         for displayID in disconnectedDisplayIDs {
             overlayWindowsByDisplayID[displayID]?.orderOut(nil)
@@ -153,5 +163,36 @@ final class OverlayService {
         let shouldAnimate = areOverlaysActive && isEnabled
         overlayWindowsByDisplayID.values.forEach { $0.setFiltersEnabled(isEnabled, animated: shouldAnimate) }
         menuBarWindowsByDisplayID.values.forEach { $0.setFiltersEnabled(isEnabled, animated: shouldAnimate) }
+    }
+
+    /// Cancels any pending teardown so overlays can be reactivated without extra work.
+    private func cancelPendingOverlayTearDown() {
+        pendingOverlayTeardownWorkItem?.cancel()
+        pendingOverlayTeardownWorkItem = nil
+    }
+
+    /// Tears down overlay + menu bar windows after the hide animation finishes.
+    private func scheduleOverlayTearDown(after delay: TimeInterval) {
+        cancelPendingOverlayTearDown()
+        guard delay > 0 else {
+            performOverlayTearDown()
+            return
+        }
+        let workItem = DispatchWorkItem { [weak self] in
+            self?.performOverlayTearDown()
+        }
+        pendingOverlayTeardownWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: workItem)
+    }
+
+    /// Releases overlay resources so memory usage drops when overlays are disabled.
+    private func performOverlayTearDown() {
+        pendingOverlayTeardownWorkItem = nil
+        guard !areOverlaysActive else { return }
+        overlayWindowsByDisplayID.values.forEach { $0.orderOut(nil) }
+        overlayWindowsByDisplayID.removeAll()
+        menuBarWindowsByDisplayID.values.forEach { $0.orderOut(nil) }
+        menuBarWindowsByDisplayID.removeAll()
+        delegate?.overlayService(self, didUpdateOverlays: overlayWindowsByDisplayID)
     }
 }

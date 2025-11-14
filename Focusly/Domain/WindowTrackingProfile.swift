@@ -25,6 +25,30 @@ enum WindowTrackingProfile: String, CaseIterable, Identifiable {
         idleInterval
     }
 
+    /// Slower cadence used once overlays have been idle for a while.
+    var quiescentInterval: TimeInterval {
+        switch self {
+        case .energySaving:
+            return 2.2
+        case .standard:
+            return 1.35
+        case .highPerformance:
+            return 0.95
+        }
+    }
+
+    /// How long Focusly should wait (in seconds) before falling back to the quiescent cadence.
+    var quiescentEntryDelay: TimeInterval {
+        switch self {
+        case .energySaving:
+            return 0.6
+        case .standard:
+            return 0.85
+        case .highPerformance:
+            return 1.1
+        }
+    }
+
     /// Human-readable refresh rate.
     var hertzDisplayValue: Int {
         switch self {

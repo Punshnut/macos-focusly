@@ -12,10 +12,14 @@ final class OverlayController {
     private struct PollingCadence {
         let idleInterval: TimeInterval
         let interactionInterval: TimeInterval
+        let quiescentInterval: TimeInterval
+        let quiescentEntryDelay: TimeInterval
 
         init(profile: WindowTrackingProfile) {
             self.idleInterval = profile.idleInterval
             self.interactionInterval = profile.interactionInterval
+            self.quiescentInterval = profile.quiescentInterval
+            self.quiescentEntryDelay = profile.quiescentEntryDelay
         }
     }
 
@@ -120,6 +124,11 @@ final class OverlayController {
     private var isApplicationWideSnapshotEnabled = true
     private var lastImmediateSnapshotRefresh = Date.distantPast
     private let immediateSnapshotRefreshCooldown: TimeInterval = 1.0 / 90.0
+    private var quiescentDeadline = Date.distantPast
+    private var isInQuiescentMode = false
+    private let pollingTimerToleranceFraction: Double = 0.45
+    private let minimumPollingTimerTolerance: TimeInterval = 0.0025
+    private let maximumPollingTimerTolerance: TimeInterval = 0.75
 
     init(
         activeWindowSnapshotResolver: @escaping (Set<Int>, Bool) -> ActiveWindowSnapshot? = { windowNumbers, includeApplicationWindows in
@@ -183,8 +192,14 @@ final class OverlayController {
         guard currentTrackingProfile != profile else { return }
         currentTrackingProfile = profile
         currentPollingCadence = PollingCadence(profile: profile)
-        let targetInterval = desiredIntervalForCurrentInteractionState()
+        let targetInterval: TimeInterval
+        if isInQuiescentMode {
+            targetInterval = max(currentPollingCadence.quiescentInterval, 0.01)
+        } else {
+            targetInterval = desiredIntervalForCurrentInteractionState()
+        }
         currentPollingInterval = targetInterval
+        resetQuiescentDeadline()
         if isMonitoringActive {
             schedulePollingTimer(with: targetInterval)
         }
@@ -329,6 +344,7 @@ final class OverlayController {
     /// Starts a repeating timer that samples the focused window position.
     private func startPolling() {
         schedulePollingTimer(with: currentPollingInterval)
+        resetQuiescentDeadline()
     }
 
     /// Stops the polling timer.
@@ -336,6 +352,43 @@ final class OverlayController {
         snapshotPollingTimer?.invalidate()
         snapshotPollingTimer = nil
         currentPollingInterval = currentPollingCadence.idleInterval
+        isInQuiescentMode = false
+        quiescentDeadline = .distantPast
+    }
+
+    /// Defers the next quiescent evaluation when fresh activity has been observed.
+    private func resetQuiescentDeadline() {
+        let delay = max(currentPollingCadence.quiescentEntryDelay, 0.1)
+        quiescentDeadline = Date().addingTimeInterval(delay)
+    }
+
+    /// Switches to the ultra-low-power cadence when overlays have been idle.
+    private func enterQuiescentMode() {
+        guard !isInQuiescentMode else { return }
+        isInQuiescentMode = true
+        stopDisplayLinkIfNeeded()
+        let interval = max(currentPollingCadence.quiescentInterval, 0.01)
+        updatePollingIntervalIfNeeded(interval)
+    }
+
+    /// Returns to the normal idle cadence and delays quiescent re-entry.
+    private func exitQuiescentModeIfNeeded() {
+        guard isInQuiescentMode else {
+            resetQuiescentDeadline()
+            return
+        }
+        isInQuiescentMode = false
+        resetQuiescentDeadline()
+        updatePollingIntervalIfNeeded(desiredIntervalForCurrentInteractionState())
+    }
+
+    /// Checks whether the controller should downshift into quiescent mode.
+    private func evaluateQuiescentModeIfNeeded() {
+        guard !isInQuiescentMode else { return }
+        guard quiescentDeadline != .distantPast else { return }
+        if Date() >= quiescentDeadline {
+            enterQuiescentMode()
+        }
     }
 
     /// Reapplies the last known snapshot so new overlay windows pick up current carve-outs.
@@ -645,7 +698,10 @@ final class OverlayController {
     @objc private func handlePollingTimer(_ timer: Timer) {
         let didChange = refreshActiveWindowSnapshot()
         if didChange {
+            exitQuiescentModeIfNeeded()
             enterInteractionBoost(minimumDuration: interactionBoostDuration)
+        } else {
+            evaluateQuiescentModeIfNeeded()
         }
         evaluateInteractionDeadline()
     }
@@ -1049,6 +1105,7 @@ final class OverlayController {
         guard interval > 0 else { return }
         snapshotPollingTimer?.invalidate()
         let timer = Timer(timeInterval: interval, target: self, selector: #selector(handlePollingTimer(_:)), userInfo: nil, repeats: true)
+        timer.tolerance = pollingTimerTolerance(for: interval)
         RunLoop.main.add(timer, forMode: .common)
         snapshotPollingTimer = timer
         currentPollingInterval = interval
@@ -1061,6 +1118,13 @@ final class OverlayController {
             return
         }
         schedulePollingTimer(with: interval)
+    }
+
+    /// Returns the tolerance to apply to the polling timer so macOS can coalesce wake-ups.
+    private func pollingTimerTolerance(for interval: TimeInterval) -> TimeInterval {
+        guard interval.isFinite, interval > 0 else { return minimumPollingTimerTolerance }
+        let scaledTolerance = interval * pollingTimerToleranceFraction
+        return min(max(scaledTolerance, minimumPollingTimerTolerance), maximumPollingTimerTolerance)
     }
 
     /// Resolves the desired interval based on whether a pointer interaction boost is active.
@@ -1077,6 +1141,7 @@ final class OverlayController {
     /// Keeps the high-frequency polling window alive while interactions are active.
     private func enterInteractionBoost(minimumDuration: TimeInterval) {
         guard minimumDuration > 0 else { return }
+        exitQuiescentModeIfNeeded()
         let proposedDeadline = Date().addingTimeInterval(minimumDuration)
         if let currentDeadline = interactionBoostExpiration {
             interactionBoostExpiration = max(currentDeadline, proposedDeadline)
@@ -1090,7 +1155,7 @@ final class OverlayController {
     /// Switches back to the idle cadence when interactions have settled for long enough.
     private func evaluateInteractionDeadline() {
         guard let deadline = interactionBoostExpiration else {
-            if currentPollingInterval != currentPollingCadence.idleInterval {
+            if !isInQuiescentMode, currentPollingInterval != currentPollingCadence.idleInterval {
                 updatePollingIntervalIfNeeded(currentPollingCadence.idleInterval)
             }
             return
@@ -1098,7 +1163,9 @@ final class OverlayController {
 
         if Date() >= deadline {
             interactionBoostExpiration = nil
-            updatePollingIntervalIfNeeded(currentPollingCadence.idleInterval)
+            if !isInQuiescentMode {
+                updatePollingIntervalIfNeeded(currentPollingCadence.idleInterval)
+            }
             stopDisplayLinkIfNeeded()
         } else {
             updatePollingIntervalIfNeeded(currentPollingCadence.interactionInterval)

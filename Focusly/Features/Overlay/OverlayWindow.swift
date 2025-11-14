@@ -337,18 +337,22 @@ final class OverlayWindow: NSPanel {
     /// Hides the overlay, optionally animating the fade-out.
     func hide(animated: Bool) {
         let duration = currentStyle?.animationDuration ?? 0.25
-        guard animated else {
-            alphaValue = 0
-            orderOut(nil)
+        let teardown = { [weak self] in
+            guard let self else { return }
+            self.alphaValue = 0
+            self.orderOut(nil)
+            self.prepareForDormancy()
+        }
+
+        guard animated, duration > 0 else {
+            teardown()
             return
         }
 
         NSAnimationContext.runAnimationGroup { context in
             context.duration = duration
             context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-            context.completionHandler = { [weak self] in
-                self?.orderOut(nil)
-            }
+            context.completionHandler = teardown
             self.animator().alphaValue = 0
         }
     }
@@ -489,6 +493,14 @@ final class OverlayWindow: NSPanel {
         if !preserveActiveRegions {
             currentMaskRegions = []
         }
+    }
+
+    /// Releases blur/mask state so the overlay can sit idle with negligible resource usage.
+    private func prepareForDormancy() {
+        setFiltersEnabled(false, animated: false)
+        resetMaskLayers()
+        staticTintExclusions = []
+        staticBlurExclusions = []
     }
 
     /// Determines whether a given rect should be ignored because it covers most of the overlay.

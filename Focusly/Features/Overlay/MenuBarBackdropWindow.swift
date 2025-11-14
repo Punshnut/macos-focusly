@@ -77,18 +77,22 @@ final class MenuBarBackdropWindow: NSPanel {
     /// Hides the backdrop, optionally animating the fade-out.
     func hide(animated: Bool) {
         let duration = currentStyle?.animationDuration ?? 0.25
-        guard animated else {
-            alphaValue = 0
-            orderOut(nil)
+        let teardown = { [weak self] in
+            guard let self else { return }
+            self.alphaValue = 0
+            self.orderOut(nil)
+            self.prepareForDormancy()
+        }
+
+        guard animated, duration > 0 else {
+            teardown()
             return
         }
 
         NSAnimationContext.runAnimationGroup { context in
             context.duration = duration
             context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-            context.completionHandler = { [weak self] in
-                self?.orderOut(nil)
-            }
+            context.completionHandler = teardown
             self.animator().alphaValue = 0
         }
     }
@@ -168,6 +172,11 @@ final class MenuBarBackdropWindow: NSPanel {
             self.blurView.animator().alphaValue = targetOpacity
             self.tintView.animator().alphaValue = targetOpacity
         }
+    }
+
+    /// Disables blur/tint filters so the backdrop frees GPU/CI resources while hidden.
+    private func prepareForDormancy() {
+        setFiltersEnabled(false, animated: false)
     }
 
     /// Updates the backdrop geometry to match the target screen's menu bar.
