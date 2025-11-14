@@ -486,10 +486,17 @@ final class OverlayWindow: NSPanel {
 
     /// Clears active masks and releases mask images.
     private func resetMaskLayers(preserveActiveRegions: Bool = false) {
-        tintView.layer?.mask = nil
-        overlayBlurView.layer?.mask = nil
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        if tintView.layer?.mask === tintMaskLayer {
+            tintView.layer?.mask = nil
+        }
+        if overlayBlurView.layer?.mask === blurMaskLayer {
+            overlayBlurView.layer?.mask = nil
+        }
         tintMaskLayer.reset()
         blurMaskLayer.reset()
+        CATransaction.commit()
         if !preserveActiveRegions {
             currentMaskRegions = []
         }
