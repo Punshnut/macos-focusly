@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
 	<key>CFBundleIdentifier</key>
-	<string>com.Punshnut.Focusly</string>
+	<string>com.janfeuerbacher.focusly</string>
 	<key>CFBundleName</key>
 	<string>Focusly</string>
 	<key>CFBundleShortVersionString</key>

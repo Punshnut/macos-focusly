@@ -34,9 +34,7 @@ final class DisplayLinkDriver {
     func start() -> Bool {
         guard !isRunning else { return true }
 
-        var link: CVDisplayLink?
-        let creationResult = CVDisplayLinkCreateWithActiveCGDisplays(&link)
-        guard creationResult == kCVReturnSuccess, let resolvedLink = link else {
+        guard let resolvedLink = makeDisplayLink() else {
             return false
         }
 
@@ -77,6 +75,20 @@ final class DisplayLinkDriver {
         CVDisplayLinkSetOutputHandler(link, { _, _, _, _, _ in kCVReturnSuccess })
         displayLink = nil
         isRunning = false
+    }
+
+    /// Attempts to build a display link that follows the preferred display identifier when possible.
+    private func makeDisplayLink() -> CVDisplayLink? {
+        var link: CVDisplayLink?
+        let targetID = preferredDisplayID ?? DisplayID(CGMainDisplayID())
+        var creationResult = CVDisplayLinkCreateWithCGDisplay(CGDirectDisplayID(targetID), &link)
+        if creationResult != kCVReturnSuccess || link == nil {
+            creationResult = CVDisplayLinkCreateWithActiveCGDisplays(&link)
+        }
+        guard creationResult == kCVReturnSuccess, let resolved = link else {
+            return nil
+        }
+        return resolved
     }
 
     @MainActor

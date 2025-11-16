@@ -49,6 +49,9 @@ final class OverlayWindow: NSPanel {
     private weak var boundScreen: NSScreen?
     /// Tracks whether blur/tint filters should currently be visible.
     private var areFiltersActive = true
+    private var lastAppliedRefreshProfile: DisplayRefreshProfile?
+    @available(macOS 12.0, *)
+    private static let defaultFrameRateRange = CAFrameRateRange(minimum: 60, maximum: 240, preferred: 120)
 
     /// Creates a new overlay window that is pinned to the given screen and display identifier.
     init(screen: NSScreen, displayID: DisplayID) {
@@ -246,6 +249,15 @@ final class OverlayWindow: NSPanel {
         displayID
     }
 
+    /// Applies refresh rate hints tailored to the host display.
+    func setRefreshProfile(_ profile: DisplayRefreshProfile?) {
+        guard #available(macOS 12.0, *) else { return }
+        guard lastAppliedRefreshProfile != profile else { return }
+        lastAppliedRefreshProfile = profile
+        let range = profile?.preferredFrameRateRange ?? Self.defaultFrameRateRange
+        applyFrameRateRange(range)
+    }
+
     /// Keeps the overlay visible even if the app is not active.
     override func orderFrontRegardless() {
         super.orderFrontRegardless()
@@ -279,6 +291,9 @@ final class OverlayWindow: NSPanel {
         contentView.layer?.drawsAsynchronously = true
         contentView.layer?.allowsEdgeAntialiasing = true
         contentView.layer?.contentsFormat = .RGBA16Float
+        if #available(macOS 12.0, *) {
+            applyFrameRateRange(Self.defaultFrameRateRange)
+        }
 
         contentView.addSubview(overlayBlurView)
         contentView.addSubview(tintView)
@@ -871,6 +886,13 @@ private final class OverlayMaskLayer: CALayer {
     /// Shares the accumulated diagnostics so callers can monitor fallback usage.
     static func diagnosticsSnapshot() -> OverlayWindow.OverlayMaskRenderingDiagnostics {
         diagnosticsTracker.snapshot()
+    }
+
+    @available(macOS 12.0, *)
+    private func applyFrameRateRange(_ range: CAFrameRateRange) {
+        contentView?.layer?.preferredFrameRateRange = range
+        overlayBlurView.layer?.preferredFrameRateRange = range
+        tintView.layer?.preferredFrameRateRange = range
     }
 }
 

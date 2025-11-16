@@ -76,6 +76,7 @@ final class OverlayService {
             }
             let displayID = DisplayID(truncating: screenNumber)
             activeDisplayIDs.insert(displayID)
+            let refreshProfile = DisplayRefreshEstimator.profile(for: displayID, screen: screen)
 
             if profileStore.isDisplayExcluded(displayID) {
                 if areOverlaysActive {
@@ -95,9 +96,11 @@ final class OverlayService {
 
             if let overlayWindow = overlayWindowsByDisplayID[displayID] {
                 overlayWindow.updateFrame(to: screen)
+                overlayWindow.setRefreshProfile(refreshProfile)
             } else {
                 let overlayWindow = OverlayWindow(screen: screen, displayID: displayID)
                 overlayWindow.setFiltersEnabled(appSettings.overlayFiltersActive, animated: false)
+                overlayWindow.setRefreshProfile(refreshProfile)
                 overlayWindowsByDisplayID[displayID] = overlayWindow
                 if areOverlaysActive {
                     overlayWindow.orderFrontRegardless()
@@ -116,9 +119,11 @@ final class OverlayService {
             if menuBarHeight > 0 {
                 if let backdropWindow = menuBarWindowsByDisplayID[displayID] {
                     backdropWindow.updateFrame(to: screen)
+                    backdropWindow.setRefreshProfile(refreshProfile)
                 } else {
                     let backdropWindow = MenuBarBackdropWindow(screen: screen, displayID: displayID)
                     backdropWindow.setFiltersEnabled(appSettings.overlayFiltersActive, animated: false)
+                    backdropWindow.setRefreshProfile(refreshProfile)
                     menuBarWindowsByDisplayID[displayID] = backdropWindow
                     if areOverlaysActive {
                         backdropWindow.orderFrontRegardless()

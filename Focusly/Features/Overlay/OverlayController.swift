@@ -78,8 +78,10 @@ final class OverlayController {
     private let interactionCooldownDuration: TimeInterval = 0.25
     private let animationBoostDuration: TimeInterval = 0.45
     private let activeWindowSnapshotResolver: (Set<Int>, Bool) -> ActiveWindowSnapshot?
-    private let minimumPredictionDelta: CGFloat = 0.32
-    private let predictiveLeadCompensationFraction: Double = 0.35
+    private let defaultMinimumPredictionDelta: CGFloat = 0.32
+    private let defaultPredictiveLeadCompensationFraction: Double = 0.35
+    private var minimumPredictionDelta: CGFloat = 0.32
+    private var predictiveLeadCompensationFraction: Double = 0.35
 
     private var overlayWindowsByDisplayID: [DisplayID: OverlayWindow] = [:]
     private var snapshotPollingTimer: Timer?
@@ -117,8 +119,9 @@ final class OverlayController {
     private var isDisplayLinkRunning = false
     private var lastDisplayLinkRefreshInterval: TimeInterval = 1.0 / 60.0
     private let motionPredictor = WindowMotionPredictor()
-    private var fastFrameSampleInterval: TimeInterval = 1.0 / 75.0
-    private let fastFrameSamplingBounds = (minimum: 1.0 / 240.0, maximum: 1.0 / 45.0)
+    private var fastFrameSampleInterval: TimeInterval
+    private let defaultFastFrameSamplingBounds: (minimum: TimeInterval, maximum: TimeInterval)
+    private var fastFrameSamplingBounds: (minimum: TimeInterval, maximum: TimeInterval)
     private var lastFastFrameHostTime: UInt64 = 0
     private static let hostTimeToSecondsFactor: Double = {
         var info = mach_timebase_info()
@@ -133,11 +136,23 @@ final class OverlayController {
     private var isApplicationWideSnapshotEnabled = true
     private var lastImmediateSnapshotRefresh = Date.distantPast
     private let immediateSnapshotRefreshCooldown: TimeInterval = 1.0 / 90.0
+    private var resolvedImmediateSnapshotCooldown: TimeInterval = 1.0 / 90.0
     private var quiescentDeadline = Date.distantPast
     private var isInQuiescentMode = false
     private let pollingTimerToleranceFraction: Double = 0.45
     private let minimumPollingTimerTolerance: TimeInterval = 0.0025
     private let maximumPollingTimerTolerance: TimeInterval = 0.75
+    private var displayRefreshProfiles: [DisplayID: DisplayRefreshProfile] = [:]
+    private let isSecondGenerationAppleSilicon = HardwareCapabilities.isSecondGenerationAppleSilicon
+    private let isThirdGenerationAppleSilicon = HardwareCapabilities.isThirdGenerationAppleSilicon
+    private let supportsHighRefreshCompositing = HardwareCapabilities.supportsHighRefreshCompositing
+    private let supportsPointerDrivenInteractionBoosts = HardwareCapabilities.supportsPointerDrivenInteractionBoosts
+    private let maximumPredictionLeadTime: TimeInterval
+    private var shouldBiasPredictionsOneFrameAhead = false
+    private var preferredPredictionFrameInterval: TimeInterval = 0
+    private var highFrequencyPointerSampler: HighFrequencyPointerSampler?
+    private var lastPerformanceTuningDisplayID: DisplayID?
+    private var isDisplayLinkPinnedByRefreshProfile = false
 
     init(
         activeWindowSnapshotResolver: @escaping (Set<Int>, Bool) -> ActiveWindowSnapshot? = { windowNumbers, includeApplicationWindows in
@@ -148,6 +163,15 @@ final class OverlayController {
         self.currentTrackingProfile = .standard
         self.currentPollingCadence = PollingCadence(profile: .standard)
         self.currentPollingInterval = currentPollingCadence.idleInterval
+        if supportsHighRefreshCompositing {
+            self.defaultFastFrameSamplingBounds = (minimum: 1.0 / 360.0, maximum: 1.0 / 36.0)
+            self.fastFrameSampleInterval = 1.0 / 90.0
+        } else {
+            self.defaultFastFrameSamplingBounds = (minimum: 1.0 / 240.0, maximum: 1.0 / 45.0)
+            self.fastFrameSampleInterval = 1.0 / 75.0
+        }
+        self.fastFrameSamplingBounds = defaultFastFrameSamplingBounds
+        self.maximumPredictionLeadTime = isThirdGenerationAppleSilicon ? (1.0 / 12.0) : (1.0 / 15.0)
     }
 
     /// Indicates whether any display currently prefers application-wide carving.
@@ -179,6 +203,7 @@ final class OverlayController {
         stopPointerHoverMonitoring()
         stopWorkspaceAnimationMonitoring()
         stopDisplayLinkIfNeeded()
+        isDisplayLinkPinnedByRefreshProfile = false
         cachedActiveSnapshot = nil
         cachedSnapshotsByDisplayID.removeAll()
         predictedSnapshotsByDisplayID.removeAll()
@@ -186,6 +211,7 @@ final class OverlayController {
         pointerDisplayIDHint = nil
         motionPredictor.reset()
         updateDisplayLinkPreferredDisplay()
+        updateDisplayPerformanceHints(forceRefresh: true)
         lastDisplayLinkRefreshInterval = 1.0 / 60.0
         overlayWindowsByDisplayID.values.forEach { $0.applyMask(regions: []) }
     }
@@ -225,6 +251,7 @@ final class OverlayController {
             activeDisplayID = nil
             motionPredictor.reset()
             updateDisplayLinkPreferredDisplay()
+            updateDisplayPerformanceHints()
         }
         if isMonitoringActive {
             applyCachedOverlayMask()
@@ -298,6 +325,7 @@ final class OverlayController {
         if didMutateActiveDisplay {
             updateDisplayLinkPreferredDisplay()
         }
+        updateDisplayPerformanceHints()
         updateApplicationWideSnapshotFlag()
         refreshPeripheralRegionsIfNeeded(force: true)
         updatePeripheralHoverState(for: NSEvent.mouseLocation)
@@ -312,6 +340,7 @@ final class OverlayController {
             activeDisplayID = nil
             motionPredictor.reset()
             updateDisplayLinkPreferredDisplay()
+            updateDisplayPerformanceHints()
             resetDesktopRevealEvaluation()
             rebuildPeripheralHoverState()
             applyOverlayMasksFromCache()
@@ -411,6 +440,128 @@ final class OverlayController {
         supplementalSnapshotDisplayLink.setPreferredDisplayID(preferredDisplay)
     }
 
+    /// Refreshes display profiles and retunes prediction parameters for the active display.
+    private func updateDisplayPerformanceHints(forceRefresh: Bool = false) {
+        let controllingDisplayID = activeDisplayID ?? pointerDisplayIDHint
+        if forceRefresh || controllingDisplayID != lastPerformanceTuningDisplayID {
+            refreshDisplayRefreshProfiles()
+            lastPerformanceTuningDisplayID = controllingDisplayID
+        } else if let controllingDisplayID, displayRefreshProfiles[controllingDisplayID] == nil {
+            refreshDisplayRefreshProfiles()
+        }
+
+        guard let profile = activeRefreshProfile() else {
+            lastPerformanceTuningDisplayID = nil
+            minimumPredictionDelta = defaultMinimumPredictionDelta
+            predictiveLeadCompensationFraction = defaultPredictiveLeadCompensationFraction
+            fastFrameSamplingBounds = defaultFastFrameSamplingBounds
+            resolvedImmediateSnapshotCooldown = immediateSnapshotRefreshCooldown
+            shouldBiasPredictionsOneFrameAhead = false
+            preferredPredictionFrameInterval = 0
+            fastFrameSampleInterval = min(
+                max(fastFrameSampleInterval, fastFrameSamplingBounds.minimum),
+                fastFrameSamplingBounds.maximum
+            )
+            updateDisplayLinkPersistence(profile: nil)
+            return
+        }
+
+        let preferredFPS = profile.preferredFramesPerSecond
+        shouldBiasPredictionsOneFrameAhead = profile.wantsFrameAheadPrediction
+        preferredPredictionFrameInterval = profile.recommendedPredictionLead
+        if preferredFPS >= 165 {
+            minimumPredictionDelta = supportsHighRefreshCompositing ? 0.08 : 0.09
+            predictiveLeadCompensationFraction = supportsHighRefreshCompositing ? 0.95 : 0.85
+            fastFrameSamplingBounds = (minimum: 1.0 / 480.0, maximum: 1.0 / 26.0)
+            if isThirdGenerationAppleSilicon {
+                resolvedImmediateSnapshotCooldown = 1.0 / 360.0
+            } else if isSecondGenerationAppleSilicon {
+                resolvedImmediateSnapshotCooldown = 1.0 / 320.0
+            } else {
+                resolvedImmediateSnapshotCooldown = 1.0 / 210.0
+            }
+        } else if preferredFPS >= 120 {
+            minimumPredictionDelta = 0.12
+            predictiveLeadCompensationFraction = supportsHighRefreshCompositing ? 0.85 : 0.7
+            fastFrameSamplingBounds = (minimum: 1.0 / 360.0, maximum: 1.0 / 30.0)
+            if isThirdGenerationAppleSilicon {
+                resolvedImmediateSnapshotCooldown = 1.0 / 300.0
+            } else if isSecondGenerationAppleSilicon {
+                resolvedImmediateSnapshotCooldown = 1.0 / 260.0
+            } else {
+                resolvedImmediateSnapshotCooldown = 1.0 / 190.0
+            }
+        } else if preferredFPS >= 90 {
+            minimumPredictionDelta = 0.18
+            predictiveLeadCompensationFraction = 0.5
+            fastFrameSamplingBounds = (minimum: 1.0 / 300.0, maximum: 1.0 / 36.0)
+            resolvedImmediateSnapshotCooldown = 1.0 / 165.0
+        } else {
+            minimumPredictionDelta = defaultMinimumPredictionDelta
+            predictiveLeadCompensationFraction = defaultPredictiveLeadCompensationFraction
+            fastFrameSamplingBounds = defaultFastFrameSamplingBounds
+            resolvedImmediateSnapshotCooldown = immediateSnapshotRefreshCooldown
+            shouldBiasPredictionsOneFrameAhead = false
+            preferredPredictionFrameInterval = 0
+        }
+
+        if supportsHighRefreshCompositing, preferredFPS >= 120 {
+            shouldBiasPredictionsOneFrameAhead = true
+            preferredPredictionFrameInterval = max(preferredPredictionFrameInterval, profile.preferredFrameInterval)
+        }
+
+        fastFrameSampleInterval = min(
+            max(fastFrameSampleInterval, fastFrameSamplingBounds.minimum),
+            fastFrameSamplingBounds.maximum
+        )
+        updateDisplayLinkPersistence(profile: profile)
+    }
+
+    /// Rebuilds known refresh profiles for all connected overlays.
+    private func refreshDisplayRefreshProfiles() {
+        var updatedProfiles: [DisplayID: DisplayRefreshProfile] = [:]
+        for (displayID, overlayWindow) in overlayWindowsByDisplayID where displayID != 0 {
+            if let profile = DisplayRefreshEstimator.profile(for: displayID, screen: overlayWindow.screen) {
+                updatedProfiles[displayID] = profile
+            }
+        }
+        let interestingDisplayIDs = [activeDisplayID, pointerDisplayIDHint].compactMap { $0 }.filter { $0 != 0 }
+        for displayID in interestingDisplayIDs where updatedProfiles[displayID] == nil {
+            if let profile = DisplayRefreshEstimator.profile(for: displayID) {
+                updatedProfiles[displayID] = profile
+            }
+        }
+        displayRefreshProfiles = updatedProfiles
+    }
+
+    /// Returns the refresh profile that should dictate aggressive prediction tuning.
+    private func activeRefreshProfile() -> DisplayRefreshProfile? {
+        if let activeID = activeDisplayID, let profile = displayRefreshProfiles[activeID] {
+            return profile
+        }
+        if let pointerID = pointerDisplayIDHint, let profile = displayRefreshProfiles[pointerID] {
+            return profile
+        }
+        return nil
+    }
+
+    /// Keeps the supplemental display link alive when a display demands tight prediction.
+    private func updateDisplayLinkPersistence(profile: DisplayRefreshProfile?) {
+        let shouldPin = isMonitoringActive && (profile?.prefersPersistentDisplayLink == true)
+        if shouldPin {
+            guard !isDisplayLinkPinnedByRefreshProfile else { return }
+            isDisplayLinkPinnedByRefreshProfile = true
+            startDisplayLinkIfNeeded()
+            return
+        }
+
+        guard isDisplayLinkPinnedByRefreshProfile else { return }
+        isDisplayLinkPinnedByRefreshProfile = false
+        if interactionBoostExpiration == nil {
+            stopDisplayLinkIfNeeded()
+        }
+    }
+
     /// Periodically logs how often we fall back to bitmap mask rendering.
     private func evaluateMaskRenderingDiagnosticsIfNeeded() {
         let now = Date()
@@ -453,7 +604,9 @@ final class OverlayController {
         }
 
         updateDisplayLinkPreferredDisplay()
+        updateDisplayPerformanceHints()
         rebuildPeripheralHoverState()
+        primePredictionForCurrentFrameIfNeeded()
     }
 
     /// Applies cached highlight regions to every overlay window.
@@ -767,9 +920,9 @@ final class OverlayController {
     /// Creates and starts a pointer monitor so we can react to drag and resize interactions.
     private func configurePointerInteractionMonitoring() {
         if pointerInteractionMonitor == nil {
-            pointerInteractionMonitor = PointerInteractionMonitor { [weak self] state in
+            pointerInteractionMonitor = PointerInteractionMonitor { [weak self] state, event in
                 guard let self else { return }
-                self.capturePointerDisplayHintFromSystem()
+                self.capturePointerDisplayHint(from: event)
                 switch state {
                 case .began, .dragged:
                     self.enterInteractionBoost(minimumDuration: self.interactionBoostDuration)
@@ -781,6 +934,7 @@ final class OverlayController {
             }
         }
         pointerInteractionMonitor?.start()
+        startHighFrequencyPointerSamplingIfNeeded()
     }
 
     /// Tears down the pointer monitor when overlays are inactive.
@@ -789,6 +943,32 @@ final class OverlayController {
         pointerInteractionMonitor = nil
         interactionBoostExpiration = nil
         stopDisplayLinkIfNeeded()
+        stopHighFrequencyPointerSampling()
+    }
+
+    /// Starts a high-frequency event tap so drag updates stay in lockstep with the display cadence.
+    private func startHighFrequencyPointerSamplingIfNeeded() {
+        guard supportsPointerDrivenInteractionBoosts else { return }
+        if highFrequencyPointerSampler == nil {
+            highFrequencyPointerSampler = HighFrequencyPointerSampler { [weak self] location, isDragging in
+                self?.handleHighFrequencyPointerSample(location: location, isDragging: isDragging)
+            }
+        }
+        highFrequencyPointerSampler?.start()
+    }
+
+    /// Stops the high-frequency pointer sampler when overlays are inactive.
+    private func stopHighFrequencyPointerSampling() {
+        highFrequencyPointerSampler?.stop()
+        highFrequencyPointerSampler = nil
+    }
+
+    /// Keeps the preferred display hint warm using the raw pointer stream.
+    private func handleHighFrequencyPointerSample(location: NSPoint, isDragging: Bool) {
+        updatePointerDisplayHint(for: location)
+        guard isDragging else { return }
+        enterInteractionBoost(minimumDuration: interactionBoostDuration)
+        requestImmediateSnapshotRefreshIfNeeded()
     }
 
     /// Begins tracking global pointer movement so Dock/Stage Manager can be carved out on hover.
@@ -814,6 +994,7 @@ final class OverlayController {
         if pointerDisplayIDHint != nil {
             pointerDisplayIDHint = nil
             updateDisplayLinkPreferredDisplay()
+            updateDisplayPerformanceHints()
         }
         cachedPeripheralRegions = []
         lastPeripheralRegionRefresh = .distantPast
@@ -871,7 +1052,7 @@ final class OverlayController {
     /// Forces a snapshot refresh outside the normal polling cadence so masks can collapse faster.
     private func requestImmediateSnapshotRefreshIfNeeded() {
         let now = Date()
-        guard now.timeIntervalSince(lastImmediateSnapshotRefresh) >= immediateSnapshotRefreshCooldown else {
+        guard now.timeIntervalSince(lastImmediateSnapshotRefresh) >= resolvedImmediateSnapshotCooldown else {
             return
         }
         lastImmediateSnapshotRefresh = now
@@ -883,12 +1064,19 @@ final class OverlayController {
         updatePointerDisplayHint(for: NSEvent.mouseLocation)
     }
 
+    /// Updates the pointer hint using the supplied NSEvent's location.
+    private func capturePointerDisplayHint(from event: NSEvent) {
+        updatePointerDisplayHint(for: event.locationInWindow)
+    }
+
     /// Updates the display-link preference using the supplied pointer location.
     private func updatePointerDisplayHint(for location: NSPoint) {
+        lastPointerLocation = location
         let resolvedID = pointerDisplayIdentifier(for: location)
         guard resolvedID != pointerDisplayIDHint else { return }
         pointerDisplayIDHint = resolvedID
         updateDisplayLinkPreferredDisplay()
+        updateDisplayPerformanceHints()
     }
 
     /// Maps a global pointer coordinate to a display identifier if possible.
@@ -1381,7 +1569,14 @@ final class OverlayController {
     /// Adjusts the fast-frame sampling interval to follow the currently active display cadence.
     private func updateFastFrameSamplingInterval(for displayInterval: TimeInterval) {
         guard displayInterval.isFinite, displayInterval > 0 else { return }
-        let multiplier: Double = displayInterval < (1.0 / 90.0) ? 0.85 : 1.05
+        let multiplier: Double
+        if supportsHighRefreshCompositing, displayInterval < (1.0 / 120.0) {
+            multiplier = 0.7
+        } else if displayInterval < (1.0 / 90.0) {
+            multiplier = 0.85
+        } else {
+            multiplier = 1.05
+        }
         let candidate = displayInterval * multiplier
         let clamped = min(
             max(candidate, fastFrameSamplingBounds.minimum),
@@ -1391,13 +1586,23 @@ final class OverlayController {
     }
 
     /// Boosts the lead time for higher-refresh displays so overlays stay ahead of rapid panels.
-    private func predictiveLeadMultiplier(for interval: TimeInterval) -> Double {
+    private func predictiveLeadMultiplier(for interval: TimeInterval, profile: DisplayRefreshProfile?) -> Double {
         guard interval > 0 else { return 1 }
-        if interval < (1.0 / 120.0) {
+        let framesPerSecond = profile?.preferredFramesPerSecond ?? (1.0 / interval)
+        if framesPerSecond >= 165 {
+            return 2.0
+        }
+        if framesPerSecond >= 144 {
+            return 1.85
+        }
+        if framesPerSecond >= 120 {
             return 1.65
         }
-        if interval < (1.0 / 90.0) {
+        if framesPerSecond >= 90 {
             return 1.35
+        }
+        if framesPerSecond >= 75 {
+            return 1.15
         }
         return 1.0
     }
@@ -1421,8 +1626,22 @@ final class OverlayController {
         guard let snapshot = cachedActiveSnapshot else { return }
         guard let displayID = activeDisplayID else { return }
         guard overlayWindowsByDisplayID[displayID] != nil else { return }
-        let leadMultiplier = predictiveLeadMultiplier(for: leadTime)
-        let boostedLead = leadTime * (leadMultiplier + predictiveLeadCompensationFraction)
+        let profile = displayRefreshProfiles[displayID]
+        let leadMultiplier = predictiveLeadMultiplier(for: leadTime, profile: profile)
+        var boostedLead = leadTime * (leadMultiplier + predictiveLeadCompensationFraction)
+        if shouldBiasPredictionsOneFrameAhead {
+            let oneFrameLead = preferredPredictionFrameInterval > 0 ? preferredPredictionFrameInterval : leadTime
+            boostedLead += min(oneFrameLead, maximumPredictionLeadTime / 2)
+        } else if profile?.wantsFrameAheadPrediction == true {
+            boostedLead += leadTime
+        }
+        if (isSecondGenerationAppleSilicon || isThirdGenerationAppleSilicon),
+           let profile,
+           profile.preferredFramesPerSecond >= 120 {
+            let fraction: Double = isThirdGenerationAppleSilicon ? 0.75 : 0.5
+            boostedLead += min(leadTime * fraction, maximumPredictionLeadTime / 2)
+        }
+        boostedLead = min(boostedLead, maximumPredictionLeadTime)
         guard let predictedFrame = motionPredictor.predictedFrame(leadTime: boostedLead) else { return }
 
         let tolerance: CGFloat = 0.18
@@ -1458,6 +1677,20 @@ final class OverlayController {
         }
         predictedSnapshotsByDisplayID[displayID] = predictedSnapshot
         applyOverlayMasksFromCache()
+    }
+
+    /// Biases the mask forward by roughly one frame on displays that demand tighter tracking.
+    private func primePredictionForCurrentFrameIfNeeded() {
+        guard shouldBiasPredictionsOneFrameAhead else { return }
+        let lead: TimeInterval
+        if preferredPredictionFrameInterval > 0 {
+            lead = preferredPredictionFrameInterval
+        } else if fastFrameSampleInterval.isFinite, fastFrameSampleInterval > 0 {
+            lead = fastFrameSampleInterval
+        } else {
+            lead = 1.0 / 90.0
+        }
+        applyPredictedFrameIfPossible(leadTime: lead)
     }
 
     /// Attempts a lightweight position refresh using the CoreGraphics frame list to avoid

@@ -1,4 +1,5 @@
 import AppKit
+import QuartzCore
 
 /// Thin overlay that sits behind the system menu bar to provide blur and tint while keeping status items sharp.
 @MainActor
@@ -18,6 +19,9 @@ final class MenuBarBackdropWindow: NSPanel {
     private var currentStyle: FocusOverlayStyle?
     private var areFiltersActive = true
     private(set) var displayID: DisplayID
+    private var lastAppliedRefreshProfile: DisplayRefreshProfile?
+    @available(macOS 12.0, *)
+    private static let defaultFrameRateRange = CAFrameRateRange(minimum: 60, maximum: 240, preferred: 120)
 
     init(screen: NSScreen, displayID: DisplayID) {
         self.displayID = displayID
@@ -213,6 +217,11 @@ final class MenuBarBackdropWindow: NSPanel {
         guard let contentView else { return }
         contentView.translatesAutoresizingMaskIntoConstraints = true
         contentView.autoresizingMask = [.width, .height]
+        contentView.wantsLayer = true
+        contentView.layer?.drawsAsynchronously = true
+        if #available(macOS 12.0, *) {
+            applyFrameRateRange(Self.defaultFrameRateRange)
+        }
 
         contentView.addSubview(blurView)
         contentView.addSubview(tintView)
@@ -270,5 +279,21 @@ final class MenuBarBackdropWindow: NSPanel {
             return 0
         }
         return DisplayID(truncating: number)
+    }
+
+    /// Applies refresh hints so menu bar blur/tint keep up with the display.
+    func setRefreshProfile(_ profile: DisplayRefreshProfile?) {
+        guard #available(macOS 12.0, *) else { return }
+        guard lastAppliedRefreshProfile != profile else { return }
+        lastAppliedRefreshProfile = profile
+        let range = profile?.preferredFrameRateRange ?? Self.defaultFrameRateRange
+        applyFrameRateRange(range)
+    }
+
+    @available(macOS 12.0, *)
+    private func applyFrameRateRange(_ range: CAFrameRateRange) {
+        contentView?.layer?.preferredFrameRateRange = range
+        blurView.layer?.preferredFrameRateRange = range
+        tintView.layer?.preferredFrameRateRange = range
     }
 }

@@ -1,11 +1,14 @@
 import AppKit
 import CoreGraphics
+import OSLog
 
 private let popUpMenuWindowLevel = Int(CGWindowLevelForKey(.popUpMenuWindow))
 private let floatingAccessoryWindowLevel = Int(CGWindowLevelForKey(.floatingWindow))
 private let menuKeywordSet: Set<String> = ["menu", "popover", "context"]
+private let menuOwnerFragmentSet: Set<String> = ["rectangle"]
 private let stageManagerReplicaCoverageThreshold: CGFloat = 0.62
 private let stageManagerReplicaPadding: CGFloat = 12
+private let maskResolverLogger = Logger(subsystem: "com.focusly.app", category: "MaskResolver")
 
 /// Cardinal direction describing which screen edge a peripheral element hugs.
 enum PeripheralEdge: Equatable {
@@ -38,6 +41,57 @@ private struct StageShelfRegion {
     var rect: CGRect
     var edge: PeripheralEdge
     var cardFrames: [CGRect]
+}
+
+private func maskDiagnosticsEnabled() -> Bool {
+    if ProcessInfo.processInfo.environment["FOCUSLY_MASK_DIAGNOSTICS"] == "1" {
+        return true
+    }
+    return UserDefaults.standard.bool(forKey: "Focusly.MaskDiagnosticsEnabled")
+}
+
+private func describeRect(_ rect: CGRect) -> String {
+    String(format: "x:%.1f y:%.1f w:%.1f h:%.1f", rect.origin.x, rect.origin.y, rect.width, rect.height)
+}
+
+private func logSupplementaryMaskClassification(
+    ownerName: String?,
+    windowName: String?,
+    layerIndex: Int,
+    bounds: CGRect,
+    reason: String,
+    purpose: ActiveWindowSnapshot.MaskRegion.Purpose
+) {
+    guard maskDiagnosticsEnabled() else { return }
+    let ownerDescription = ownerName ?? "(unknown)"
+    let windowDescription = windowName ?? "(untitled)"
+    maskResolverLogger.debug(
+        "Supplementary mask (\(String(describing: purpose))) via \(reason, privacy: .public) | owner=\(ownerDescription, privacy: .public) title=\(windowDescription, privacy: .public) layer=\(layerIndex) frame=\(describeRect(bounds), privacy: .public)"
+    )
+    InvestigationLogger.shared.log(
+        category: "Supplementary",
+        "purpose=\(purpose) reason=\(reason) owner=\(ownerDescription) title=\(windowDescription) layer=\(layerIndex) frame=\(describeRect(bounds))"
+    )
+}
+
+private func logSupplementaryMaskSkip(
+    ownerName: String?,
+    windowName: String?,
+    layerIndex: Int,
+    bounds: CGRect,
+    reason: String
+) {
+    guard maskDiagnosticsEnabled() else { return }
+    maskResolverLogger.debug(
+        "Skipped supplementary window via \(reason, privacy: .public) | owner=\(ownerName ?? "(unknown)", privacy: .public) title=\(windowName ?? "(untitled)", privacy: .public) layer=\(layerIndex) frame=\(describeRect(bounds), privacy: .public)"
+    )
+    InvestigationLogger.shared.logSupplementarySkip(
+        ownerName: ownerName,
+        windowName: windowName,
+        layerIndex: layerIndex,
+        bounds: bounds,
+        reason: reason
+    )
 }
 
 /// Snapshot of the current Dock preferences we care about for overlay carve-outs.
@@ -88,11 +142,18 @@ func resolveActiveWindowSnapshot(
             axActiveWindowCornerRadius(preferredPID: frontWindow.ownerPID) ??
             fallbackCornerRadius(for: frontWindow.frame)
         )
-        return ActiveWindowSnapshot(
+        let snapshot = ActiveWindowSnapshot(
             frame: frontWindow.frame,
             cornerRadius: clampCornerRadius(resolvedCornerRadius, to: frontWindow.frame),
             supplementaryMasks: frontWindow.supplementaryMasks
         )
+        InvestigationLogger.shared.logSnapshot(
+            source: "CoreGraphics pid \(frontWindow.ownerPID)",
+            frame: snapshot.frame,
+            cornerRadius: snapshot.cornerRadius,
+            supplementaryCount: snapshot.supplementaryMasks.count
+        )
+        return snapshot
     }
 
     guard let snapshot = axActiveWindowSnapshot(preferredPID: resolvedPreferredPID) else {
@@ -109,11 +170,18 @@ func resolveActiveWindowSnapshot(
         includeApplicationWindows: includeAllApplicationWindows
     )
 
-    return ActiveWindowSnapshot(
+    let axSnapshot = ActiveWindowSnapshot(
         frame: snapshot.frame,
         cornerRadius: clampCornerRadius(snapshot.cornerRadius, to: snapshot.frame),
         supplementaryMasks: supplementaryMasks
     )
+    InvestigationLogger.shared.logSnapshot(
+        source: "Accessibility",
+        frame: axSnapshot.frame,
+        cornerRadius: axSnapshot.cornerRadius,
+        supplementaryCount: axSnapshot.supplementaryMasks.count
+    )
+    return axSnapshot
 }
 
 /// Resolves the currently focused window frame using the most permissive APIs available.
@@ -311,6 +379,18 @@ private func findFrontWindow(
             continue
         }
 
+        if isSystemNotificationBanner(
+            layer: layerIndex,
+            ownerName: ownerApplicationName,
+            frame: cocoaFrame
+        ) {
+            InvestigationLogger.shared.log(
+                category: "FrontWindow",
+                "Skipped notification banner owner=\(ownerApplicationName ?? "(unknown)") title=\(resolvedWindowName ?? "(untitled)")"
+            )
+            continue
+        }
+
         let snapshot = CGFrontWindowSnapshot(
             frame: cocoaFrame,
             ownerPID: resolvedProcessID,
@@ -366,7 +446,23 @@ private func collectSupplementaryMasks(
             height: correctedBounds.size.height
         )
 
+        let ownerApplicationName = window[kCGWindowOwnerName as String] as? String
+        let providedWindowName = window[kCGWindowName as String] as? String
+        InvestigationLogger.shared.logSupplementaryDiscovery(
+            ownerName: ownerApplicationName,
+            windowName: providedWindowName,
+            layerIndex: layerIndex,
+            bounds: coreGraphicsBounds
+        )
+
         if isStageManagerReplicaWindow(frame: maskFrame, stageShelfRegions: stageShelfRegions) {
+            logSupplementaryMaskSkip(
+                ownerName: ownerApplicationName,
+                windowName: providedWindowName,
+                layerIndex: layerIndex,
+                bounds: coreGraphicsBounds,
+                reason: "Stage Manager replica"
+            )
             continue
         }
 
@@ -379,7 +475,6 @@ private func collectSupplementaryMasks(
             resolvedProcessID = nil
         }
 
-        let ownerApplicationName = window[kCGWindowOwnerName as String] as? String
         if let ownerApplicationName, ownerApplicationName == "Dock",
            let screen = screenMatching(CGRect(x: maskFrame.origin.x, y: maskFrame.origin.y, width: maskFrame.width, height: maskFrame.height)),
            let classification = classifyPeripheralWindow(
@@ -394,7 +489,7 @@ private func collectSupplementaryMasks(
             }
         }
         let resolvedWindowName = resolveWindowName(
-            providedName: window[kCGWindowName as String] as? String,
+            providedName: providedWindowName,
             pid: resolvedProcessID,
             frame: maskFrame,
             cornerSnapshotCache: &cornerSnapshotCache
@@ -405,12 +500,26 @@ private func collectSupplementaryMasks(
             windowName: resolvedWindowName,
             bundleIdentifierCache: &bundleIdentifierCache
         ) {
+            logSupplementaryMaskSkip(
+                ownerName: ownerApplicationName,
+                windowName: resolvedWindowName,
+                layerIndex: layerIndex,
+                bounds: coreGraphicsBounds,
+                reason: "Ignore list"
+            )
             continue
         }
         let normalizedOwnerName = ownerApplicationName?
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased() ?? ""
         if normalizedOwnerName == "window server" || normalizedOwnerName == "windowserver" {
+            logSupplementaryMaskSkip(
+                ownerName: ownerApplicationName,
+                windowName: resolvedWindowName,
+                layerIndex: layerIndex,
+                bounds: coreGraphicsBounds,
+                reason: "WindowServer"
+            )
             continue
         }
         let matchesPrimary: Bool
@@ -420,16 +529,40 @@ private func collectSupplementaryMasks(
             matchesPrimary = false
         }
 
+        InvestigationLogger.shared.logSupplementaryCandidate(
+            ownerName: ownerApplicationName,
+            windowName: resolvedWindowName,
+            layerIndex: layerIndex,
+            bounds: coreGraphicsBounds,
+            matchesPrimary: matchesPrimary
+        )
+
         guard let maskPurpose = classifySupplementaryWindow(
             layer: layerIndex,
             name: resolvedWindowName,
             ownerName: ownerApplicationName,
             bounds: coreGraphicsBounds,
+            maskFrame: maskFrame,
             matchesPrimary: matchesPrimary,
             includeApplicationWindows: includeApplicationWindows
         ) else {
+            logSupplementaryMaskSkip(
+                ownerName: ownerApplicationName,
+                windowName: resolvedWindowName,
+                layerIndex: layerIndex,
+                bounds: coreGraphicsBounds,
+                reason: "No classification"
+            )
             continue
         }
+
+        InvestigationLogger.shared.logSupplementaryClassification(
+            ownerName: ownerApplicationName,
+            windowName: resolvedWindowName,
+            layerIndex: layerIndex,
+            bounds: coreGraphicsBounds,
+            purpose: maskPurpose
+        )
 
         let resolvedCornerRadius: CGFloat
         if let resolvedProcessID,
@@ -957,9 +1090,26 @@ private func classifySupplementaryWindow(
     name windowName: String?,
     ownerName ownerApplicationName: String?,
     bounds coreGraphicsBounds: CGRect,
+    maskFrame: NSRect,
     matchesPrimary matchesPrimaryApplication: Bool,
     includeApplicationWindows: Bool
 ) -> ActiveWindowSnapshot.MaskRegion.Purpose? {
+    if isSystemNotificationBanner(
+        layer: layerIndex,
+        ownerName: ownerApplicationName,
+        frame: maskFrame
+    ) {
+        logSupplementaryMaskClassification(
+            ownerName: ownerApplicationName,
+            windowName: windowName,
+            layerIndex: layerIndex,
+            bounds: coreGraphicsBounds,
+            reason: "notification banner heuristics",
+            purpose: .systemMenu
+        )
+        return .systemMenu
+    }
+
     if matchesPrimaryApplication {
         if isLikelyMenuWindow(
             layer: layerIndex,
@@ -967,12 +1117,28 @@ private func classifySupplementaryWindow(
             ownerName: ownerApplicationName,
             bounds: coreGraphicsBounds
         ) {
+            logSupplementaryMaskClassification(
+                ownerName: ownerApplicationName,
+                windowName: windowName,
+                layerIndex: layerIndex,
+                bounds: coreGraphicsBounds,
+                reason: "primary-app menu heuristics",
+                purpose: .applicationMenu
+            )
             return .applicationMenu
         }
         return includeApplicationWindows ? .applicationWindow : nil
     }
 
     if let ownerApplicationName, ownerApplicationName == "SystemUIServer" {
+        logSupplementaryMaskClassification(
+            ownerName: ownerApplicationName,
+            windowName: windowName,
+            layerIndex: layerIndex,
+            bounds: coreGraphicsBounds,
+            reason: "SystemUIServer ownership",
+            purpose: .systemMenu
+        )
         return .systemMenu
     }
 
@@ -982,6 +1148,26 @@ private func classifySupplementaryWindow(
         ownerName: ownerApplicationName,
         bounds: coreGraphicsBounds
     ) {
+        logSupplementaryMaskClassification(
+            ownerName: ownerApplicationName,
+            windowName: windowName,
+            layerIndex: layerIndex,
+            bounds: coreGraphicsBounds,
+            reason: "system menu heuristics",
+            purpose: .systemMenu
+        )
+        return .systemMenu
+    }
+
+    if isMenuBarAttachedPopover(bounds: coreGraphicsBounds, layerIndex: layerIndex) {
+        logSupplementaryMaskClassification(
+            ownerName: ownerApplicationName,
+            windowName: windowName,
+            layerIndex: layerIndex,
+            bounds: coreGraphicsBounds,
+            reason: "menu-bar popover detection",
+            purpose: .systemMenu
+        )
         return .systemMenu
     }
 
@@ -997,6 +1183,9 @@ private func isLikelyMenuWindow(
 ) -> Bool {
     let lowercasedOwnerName = ownerApplicationName?.lowercased() ?? ""
     if menuKeywordSet.contains(where: { lowercasedOwnerName.contains($0) }) {
+        return true
+    }
+    if menuOwnerFragmentSet.contains(where: { lowercasedOwnerName.contains($0) }) {
         return true
     }
 
@@ -1034,6 +1223,92 @@ private func isLikelyMenuWindow(
     }
 
     return false
+}
+
+/// Detects tall popovers that hang directly from the menu bar but render on low window layers.
+private func isMenuBarAttachedPopover(bounds coreGraphicsBounds: CGRect, layerIndex: Int) -> Bool {
+    let maximumSupportedLayer = max(4, floatingAccessoryWindowLevel - 2)
+    guard layerIndex <= maximumSupportedLayer else { return false }
+
+    let converted = convertCGWindowBoundsToCocoa(coreGraphicsBounds)
+    let normalizedBounds = NSRect(
+        x: converted.origin.x,
+        y: converted.origin.y,
+        width: converted.size.width,
+        height: converted.size.height
+    )
+    guard normalizedBounds.width >= 4, normalizedBounds.height >= 4 else { return false }
+    guard let screen = screenMatching(CGRect(x: normalizedBounds.origin.x, y: normalizedBounds.origin.y, width: normalizedBounds.width, height: normalizedBounds.height)) else {
+        return false
+    }
+
+    let menuBarHeight = max(0, screen.frame.maxY - screen.visibleFrame.maxY)
+    guard menuBarHeight > 0 else { return false }
+
+    let topAttachmentTolerance = max(menuBarHeight * 1.6, 48)
+    guard abs(normalizedBounds.maxY - screen.frame.maxY) <= topAttachmentTolerance else { return false }
+
+    let maxPopoverWidth = min(screen.frame.width * 0.65, 640)
+    guard normalizedBounds.width <= maxPopoverWidth else { return false }
+
+    let minPopoverHeight = max(menuBarHeight * 1.45, 110)
+    guard normalizedBounds.height >= minPopoverHeight else { return false }
+
+    let maxPopoverHeight = screen.frame.height * 0.97
+    guard normalizedBounds.height <= maxPopoverHeight else { return false }
+
+    let aspectRatio = normalizedBounds.height / max(normalizedBounds.width, 1)
+    guard aspectRatio >= 1.05 else { return false }
+
+    return true
+}
+
+/// Detects Notification Center banners (including macOS 15+ Focus updates) rendered at window layer 0.
+private func isSystemNotificationBanner(
+    layer layerIndex: Int,
+    ownerName ownerApplicationName: String?,
+    frame maskFrame: NSRect
+) -> Bool {
+    guard layerIndex == 0 else { return false }
+    guard maskFrame.width >= 40, maskFrame.height >= 40 else { return false }
+
+    let normalizedOwner = ownerApplicationName?
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+        .lowercased() ?? ""
+    let collapsedOwner = normalizedOwner.replacingOccurrences(of: " ", with: "")
+    let ownerFragments = ["notificationcenter", "notificationcentre", "focusuiagent", "focusstatus", "focusmodeagent"]
+    guard ownerFragments.contains(where: { collapsedOwner.contains($0) }) else { return false }
+
+    guard let screen = screenMatching(CGRect(
+        x: maskFrame.origin.x,
+        y: maskFrame.origin.y,
+        width: maskFrame.width,
+        height: maskFrame.height
+    )) else {
+        return false
+    }
+
+    let topInset = screen.frame.maxY - maskFrame.maxY
+    let trailingInset = screen.frame.maxX - maskFrame.maxX
+    let menuBarHeight = max(0, screen.frame.maxY - screen.visibleFrame.maxY)
+    let maxTopInset = max(menuBarHeight * 2.4, 140)
+    guard topInset >= -16, topInset <= maxTopInset else { return false }
+
+    let maxTrailingInset = max(64, min(screen.frame.width * 0.12, 120))
+    guard trailingInset >= -32, trailingInset <= maxTrailingInset else { return false }
+
+    let minWidth = max(160, screen.frame.width * 0.1)
+    let maxWidth = min(520, screen.frame.width * 0.6)
+    guard maskFrame.width >= minWidth, maskFrame.width <= maxWidth else { return false }
+
+    let minHeight: CGFloat = 56
+    let maxHeight: CGFloat = 220
+    guard maskFrame.height >= minHeight, maskFrame.height <= maxHeight else { return false }
+
+    let aspectRatio = maskFrame.width / max(maskFrame.height, 1)
+    guard aspectRatio >= 1.15 else { return false }
+
+    return true
 }
 
 /// Provides a stable ordering so mask regions sort consistently.
@@ -1205,11 +1480,20 @@ private func shouldIgnoreWindowForMasking(
     } else {
         identifier = nil
     }
-    return ApplicationMaskingIgnoreList.shared.shouldIgnore(
+    let shouldIgnore = ApplicationMaskingIgnoreList.shared.shouldIgnore(
         bundleIdentifier: identifier,
         processName: ownerName,
         windowName: windowName
     )
+    if shouldIgnore {
+        let identifierDescription = identifier ?? "(unknown)"
+        InvestigationLogger.shared.logIgnoredWindow(
+            ownerName: ownerName,
+            windowName: windowName,
+            reason: "bundleIdentifier=\(identifierDescription)"
+        )
+    }
+    return shouldIgnore
 }
 
 @MainActor

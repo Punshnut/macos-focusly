@@ -9,11 +9,11 @@ final class PointerInteractionMonitor {
         case ended
     }
 
-    private let handler: (State) -> Void
+    private let handler: (State, NSEvent) -> Void
     private var globalMonitor: Any?
     private var isPointerDown = false
 
-    init(onStateChanged handler: @escaping (State) -> Void) {
+    init(onStateChanged handler: @escaping (State, NSEvent) -> Void) {
         self.handler = handler
     }
 
@@ -48,18 +48,18 @@ final class PointerInteractionMonitor {
         case .leftMouseDown, .rightMouseDown, .otherMouseDown:
             if !isPointerDown {
                 isPointerDown = true
-                handler(.began)
+                handler(.began, event)
             }
         case .leftMouseDragged, .rightMouseDragged, .otherMouseDragged:
             if !isPointerDown {
                 isPointerDown = true
-                handler(.began)
+                handler(.began, event)
             }
-            handler(.dragged)
+            handler(.dragged, event)
         case .leftMouseUp, .rightMouseUp, .otherMouseUp:
             if isPointerDown {
                 isPointerDown = false
-                handler(.ended)
+                handler(.ended, event)
             }
         default:
             break

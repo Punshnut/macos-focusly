@@ -125,9 +125,10 @@ final class StatusBarController: NSObject {
                 self?.updateMenuTitles()
                 self?.rebuildMenus()
             }
+
     }
 
-    deinit {
+    @MainActor deinit {
         NotificationCenter.default.removeObserver(self, name: applicationAppearanceNotificationName, object: nil)
         DistributedNotificationCenter.default().removeObserver(self, name: NSNotification.Name("AppleInterfaceThemeChangedNotification"), object: nil)
     }
@@ -432,7 +433,10 @@ final class StatusBarController: NSObject {
         case .rightMouseUp, .rightMouseDown:
             showQuickMenu(with: event)
         case .leftMouseUp:
-            if shouldHandleMaskingToggle(for: event) {
+            if shouldTriggerInvestigationToggle(for: event) {
+                handleInvestigationToggleGesture()
+                return
+            } else if shouldHandleMaskingToggle(for: event) {
                 let targetDisplayID = displayIdentifier(for: event)
                 delegate?.statusBar(self, didToggleMaskingModeFor: targetDisplayID)
             } else if event.modifierFlags.contains(.option) || event.modifierFlags.contains(.control) {
@@ -476,6 +480,30 @@ final class StatusBarController: NSObject {
     /// Convenience accessor for localized strings scoped to status bar UI.
     private func localized(_ key: String) -> String {
         localization.localized(key, fallback: key)
+    }
+
+    private func shouldTriggerInvestigationToggle(for event: NSEvent) -> Bool {
+        guard event.type == .leftMouseUp else { return false }
+        return event.modifierFlags.contains(.option)
+    }
+
+    private func handleInvestigationToggleGesture() {
+        let result = InvestigationLogger.shared.toggleLoggingFromStatusItem()
+        announceInvestigationToggleResult(
+            enabled: result.enabled,
+            location: result.location,
+            didChange: result.didChange
+        )
+    }
+
+    private func announceInvestigationToggleResult(enabled: Bool, location: URL, didChange: Bool) {
+        let message: String
+        if didChange {
+            message = enabled ? localized("Investigation log enabled") : localized("Investigation log disabled")
+        } else {
+            message = localized("Investigation log state unchanged")
+        }
+        NSLog("[Focusly] \(message). Log: \(location.path)")
     }
 
     // Return a compact attributed title (smaller menu font + truncation) used for quick/context menu items.
