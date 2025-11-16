@@ -344,6 +344,10 @@ final class OverlayController {
 
         overlayWindowsByDisplayID.values.forEach { $0.setClickThrough(isClickThroughEnabled) }
 
+        if let snapshot = cachedActiveSnapshot {
+            rebuildDisplayScopedSnapshotCache(for: snapshot)
+        }
+
         if isMonitoringActive {
             applyCachedOverlayMask()
         }
@@ -629,21 +633,62 @@ final class OverlayController {
         }
 
         if let resolvedID {
-            cachedSnapshotsByDisplayID[resolvedID] = snapshot
             predictedSnapshotsByDisplayID.removeValue(forKey: resolvedID)
             activeDisplayID = resolvedID
         } else if let activeID = activeDisplayID {
-            cachedSnapshotsByDisplayID[activeID] = snapshot
             predictedSnapshotsByDisplayID.removeValue(forKey: activeID)
         } else {
             activeDisplayID = nil
             predictedSnapshotsByDisplayID.removeAll()
         }
 
+        rebuildDisplayScopedSnapshotCache(for: snapshot, preferredDisplayID: resolvedID ?? activeDisplayID)
+
         updateDisplayLinkPreferredDisplay()
         updateDisplayPerformanceHints()
         rebuildPeripheralHoverState()
         primePredictionForCurrentFrameIfNeeded()
+    }
+
+    /// Rebuilds the per-display snapshot cache so each monitor only receives relevant carve-outs.
+    private func rebuildDisplayScopedSnapshotCache(
+        for snapshot: ActiveWindowSnapshot,
+        preferredDisplayID: DisplayID? = nil
+    ) {
+        let fallbackDisplayID = preferredDisplayID ?? activeDisplayID
+        guard !overlayWindowsByDisplayID.isEmpty else {
+            if let fallbackDisplayID {
+                cachedSnapshotsByDisplayID = [fallbackDisplayID: snapshot]
+            } else {
+                cachedSnapshotsByDisplayID.removeAll()
+            }
+            return
+        }
+
+        var scopedSnapshots: [DisplayID: ActiveWindowSnapshot] = [:]
+        for (displayID, overlayWindow) in overlayWindowsByDisplayID {
+            guard snapshotIntersectsDisplayFrame(snapshot, displayFrame: overlayWindow.frame) else { continue }
+            scopedSnapshots[displayID] = snapshot
+        }
+
+        if scopedSnapshots.isEmpty, let fallbackDisplayID {
+            scopedSnapshots[fallbackDisplayID] = snapshot
+        }
+
+        cachedSnapshotsByDisplayID = scopedSnapshots
+    }
+
+    /// Returns whether a snapshot intersects a particular display's bounds.
+    private func snapshotIntersectsDisplayFrame(_ snapshot: ActiveWindowSnapshot, displayFrame: NSRect) -> Bool {
+        if !snapshot.frame.intersection(displayFrame).isNull {
+            return true
+        }
+        for region in snapshot.supplementaryMasks {
+            if !region.frame.intersection(displayFrame).isNull {
+                return true
+            }
+        }
+        return false
     }
 
     /// Applies cached highlight regions to every overlay window.
@@ -674,16 +719,6 @@ final class OverlayController {
                 } else {
                     staleDisplayIDs.append(displayID)
                 }
-            }
-
-            if !applied, let fallbackSnapshot = cachedActiveSnapshot,
-               apply(snapshot: fallbackSnapshot, to: window, displayID: displayID) {
-                cachedSnapshotsByDisplayID[displayID] = fallbackSnapshot
-                predictedSnapshotsByDisplayID.removeValue(forKey: displayID)
-                activeDisplayID = displayID
-                didMutateActiveDisplay = true
-                didApplyMask = true
-                applied = true
             }
 
             if !applied {
