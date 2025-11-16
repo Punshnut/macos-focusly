@@ -541,6 +541,15 @@ final class OverlayWindow: NSPanel {
     }
 }
 
+@available(macOS 12.0, *)
+private extension OverlayWindow {
+    func applyFrameRateRange(_ range: CAFrameRateRange) {
+        contentView?.layer?.setValue(range, forKey: "preferredFrameRateRange")
+        overlayBlurView.layer?.setValue(range, forKey: "preferredFrameRateRange")
+        tintView.layer?.setValue(range, forKey: "preferredFrameRateRange")
+    }
+}
+
 /// Mask layer that uses a fast vector path when carve-outs are disjoint and falls back to bitmap rasterization when regions overlap.
 private final class OverlayMaskLayer: CALayer {
     private enum RenderingMode {
@@ -888,12 +897,6 @@ private final class OverlayMaskLayer: CALayer {
         diagnosticsTracker.snapshot()
     }
 
-    @available(macOS 12.0, *)
-    private func applyFrameRateRange(_ range: CAFrameRateRange) {
-        contentView?.layer?.preferredFrameRateRange = range
-        overlayBlurView.layer?.preferredFrameRateRange = range
-        tintView.layer?.preferredFrameRateRange = range
-    }
 }
 
 /// Visual effect view that drives the blur material beneath the tinted overlay.

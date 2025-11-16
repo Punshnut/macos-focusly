@@ -145,7 +145,9 @@ func resolveActiveWindowSnapshot(
         let snapshot = ActiveWindowSnapshot(
             frame: frontWindow.frame,
             cornerRadius: clampCornerRadius(resolvedCornerRadius, to: frontWindow.frame),
-            supplementaryMasks: frontWindow.supplementaryMasks
+            supplementaryMasks: frontWindow.supplementaryMasks,
+            ownerPID: frontWindow.ownerPID,
+            windowNumber: frontWindow.windowNumber
         )
         InvestigationLogger.shared.logSnapshot(
             source: "CoreGraphics pid \(frontWindow.ownerPID)",
@@ -207,6 +209,94 @@ func resolveActiveWindowFrameUsingCoreGraphics(
 ) -> NSRect? {
     let resolvedPreferredPID = resolvedPreferredProcessIdentifier(preferredPID)
     return cgFrontWindow(excluding: windowNumbers, preferredPID: resolvedPreferredPID)?.frame
+}
+
+/// Captures a best-effort list of recent on-screen windows so overlays can prime snapshots ahead of focus changes.
+@MainActor
+func resolveRecentWindowSnapshots(
+    excluding windowNumbers: Set<Int> = [],
+    limit: Int = 6
+) -> [ActiveWindowSnapshot] {
+    guard limit > 0 else { return [] }
+    let options: CGWindowListOption = [.optionOnScreenOnly, .excludeDesktopElements]
+    guard let completeWindowList = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]], !completeWindowList.isEmpty else {
+        return []
+    }
+
+    var snapshots: [ActiveWindowSnapshot] = []
+    var visitedWindowNumbers: Set<Int> = []
+    var cornerSnapshotCache: [pid_t: [AXWindowCornerSnapshot]] = [:]
+    var bundleIdentifierCache: [pid_t: String?] = [:]
+
+    for windowDictionary in completeWindowList {
+        guard let windowNumber = windowDictionary[kCGWindowNumber as String] as? Int else { continue }
+        if windowNumbers.contains(windowNumber) { continue }
+        if visitedWindowNumbers.contains(windowNumber) { continue }
+        guard let layerIndex = windowDictionary[kCGWindowLayer as String] as? Int, layerIndex == 0 else { continue }
+        if let alphaValue = windowDictionary[kCGWindowAlpha as String] as? Double, alphaValue < 0.05 { continue }
+        guard
+            let boundsDictionary = windowDictionary[kCGWindowBounds as String] as? [String: Any],
+            let coreGraphicsBounds = CGRect(dictionaryRepresentation: boundsDictionary as CFDictionary)
+        else {
+            continue
+        }
+        guard coreGraphicsBounds.width >= 4, coreGraphicsBounds.height >= 4 else { continue }
+
+        let correctedBounds = convertCGWindowBoundsToCocoa(coreGraphicsBounds)
+        let cocoaFrame = NSRect(
+            x: correctedBounds.origin.x,
+            y: correctedBounds.origin.y,
+            width: correctedBounds.size.width,
+            height: correctedBounds.size.height
+        )
+
+        let resolvedProcessID: pid_t
+        if let pidValue = windowDictionary[kCGWindowOwnerPID as String] as? Int {
+            resolvedProcessID = pid_t(pidValue)
+        } else if let pidValue = windowDictionary[kCGWindowOwnerPID as String] as? pid_t {
+            resolvedProcessID = pidValue
+        } else {
+            continue
+        }
+
+        let ownerApplicationName = windowDictionary[kCGWindowOwnerName as String] as? String
+        let resolvedWindowName = resolveWindowName(
+            providedName: windowDictionary[kCGWindowName as String] as? String,
+            pid: resolvedProcessID,
+            frame: cocoaFrame,
+            cornerSnapshotCache: &cornerSnapshotCache
+        )
+        if shouldIgnoreWindowForMasking(
+            pid: resolvedProcessID,
+            ownerName: ownerApplicationName,
+            windowName: resolvedWindowName,
+            bundleIdentifierCache: &bundleIdentifierCache
+        ) {
+            continue
+        }
+
+        let resolvedCornerRadius = resolveCornerRadiusForWindow(
+            pid: resolvedProcessID,
+            frame: cocoaFrame,
+            cache: &cornerSnapshotCache
+        ) ?? fallbackCornerRadius(for: cocoaFrame)
+
+        let snapshot = ActiveWindowSnapshot(
+            frame: cocoaFrame,
+            cornerRadius: clampCornerRadius(resolvedCornerRadius, to: cocoaFrame),
+            supplementaryMasks: [],
+            ownerPID: resolvedProcessID,
+            windowNumber: windowNumber
+        )
+
+        snapshots.append(snapshot)
+        visitedWindowNumbers.insert(windowNumber)
+        if snapshots.count >= limit {
+            break
+        }
+    }
+
+    return snapshots
 }
 
 /// Metadata representing the window currently at the front of the CoreGraphics list.

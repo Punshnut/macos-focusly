@@ -4,6 +4,7 @@
 
 import AppKit
 import os.log
+import QuartzCore
 
 /// Keeps OverlayWindow instances synchronized with the focused window and display configuration.
 @MainActor
@@ -74,12 +75,24 @@ final class OverlayController {
         }
     }
 
+    private struct BackgroundWindowSnapshot {
+        let windowNumber: Int
+        let ownerPID: pid_t?
+        let snapshot: ActiveWindowSnapshot
+        let timestamp: Date
+    }
+
+    private struct WindowIdentity: Equatable {
+        let ownerPID: pid_t?
+        let windowNumber: Int?
+    }
+
     private let interactionBoostDuration: TimeInterval = 0.6
     private let interactionCooldownDuration: TimeInterval = 0.25
     private let animationBoostDuration: TimeInterval = 0.45
     private let activeWindowSnapshotResolver: (Set<Int>, Bool) -> ActiveWindowSnapshot?
     private let defaultMinimumPredictionDelta: CGFloat = 0.32
-    private let defaultPredictiveLeadCompensationFraction: Double = 0.35
+    private let defaultPredictiveLeadCompensationFraction: Double = 0.22
     private var minimumPredictionDelta: CGFloat = 0.32
     private var predictiveLeadCompensationFraction: Double = 0.35
 
@@ -153,6 +166,14 @@ final class OverlayController {
     private var highFrequencyPointerSampler: HighFrequencyPointerSampler?
     private var lastPerformanceTuningDisplayID: DisplayID?
     private var isDisplayLinkPinnedByRefreshProfile = false
+    private let defaultPredictionIdleSuppressionInterval: TimeInterval = 0.25
+    private var predictionIdleSuppressionInterval: TimeInterval = 0.25
+    private var backgroundSnapshotEntries: [BackgroundWindowSnapshot] = []
+    private let backgroundSnapshotLifetime: TimeInterval = 4
+    private let backgroundSnapshotLimit = 6
+    private let backgroundSnapshotRefreshInterval: TimeInterval = 0.35
+    private var lastBackgroundSnapshotRefresh = Date.distantPast
+    private var lastSnapshotIdentity: WindowIdentity?
 
     init(
         activeWindowSnapshotResolver: @escaping (Set<Int>, Bool) -> ActiveWindowSnapshot? = { windowNumbers, includeApplicationWindows in
@@ -171,7 +192,7 @@ final class OverlayController {
             self.fastFrameSampleInterval = 1.0 / 75.0
         }
         self.fastFrameSamplingBounds = defaultFastFrameSamplingBounds
-        self.maximumPredictionLeadTime = isThirdGenerationAppleSilicon ? (1.0 / 12.0) : (1.0 / 15.0)
+        self.maximumPredictionLeadTime = isThirdGenerationAppleSilicon ? (1.0 / 16.0) : (1.0 / 18.0)
     }
 
     /// Indicates whether any display currently prefers application-wide carving.
@@ -210,6 +231,9 @@ final class OverlayController {
         activeDisplayID = nil
         pointerDisplayIDHint = nil
         motionPredictor.reset()
+        lastSnapshotIdentity = nil
+        backgroundSnapshotEntries.removeAll()
+        lastBackgroundSnapshotRefresh = .distantPast
         updateDisplayLinkPreferredDisplay()
         updateDisplayPerformanceHints(forceRefresh: true)
         lastDisplayLinkRefreshInterval = 1.0 / 60.0
@@ -250,6 +274,7 @@ final class OverlayController {
             predictedSnapshotsByDisplayID.removeAll()
             activeDisplayID = nil
             motionPredictor.reset()
+            lastSnapshotIdentity = nil
             updateDisplayLinkPreferredDisplay()
             updateDisplayPerformanceHints()
         }
@@ -458,6 +483,7 @@ final class OverlayController {
             resolvedImmediateSnapshotCooldown = immediateSnapshotRefreshCooldown
             shouldBiasPredictionsOneFrameAhead = false
             preferredPredictionFrameInterval = 0
+            predictionIdleSuppressionInterval = defaultPredictionIdleSuppressionInterval
             fastFrameSampleInterval = min(
                 max(fastFrameSampleInterval, fastFrameSamplingBounds.minimum),
                 fastFrameSamplingBounds.maximum
@@ -469,10 +495,12 @@ final class OverlayController {
         let preferredFPS = profile.preferredFramesPerSecond
         shouldBiasPredictionsOneFrameAhead = profile.wantsFrameAheadPrediction
         preferredPredictionFrameInterval = profile.recommendedPredictionLead
+        var idleSuppression = defaultPredictionIdleSuppressionInterval
         if preferredFPS >= 165 {
             minimumPredictionDelta = supportsHighRefreshCompositing ? 0.08 : 0.09
             predictiveLeadCompensationFraction = supportsHighRefreshCompositing ? 0.95 : 0.85
             fastFrameSamplingBounds = (minimum: 1.0 / 480.0, maximum: 1.0 / 26.0)
+            idleSuppression = 0.15
             if isThirdGenerationAppleSilicon {
                 resolvedImmediateSnapshotCooldown = 1.0 / 360.0
             } else if isSecondGenerationAppleSilicon {
@@ -484,6 +512,7 @@ final class OverlayController {
             minimumPredictionDelta = 0.12
             predictiveLeadCompensationFraction = supportsHighRefreshCompositing ? 0.85 : 0.7
             fastFrameSamplingBounds = (minimum: 1.0 / 360.0, maximum: 1.0 / 30.0)
+            idleSuppression = supportsHighRefreshCompositing ? 0.17 : 0.2
             if isThirdGenerationAppleSilicon {
                 resolvedImmediateSnapshotCooldown = 1.0 / 300.0
             } else if isSecondGenerationAppleSilicon {
@@ -495,6 +524,7 @@ final class OverlayController {
             minimumPredictionDelta = 0.18
             predictiveLeadCompensationFraction = 0.5
             fastFrameSamplingBounds = (minimum: 1.0 / 300.0, maximum: 1.0 / 36.0)
+            idleSuppression = 0.22
             resolvedImmediateSnapshotCooldown = 1.0 / 165.0
         } else {
             minimumPredictionDelta = defaultMinimumPredictionDelta
@@ -503,8 +533,10 @@ final class OverlayController {
             resolvedImmediateSnapshotCooldown = immediateSnapshotRefreshCooldown
             shouldBiasPredictionsOneFrameAhead = false
             preferredPredictionFrameInterval = 0
+            idleSuppression = defaultPredictionIdleSuppressionInterval
         }
 
+        predictionIdleSuppressionInterval = idleSuppression
         if supportsHighRefreshCompositing, preferredFPS >= 120 {
             shouldBiasPredictionsOneFrameAhead = true
             preferredPredictionFrameInterval = max(preferredPredictionFrameInterval, profile.preferredFrameInterval)
@@ -580,6 +612,11 @@ final class OverlayController {
 
     /// Updates cached mask metadata for the latest active window snapshot.
     private func cacheActiveSnapshot(_ snapshot: ActiveWindowSnapshot, resolvedDisplayID: DisplayID? = nil) {
+        let identity = WindowIdentity(ownerPID: snapshot.ownerPID, windowNumber: snapshot.windowNumber)
+        if identity != lastSnapshotIdentity {
+            motionPredictor.reset()
+            lastSnapshotIdentity = identity
+        }
         cachedActiveSnapshot = snapshot
         motionPredictor.record(frame: snapshot.frame)
         resetDesktopRevealEvaluation()
@@ -831,6 +868,7 @@ final class OverlayController {
     /// Resolves the active window snapshot and updates overlays when it changes.
     @discardableResult
     private func refreshActiveWindowSnapshot() -> Bool {
+        refreshBackgroundWindowCache()
         let snapshot = activeWindowSnapshotResolver(activeOverlayWindowNumbers(), isApplicationWideSnapshotEnabled)
         let previousSnapshot = cachedActiveSnapshot
 
@@ -854,6 +892,68 @@ final class OverlayController {
                 .map { $0.windowNumber }
                 .filter { $0 != 0 }
         )
+    }
+
+    /// Keeps a recent cache of background window snapshots so window switches can be primed instantly.
+    private func refreshBackgroundWindowCache(force: Bool = false) {
+        guard isMonitoringActive else { return }
+        let now = Date()
+        if !force,
+           now.timeIntervalSince(lastBackgroundSnapshotRefresh) < backgroundSnapshotRefreshInterval {
+            pruneBackgroundSnapshotCache()
+            return
+        }
+        lastBackgroundSnapshotRefresh = now
+        let snapshots = resolveRecentWindowSnapshots(
+            excluding: activeOverlayWindowNumbers(),
+            limit: backgroundSnapshotLimit
+        )
+        guard !snapshots.isEmpty else {
+            pruneBackgroundSnapshotCache()
+            return
+        }
+        storeBackgroundSnapshots(snapshots, timestamp: now)
+    }
+
+    private func storeBackgroundSnapshots(_ snapshots: [ActiveWindowSnapshot], timestamp: Date) {
+        var merged: [Int: BackgroundWindowSnapshot] = Dictionary(
+            uniqueKeysWithValues: backgroundSnapshotEntries.map { ($0.windowNumber, $0) }
+        )
+        for snapshot in snapshots {
+            guard let windowNumber = snapshot.windowNumber else { continue }
+            merged[windowNumber] = BackgroundWindowSnapshot(
+                windowNumber: windowNumber,
+                ownerPID: snapshot.ownerPID,
+                snapshot: snapshot,
+                timestamp: timestamp
+            )
+        }
+        backgroundSnapshotEntries = Array(merged.values)
+        pruneBackgroundSnapshotCache()
+    }
+
+    private func pruneBackgroundSnapshotCache() {
+        let cutoff = Date().addingTimeInterval(-backgroundSnapshotLifetime)
+        backgroundSnapshotEntries.removeAll { $0.timestamp < cutoff }
+        if backgroundSnapshotEntries.count > backgroundSnapshotLimit {
+            backgroundSnapshotEntries.sort { $0.timestamp > $1.timestamp }
+            backgroundSnapshotEntries = Array(backgroundSnapshotEntries.prefix(backgroundSnapshotLimit))
+        }
+    }
+
+    private func cachedBackgroundSnapshot(forPID pid: pid_t) -> ActiveWindowSnapshot? {
+        pruneBackgroundSnapshotCache()
+        return backgroundSnapshotEntries
+            .filter { $0.ownerPID == pid }
+            .max(by: { $0.timestamp < $1.timestamp })?
+            .snapshot
+    }
+
+    private func primeOverlayFromBackgroundCache(forPID pid: pid_t?) {
+        guard let pid, isMonitoringActive else { return }
+        guard let snapshot = cachedBackgroundSnapshot(forPID: pid) else { return }
+        cacheActiveSnapshot(snapshot)
+        applyOverlayMasksFromCache()
     }
 
     /// Timer callback that re-checks the focused window position.
@@ -1015,9 +1115,10 @@ final class OverlayController {
             NSWorkspace.didActivateApplicationNotification
         ]
         workspaceAnimationObservers = observedNames.map { name in
-            center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+            center.addObserver(forName: name, object: nil, queue: .main) { [weak self] notification in
+                let activatedApplication = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
                 Task { @MainActor [weak self] in
-                    self?.handleWorkspaceAnimationEvent()
+                    self?.handleWorkspaceAnimationEvent(activatedApplication: activatedApplication)
                 }
             }
         }
@@ -1032,10 +1133,23 @@ final class OverlayController {
     }
 
     /// Temporarily enters the high-frequency tracking mode when macOS animates the frontmost app.
-    private func handleWorkspaceAnimationEvent() {
+    private func handleWorkspaceAnimationEvent(activatedApplication: NSRunningApplication? = nil) {
         guard isMonitoringActive else { return }
         enterInteractionBoost(minimumDuration: animationBoostDuration)
         requestImmediateSnapshotRefreshIfNeeded()
+        prewarmPredictionsForImpendingAnimation()
+        refreshBackgroundWindowCache(force: true)
+        if let pid = activatedApplication?.processIdentifier {
+            primeOverlayFromBackgroundCache(forPID: pid)
+        }
+    }
+
+    /// Ensures predictions are refreshed before macOS animates windows across displays or spaces.
+    private func prewarmPredictionsForImpendingAnimation() {
+        guard cachedActiveSnapshot != nil else { return }
+        let lead = preferredPredictionFrameInterval > 0 ? preferredPredictionFrameInterval : lastDisplayLinkRefreshInterval
+        guard lead > 0 else { return }
+        applyPredictedFrameIfPossible(leadTime: lead, force: true)
     }
 
     /// Keeps peripheral region caches fresh without hammering CoreGraphics every mouse move.
@@ -1621,11 +1735,20 @@ final class OverlayController {
     }
 
     /// Applies a predicted frame so overlays can move in lockstep with the host window.
-    private func applyPredictedFrameIfPossible(leadTime: TimeInterval) {
+    private func applyPredictedFrameIfPossible(leadTime: TimeInterval, force: Bool = false) {
         guard leadTime > 0 else { return }
         guard let snapshot = cachedActiveSnapshot else { return }
         guard let displayID = activeDisplayID else { return }
         guard overlayWindowsByDisplayID[displayID] != nil else { return }
+        let now = CACurrentMediaTime()
+        if !force,
+           interactionBoostExpiration == nil,
+           !motionPredictor.hasRecentSignificantMovement(within: predictionIdleSuppressionInterval, now: now) {
+            if predictedSnapshotsByDisplayID.removeValue(forKey: displayID) != nil {
+                applyOverlayMasksFromCache()
+            }
+            return
+        }
         let profile = displayRefreshProfiles[displayID]
         let leadMultiplier = predictiveLeadMultiplier(for: leadTime, profile: profile)
         var boostedLead = leadTime * (leadMultiplier + predictiveLeadCompensationFraction)
@@ -1690,7 +1813,7 @@ final class OverlayController {
         } else {
             lead = 1.0 / 90.0
         }
-        applyPredictedFrameIfPossible(leadTime: lead)
+        applyPredictedFrameIfPossible(leadTime: lead, force: true)
     }
 
     /// Attempts a lightweight position refresh using the CoreGraphics frame list to avoid

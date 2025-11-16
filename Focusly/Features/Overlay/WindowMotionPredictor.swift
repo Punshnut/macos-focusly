@@ -9,18 +9,24 @@ final class WindowMotionPredictor {
         let timestamp: CFTimeInterval
     }
 
-    private let velocitySmoothingFactor: CGFloat = 0.42
-    private let maxTranslationLead: CGFloat = 72
-    private let maxSizeLead: CGFloat = 48
+    private let velocitySmoothingFactor: CGFloat = 0.32
+    private let maxTranslationLead: CGFloat = 48
+    private let maxSizeLead: CGFloat = 32
+    private let significantTranslationThreshold: CGFloat = 0.65
+    private let significantSizeThreshold: CGFloat = 0.65
+    private let significantVelocityThreshold: CGFloat = 48
+    private let significantSizeVelocityThreshold: CGFloat = 22
     private var lastObservation: Observation?
     private var positionVelocity = CGVector(dx: 0, dy: 0)
     private var sizeVelocity = CGSize(width: 0, height: 0)
+    private var lastSignificantDeltaTimestamp: CFTimeInterval?
 
     /// Clears accumulated velocity and history.
     func reset() {
         lastObservation = nil
         positionVelocity = .zero
         sizeVelocity = .zero
+        lastSignificantDeltaTimestamp = nil
     }
 
     /// Records the latest resolved frame so velocities can be updated.
@@ -42,9 +48,21 @@ final class WindowMotionPredictor {
             )
             positionVelocity = filteredVelocity(currentVelocity, previous: positionVelocity)
             sizeVelocity = filteredSizeVelocity(currentSizeVelocity, previous: sizeVelocity)
+
+            let translationDelta = hypot(frame.midX - last.frame.midX, frame.midY - last.frame.midY)
+            let sizeDelta = max(abs(frame.width - last.frame.width), abs(frame.height - last.frame.height))
+            let velocityMagnitude = hypot(positionVelocity.dx, positionVelocity.dy)
+            let sizeVelocityMagnitude = max(abs(sizeVelocity.width), abs(sizeVelocity.height))
+            if translationDelta > significantTranslationThreshold ||
+                sizeDelta > significantSizeThreshold ||
+                velocityMagnitude > significantVelocityThreshold ||
+                sizeVelocityMagnitude > significantSizeVelocityThreshold {
+                lastSignificantDeltaTimestamp = timestamp
+            }
         } else {
             positionVelocity = .zero
             sizeVelocity = .zero
+            lastSignificantDeltaTimestamp = timestamp
         }
 
         lastObservation = Observation(frame: frame, timestamp: timestamp)
@@ -66,6 +84,13 @@ final class WindowMotionPredictor {
         observation.frame.size.width = max(4, observation.frame.width + clampedDW)
         observation.frame.size.height = max(4, observation.frame.height + clampedDH)
         return observation.frame
+    }
+
+    /// Indicates whether a meaningful delta has been observed within the supplied interval.
+    func hasRecentSignificantMovement(within interval: TimeInterval, now: CFTimeInterval = CACurrentMediaTime()) -> Bool {
+        guard interval > 0 else { return true }
+        guard let lastTimestamp = lastSignificantDeltaTimestamp else { return false }
+        return (now - lastTimestamp) <= interval
     }
 
     private func filteredVelocity(_ current: CGVector, previous: CGVector) -> CGVector {

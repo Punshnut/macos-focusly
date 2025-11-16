@@ -55,13 +55,23 @@ public struct ActiveWindowSnapshot: Equatable, Sendable {
     public let frame: NSRect
     public let cornerRadius: CGFloat
     public let supplementaryMasks: [MaskRegion]
+    public let ownerPID: pid_t?
+    public let windowNumber: Int?
 
     private static let tolerance: CGFloat = 0.5
 
-    public init(frame: NSRect, cornerRadius: CGFloat, supplementaryMasks: [MaskRegion] = []) {
+    public init(
+        frame: NSRect,
+        cornerRadius: CGFloat,
+        supplementaryMasks: [MaskRegion] = [],
+        ownerPID: pid_t? = nil,
+        windowNumber: Int? = nil
+    ) {
         self.frame = frame
         self.cornerRadius = cornerRadius
         self.supplementaryMasks = supplementaryMasks
+        self.ownerPID = ownerPID
+        self.windowNumber = windowNumber
     }
 
     public static func == (lhs: ActiveWindowSnapshot, rhs: ActiveWindowSnapshot) -> Bool {

@@ -71,6 +71,7 @@ final class HighFrequencyPointerSampler {
         lastSampledLocation = nil
     }
 
+    @MainActor
     deinit {
         stop()
     }

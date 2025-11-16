@@ -292,8 +292,8 @@ final class MenuBarBackdropWindow: NSPanel {
 
     @available(macOS 12.0, *)
     private func applyFrameRateRange(_ range: CAFrameRateRange) {
-        contentView?.layer?.preferredFrameRateRange = range
-        blurView.layer?.preferredFrameRateRange = range
-        tintView.layer?.preferredFrameRateRange = range
+        contentView?.layer?.setValue(range, forKey: "preferredFrameRateRange")
+        blurView.layer?.setValue(range, forKey: "preferredFrameRateRange")
+        tintView.layer?.setValue(range, forKey: "preferredFrameRateRange")
     }
 }

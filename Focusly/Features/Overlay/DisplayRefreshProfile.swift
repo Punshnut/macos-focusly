@@ -66,9 +66,9 @@ struct DisplayRefreshProfile: Equatable {
         }
         let maximum = min(240, max(preferred * 1.35, preferred * 1.1))
         return CAFrameRateRange(
-            minimum: minimum,
-            maximum: maximum,
-            preferred: preferred
+            minimum: Float(minimum),
+            maximum: Float(maximum),
+            preferred: Float(preferred)
         )
     }
 }
@@ -81,10 +81,17 @@ enum DisplayRefreshEstimator {
         let resolvedScreen = screen ?? self.screen(for: displayID)
         let nominalRefreshRate = self.nominalRefreshRate(for: displayID)
         let screenMaximum = maximumFramesPerSecond(for: resolvedScreen)
-        let detectedMaximum = max(nominalRefreshRate, screenMaximum)
+        let peakModeRefresh = peakRefreshRateFromAvailableModes(for: displayID)
+        var detectedMaximum = max(nominalRefreshRate, max(screenMaximum, peakModeRefresh))
+        detectedMaximum = heuristicallyBoostedRefreshRate(for: displayID, candidate: detectedMaximum)
         let fallbackMaximum = detectedMaximum > 0 ? detectedMaximum : 60
         let isBuiltIn = CGDisplayIsBuiltin(CGDirectDisplayID(displayID)) != 0
-        let usesVariableRefreshRate = nominalRefreshRate <= 0 && screenMaximum > 0
+        let usesVariableRefreshRate = resolvesVariableRefreshSupport(
+            displayID: displayID,
+            nominalRefresh: nominalRefreshRate,
+            screenMaximum: screenMaximum,
+            detectedMaximum: detectedMaximum
+        )
 
         return DisplayRefreshProfile(
             displayID: displayID,
@@ -120,5 +127,51 @@ enum DisplayRefreshEstimator {
             return maximum > 0 ? maximum : 0
         }
         return 0
+    }
+
+    /// Returns the highest refresh rate advertised by any compatible display mode.
+    private static func peakRefreshRateFromAvailableModes(for displayID: DisplayID) -> Double {
+        guard let allModes = CGDisplayCopyAllDisplayModes(CGDirectDisplayID(displayID), nil) as? [CGDisplayMode] else {
+            return 0
+        }
+        var peak: Double = 0
+        for mode in allModes {
+            let refreshRate = mode.refreshRate
+            guard refreshRate.isFinite, refreshRate > 0 else { continue }
+            peak = max(peak, refreshRate)
+        }
+        return peak
+    }
+
+    /// Boosts refresh-rate estimates for built-in ProMotion panels that report `0 Hz` at rest.
+    private static func heuristicallyBoostedRefreshRate(for displayID: DisplayID, candidate: Double) -> Double {
+        var resolved = candidate
+        guard resolved < 100 else { return resolved }
+        guard CGDisplayIsBuiltin(CGDirectDisplayID(displayID)) != 0 else { return resolved }
+        guard HardwareCapabilities.isAppleSilicon else { return resolved }
+
+        let pixelWidth = CGDisplayPixelsWide(CGDirectDisplayID(displayID))
+        if pixelWidth >= 3000 {
+            resolved = max(resolved, 120)
+        }
+        return resolved
+    }
+
+    /// Determines whether a display should be treated as VRR even if CoreGraphics reports `0 Hz`.
+    private static func resolvesVariableRefreshSupport(
+        displayID: DisplayID,
+        nominalRefresh: Double,
+        screenMaximum: Double,
+        detectedMaximum: Double
+    ) -> Bool {
+        if nominalRefresh <= 0 && screenMaximum > 0 {
+            return true
+        }
+        if nominalRefresh <= 0,
+           detectedMaximum >= 100,
+           CGDisplayIsBuiltin(CGDirectDisplayID(displayID)) != 0 {
+            return true
+        }
+        return false
     }
 }
