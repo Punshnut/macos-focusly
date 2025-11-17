@@ -188,7 +188,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 private extension AppDelegate {
     /// Loads the bundled Focusly icon for use in menus and app surfaces.
     static func loadAppIcon() -> NSImage? {
-        guard let url = Bundle.focuslyResources.url(forResource: "Focusly_centered", withExtension: "png"),
+        guard let url = Bundle.main.url(forResource: "Focusly", withExtension: "icon"),
               let image = NSImage(contentsOf: url) else { return nil }
         image.isTemplate = false
         return image

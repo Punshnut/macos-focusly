@@ -7,15 +7,15 @@
 	<key>CFBundleName</key>
 	<string>Focusly</string>
 	<key>CFBundleShortVersionString</key>
-	<string>0.3.1</string>
+	<string>0.3.2</string>
 	<key>CFBundleVersion</key>
-	<string>301</string>
+	<string>302</string>
 	<key>CFBundleExecutable</key>
 	<string>Focusly</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleIconFile</key>
-	<string>AppIcon</string>
+	<string>Focusly.icon</string>
 	<key>LSUIElement</key>
 	<true/>
 	<key>LSApplicationCategoryType</key>
