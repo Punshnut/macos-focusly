@@ -16,6 +16,8 @@ final class WindowMotionPredictor {
     private let significantSizeThreshold: CGFloat = 0.65
     private let significantVelocityThreshold: CGFloat = 48
     private let significantSizeVelocityThreshold: CGFloat = 22
+    private let pointerDeltaAttenuation: CGFloat = 0.9
+    private let pointerDeltaMagnitudeCeiling: CGFloat = 64
     private var lastObservation: Observation?
     private var positionVelocity = CGVector(dx: 0, dy: 0)
     private var sizeVelocity = CGSize(width: 0, height: 0)
@@ -84,6 +86,19 @@ final class WindowMotionPredictor {
         observation.frame.size.width = max(4, observation.frame.width + clampedDW)
         observation.frame.size.height = max(4, observation.frame.height + clampedDH)
         return observation.frame
+    }
+
+    /// Nudges the current observation forward using a pointer delta so prediction stays in sync with drags.
+    func applyPointerDelta(_ delta: CGVector, timestamp: CFTimeInterval = CACurrentMediaTime()) {
+        guard let observation = lastObservation else { return }
+        let magnitude = hypot(delta.dx, delta.dy)
+        guard magnitude > .ulpOfOne else { return }
+        var adjustedFrame = observation.frame
+        let dx = clamped(value: delta.dx * pointerDeltaAttenuation, magnitude: pointerDeltaMagnitudeCeiling)
+        let dy = clamped(value: delta.dy * pointerDeltaAttenuation, magnitude: pointerDeltaMagnitudeCeiling)
+        adjustedFrame.origin.x += dx
+        adjustedFrame.origin.y += dy
+        record(frame: adjustedFrame, timestamp: timestamp)
     }
 
     /// Indicates whether a meaningful delta has been observed within the supplied interval.

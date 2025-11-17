@@ -111,6 +111,7 @@ final class OverlayController {
     private var pointerInteractionMonitor: PointerInteractionMonitor?
     private var pointerHoverMonitor: PointerHoverMonitor?
     private var lastPointerLocation: NSPoint?
+    private var lastPointerDragSample: (location: NSPoint, timestamp: CFTimeInterval)?
     private var pointerDisplayIDHint: DisplayID?
     private var workspaceAnimationObservers: [NSObjectProtocol] = []
     private var peripheralMaskRequestsByDisplayID: [DisplayID: [MaskRequest]] = [:]
@@ -125,6 +126,7 @@ final class OverlayController {
     private var lastDesktopRevealEvaluation = Date.distantPast
     private var cachedDesktopRevealDecision = false
     private var cachedDesktopRevealProcessID: pid_t?
+    private let pointerPredictionMinimumMovement: CGFloat = 0.45
     private lazy var supplementalSnapshotDisplayLink = DisplayLinkDriver { [weak self] timing in
         guard let self else { return }
         self.handleDisplayLinkTick(timing: timing)
@@ -544,6 +546,19 @@ final class OverlayController {
         if supportsHighRefreshCompositing, preferredFPS >= 120 {
             shouldBiasPredictionsOneFrameAhead = true
             preferredPredictionFrameInterval = max(preferredPredictionFrameInterval, profile.preferredFrameInterval)
+        }
+
+        if profile.isBuiltIn, HardwareCapabilities.isAppleSilicon {
+            shouldBiasPredictionsOneFrameAhead = true
+            preferredPredictionFrameInterval = max(preferredPredictionFrameInterval, profile.preferredFrameInterval)
+            predictionIdleSuppressionInterval = min(predictionIdleSuppressionInterval, idleSuppression * 0.8)
+            if isThirdGenerationAppleSilicon {
+                fastFrameSamplingBounds = (
+                    minimum: min(fastFrameSamplingBounds.minimum, 1.0 / 420.0),
+                    maximum: fastFrameSamplingBounds.maximum
+                )
+                resolvedImmediateSnapshotCooldown = min(resolvedImmediateSnapshotCooldown, 1.0 / 260.0)
+            }
         }
 
         fastFrameSampleInterval = min(
@@ -1079,14 +1094,15 @@ final class OverlayController {
         interactionBoostExpiration = nil
         stopDisplayLinkIfNeeded()
         stopHighFrequencyPointerSampling()
+        lastPointerDragSample = nil
     }
 
     /// Starts a high-frequency event tap so drag updates stay in lockstep with the display cadence.
     private func startHighFrequencyPointerSamplingIfNeeded() {
         guard supportsPointerDrivenInteractionBoosts else { return }
         if highFrequencyPointerSampler == nil {
-            highFrequencyPointerSampler = HighFrequencyPointerSampler { [weak self] location, isDragging in
-                self?.handleHighFrequencyPointerSample(location: location, isDragging: isDragging)
+            highFrequencyPointerSampler = HighFrequencyPointerSampler { [weak self] location, isDragging, timestamp in
+                self?.handleHighFrequencyPointerSample(location: location, isDragging: isDragging, timestamp: timestamp)
             }
         }
         highFrequencyPointerSampler?.start()
@@ -1096,14 +1112,54 @@ final class OverlayController {
     private func stopHighFrequencyPointerSampling() {
         highFrequencyPointerSampler?.stop()
         highFrequencyPointerSampler = nil
+        lastPointerDragSample = nil
     }
 
     /// Keeps the preferred display hint warm using the raw pointer stream.
-    private func handleHighFrequencyPointerSample(location: NSPoint, isDragging: Bool) {
+    private func handleHighFrequencyPointerSample(location: NSPoint, isDragging: Bool, timestamp: CFTimeInterval) {
+        guard isMonitoringActive else {
+            lastPointerDragSample = nil
+            return
+        }
         updatePointerDisplayHint(for: location)
-        guard isDragging else { return }
+        guard isDragging else {
+            lastPointerDragSample = nil
+            return
+        }
         enterInteractionBoost(minimumDuration: interactionBoostDuration)
         requestImmediateSnapshotRefreshIfNeeded()
+        applyPointerDrivenPredictionSample(location: location, timestamp: timestamp)
+    }
+
+    /// Returns the lead time we should use when nudging predictions from pointer samples.
+    private func pointerPredictionLeadTime() -> TimeInterval {
+        if preferredPredictionFrameInterval > 0 {
+            return preferredPredictionFrameInterval
+        }
+        if fastFrameSampleInterval.isFinite, fastFrameSampleInterval > 0 {
+            return fastFrameSampleInterval
+        }
+        return 1.0 / 90.0
+    }
+
+    /// Uses the pointer delta to prime the motion predictor so masks stay ahead of the drag.
+    private func applyPointerDrivenPredictionSample(location: NSPoint, timestamp: CFTimeInterval) {
+        guard cachedActiveSnapshot != nil else {
+            lastPointerDragSample = (location, timestamp)
+            return
+        }
+        guard let lastSample = lastPointerDragSample else {
+            lastPointerDragSample = (location, timestamp)
+            return
+        }
+        let delta = CGVector(dx: location.x - lastSample.location.x, dy: location.y - lastSample.location.y)
+        let distance = hypot(delta.dx, delta.dy)
+        lastPointerDragSample = (location, timestamp)
+        guard distance >= pointerPredictionMinimumMovement else { return }
+        motionPredictor.applyPointerDelta(delta, timestamp: timestamp)
+        let lead = pointerPredictionLeadTime()
+        guard lead.isFinite, lead > 0 else { return }
+        applyPredictedFrameIfPossible(leadTime: lead, force: true)
     }
 
     /// Begins tracking global pointer movement so Dock/Stage Manager can be carved out on hover.

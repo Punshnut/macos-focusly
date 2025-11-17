@@ -149,6 +149,7 @@ func resolveActiveWindowSnapshot(
             ownerPID: frontWindow.ownerPID,
             windowNumber: frontWindow.windowNumber
         )
+        ApplicationMaskShapeCache.shared.record(snapshot: snapshot)
         InvestigationLogger.shared.logSnapshot(
             source: "CoreGraphics pid \(frontWindow.ownerPID)",
             frame: snapshot.frame,
@@ -166,8 +167,9 @@ func resolveActiveWindowSnapshot(
         return nil
     }
 
+    let fallbackPID = resolvedPreferredPID ?? frontmostApplicationProcessIdentifierForMasking()
     let supplementaryMasks = resolveSupplementaryMasks(
-        primaryPID: frontmostApplicationProcessIdentifierForMasking(),
+        primaryPID: fallbackPID,
         excludingWindowNumbers: windowNumbers,
         includeApplicationWindows: includeAllApplicationWindows
     )
@@ -175,8 +177,10 @@ func resolveActiveWindowSnapshot(
     let axSnapshot = ActiveWindowSnapshot(
         frame: snapshot.frame,
         cornerRadius: clampCornerRadius(snapshot.cornerRadius, to: snapshot.frame),
-        supplementaryMasks: supplementaryMasks
+        supplementaryMasks: supplementaryMasks,
+        ownerPID: fallbackPID
     )
+    ApplicationMaskShapeCache.shared.record(snapshot: axSnapshot)
     InvestigationLogger.shared.logSnapshot(
         source: "Accessibility",
         frame: axSnapshot.frame,
@@ -281,10 +285,14 @@ func resolveRecentWindowSnapshots(
             cache: &cornerSnapshotCache
         ) ?? fallbackCornerRadius(for: cocoaFrame)
 
+        let cachedSupplementaryMasks = ApplicationMaskShapeCache.shared.cachedSupplementaryMasks(
+            forPID: resolvedProcessID,
+            matching: cocoaFrame
+        )
         let snapshot = ActiveWindowSnapshot(
             frame: cocoaFrame,
             cornerRadius: clampCornerRadius(resolvedCornerRadius, to: cocoaFrame),
-            supplementaryMasks: [],
+            supplementaryMasks: cachedSupplementaryMasks ?? [],
             ownerPID: resolvedProcessID,
             windowNumber: windowNumber
         )

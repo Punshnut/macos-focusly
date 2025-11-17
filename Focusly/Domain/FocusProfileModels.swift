@@ -192,13 +192,13 @@ struct FocusOverlayStyle: Codable, Equatable {
         try container.encode(blurRadius, forKey: .blurRadius)
     }
 
-    static let blurFocus = FocusOverlayStyle(opacity: 0.78, tint: .neutral, animationDuration: 0.28, blurRadius: 38)
-    static let warm = FocusOverlayStyle(opacity: 0.82, tint: .ember, animationDuration: 0.36, blurRadius: 32)
-    static let moss = FocusOverlayStyle(opacity: 0.86, tint: FocusTint.moss, animationDuration: 0.34, blurRadius: 30)
-    static let colorful = FocusOverlayStyle(opacity: 0.88, tint: .lagoon, animationDuration: 0.32, blurRadius: 28)
-    static let dark = FocusOverlayStyle(opacity: 0.88, tint: .ink, animationDuration: 0.30, colorTreatment: .dark, blurRadius: 38)
-    static let whiteOverlay = FocusOverlayStyle(opacity: 0.86, tint: .frost, animationDuration: 0.28, colorTreatment: .whiteOverlay, blurRadius: 34)
-    static let paper = FocusOverlayStyle(opacity: 0.86, tint: .paper, animationDuration: 0.32, colorTreatment: .whiteOverlay, blurRadius: 30)
+    static let blurFocus = FocusOverlayStyle(opacity: 0.78, tint: .neutral, animationDuration: 0.24, blurRadius: 38)
+    static let warm = FocusOverlayStyle(opacity: 0.82, tint: .ember, animationDuration: 0.32, blurRadius: 32)
+    static let moss = FocusOverlayStyle(opacity: 0.86, tint: FocusTint.moss, animationDuration: 0.30, blurRadius: 30)
+    static let colorful = FocusOverlayStyle(opacity: 0.88, tint: .lagoon, animationDuration: 0.26, blurRadius: 28)
+    static let dark = FocusOverlayStyle(opacity: 0.88, tint: .ink, animationDuration: 0.25, colorTreatment: .dark, blurRadius: 38)
+    static let whiteOverlay = FocusOverlayStyle(opacity: 0.86, tint: .frost, animationDuration: 0.24, colorTreatment: .whiteOverlay, blurRadius: 34)
+    static let paper = FocusOverlayStyle(opacity: 0.86, tint: .paper, animationDuration: 0.26, colorTreatment: .whiteOverlay, blurRadius: 30)
     static let monochrome = dark // Legacy alias preserved until a true monochrome treatment returns.
 
     // Legacy aliases preserved for backwards compatibility with persisted data.

@@ -269,6 +269,12 @@ final class MenuBarBackdropWindow: NSPanel {
             height: max(0, alignedMaxY - alignedMinY)
         )
 
+        let trimAmount = min(rect.height * 0.35, 1.5 / scale)
+        if trimAmount > 0 {
+            rect.origin.y += trimAmount
+            rect.size.height = max(0, rect.size.height - trimAmount)
+        }
+
         return rect
     }
 

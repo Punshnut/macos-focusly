@@ -1,11 +1,12 @@
 import AppKit
 import CoreGraphics
+import QuartzCore
 
 /// Captures raw pointer samples using a CoreGraphics event tap so overlay timing can follow
 /// high-refresh displays even while the system is animating drag/resize interactions.
 @MainActor
 final class HighFrequencyPointerSampler {
-    typealias Handler = (_ location: NSPoint, _ isDragging: Bool) -> Void
+    typealias Handler = (_ location: NSPoint, _ isDragging: Bool, _ timestamp: CFTimeInterval) -> Void
 
     private static let eventMask: CGEventMask = {
         let types: [CGEventType] = [
@@ -107,7 +108,7 @@ final class HighFrequencyPointerSampler {
         lastSampledLocation = point
         Task { @MainActor [weak self] in
             guard let self else { return }
-            self.handler(point, isDragging)
+            self.handler(point, isDragging, CACurrentMediaTime())
         }
         return Unmanaged.passUnretained(event)
     }
