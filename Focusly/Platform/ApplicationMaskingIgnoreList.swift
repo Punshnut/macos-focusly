@@ -205,7 +205,8 @@ final class ApplicationMaskingIgnoreList {
         if let data = try? PropertyListEncoder().encode(entries) {
             userDefaults.set(data, forKey: DefaultsKey.ignoredBundleEntries)
         }
-        userDefaults.set(entries.map(\.bundleIdentifier), forKey: defaultsKey)
+        let normalizedIdentifiers = entries.compactMap { $0.bundleIdentifier.focuslyNormalizedToken() }
+        userDefaults.set(normalizedIdentifiers, forKey: defaultsKey)
     }
 
     private static func isLikelySettingsWindow(_ windowName: String) -> Bool {

@@ -129,6 +129,10 @@ final class OverlayController {
             lastIdentity = identity
         }
 
+        func entry(for identity: WindowIdentity) -> DisplaySnapshotCacheEntry? {
+            entries[identity]
+        }
+
         mutating func removeEntry(for identity: WindowIdentity) {
             entries.removeValue(forKey: identity)
             if lastIdentity == identity {
@@ -158,6 +162,12 @@ final class OverlayController {
                 return (identity, entry)
             }
             return entries.max(by: { $0.value.timestamp < $1.value.timestamp })
+        }
+
+        func mostRecentMaskEntry(excluding identity: WindowIdentity?) -> DisplaySnapshotCacheEntry? {
+            return entries
+                .filter { $0.key != identity && !$0.value.maskRegions.isEmpty }
+                .max(by: { $0.value.timestamp < $1.value.timestamp })?.value
         }
 
         var isEmpty: Bool {
@@ -999,9 +1009,12 @@ final class OverlayController {
 
         for (displayID, window) in overlayWindowsByDisplayID {
             var applied = false
+            var shouldPreserveFrozenMask = false
+            var cachedSnapshotEntry: (WindowIdentity, DisplaySnapshotCacheEntry)?
+            var ignoredCacheIdentity: WindowIdentity?
 
             if let predictedSnapshot = predictedSnapshotsByDisplayID[displayID] {
-                if apply(snapshot: predictedSnapshot, to: window, displayID: displayID) {
+                if apply(snapshot: predictedSnapshot, to: window, displayID: displayID, cacheIdentity: nil) {
                     didApplyMask = true
                     applied = true
                 } else {
@@ -1009,7 +1022,9 @@ final class OverlayController {
                 }
             }
 
-            if !applied, let (identity, cachedEntry) = preferredCacheEntry(for: displayID) {
+            if !applied, let entry = preferredCacheEntry(for: displayID) {
+                cachedSnapshotEntry = entry
+                let (identity, cachedEntry) = entry
                 if apply(snapshot: cachedEntry.snapshot, to: window, displayID: displayID, cacheIdentity: identity) {
                     didApplyMask = true
                     applied = true
@@ -1021,27 +1036,39 @@ final class OverlayController {
                         touchCacheEntry(for: displayID, identity: identity, timestamp: now)
                         didApplyMask = true
                         applied = true
+                        shouldPreserveFrozenMask = true
                     } else {
                         staleEntries.append((displayID, identity))
+                        ignoredCacheIdentity = identity
+                        cachedSnapshotEntry = nil
                     }
                 }
             }
 
             if !applied {
-                if applyActiveSupplementaryMasksIfNeeded(to: window) {
+                let frozenMask = lastKnownMaskRegions(
+                    for: displayID,
+                    cachedEntry: cachedSnapshotEntry?.1,
+                    ignoring: ignoredCacheIdentity
+                )
+                if applyActiveSupplementaryMasksIfNeeded(to: window, displayID: displayID, preserving: frozenMask) {
                     didApplyMask = true
                     continue
                 }
-                if applyPeripheralMasksIfNeeded(to: window, displayID: displayID) {
+                if applyPeripheralMasksIfNeeded(to: window, displayID: displayID, preserving: frozenMask) {
                     didApplyMask = true
                     continue
                 }
-                if let frozenMask = frozenMaskRegionsByDisplayID[displayID], !frozenMask.isEmpty {
+                if shouldPreserveFrozenMask, let frozenMask, !frozenMask.isEmpty {
+                    window.applyMask(regions: frozenMask)
+                    didApplyMask = true
+                    continue
+                }
+                if let frozenMask, !frozenMask.isEmpty {
                     window.applyMask(regions: frozenMask)
                     didApplyMask = true
                 } else {
                     window.applyMask(regions: [])
-                    frozenMaskRegionsByDisplayID.removeValue(forKey: displayID)
                 }
             }
         }
@@ -1140,12 +1167,21 @@ final class OverlayController {
     }
 
     /// Applies supplementary masks from the active snapshot when no cached window highlight is available.
-    private func applyActiveSupplementaryMasksIfNeeded(to window: OverlayWindow) -> Bool {
+    private func applyActiveSupplementaryMasksIfNeeded(
+        to window: OverlayWindow,
+        displayID: DisplayID,
+        preserving frozenMask: [OverlayWindow.MaskRegion]?
+    ) -> Bool {
         guard let requests = supplementaryMaskRequestsForActiveSnapshot(intersecting: window.frame, excluding: nil) else {
             return false
         }
-        let displayID = overlayWindowsByDisplayID.first(where: { $0.value === window })?.key
-        return apply(maskRequests: requests, to: window, cachingDisplayID: displayID)
+        guard let supplementaryRegions = buildMaskRegions(from: requests, in: window) else {
+            return false
+        }
+        let merged = mergedMaskRegions(frozenMask, supplementaryRegions)
+        window.applyMask(regions: merged)
+        frozenMaskRegionsByDisplayID[displayID] = merged
+        return true
     }
 
     /// Applies the supplied mask requests to the overlay window, accounting for blur tolerances.
@@ -1156,7 +1192,6 @@ final class OverlayController {
         identity: WindowIdentity? = nil
     ) -> Bool {
         guard let maskRegions = buildMaskRegions(from: maskRequests, in: window) else {
-            window.applyMask(regions: [])
             return false
         }
         window.applyMask(regions: maskRegions)
@@ -1230,13 +1265,54 @@ final class OverlayController {
     }
 
     /// Applies only peripheral carve-outs when no active window snapshot is available.
-    private func applyPeripheralMasksIfNeeded(to window: OverlayWindow, displayID: DisplayID) -> Bool {
+    private func applyPeripheralMasksIfNeeded(
+        to window: OverlayWindow,
+        displayID: DisplayID,
+        preserving frozenMask: [OverlayWindow.MaskRegion]?
+    ) -> Bool {
         guard let requests = peripheralMaskRequestsByDisplayID[displayID], !requests.isEmpty else {
-            window.applyMask(regions: [])
-            frozenMaskRegionsByDisplayID.removeValue(forKey: displayID)
             return false
         }
-        return apply(maskRequests: requests, to: window, cachingDisplayID: displayID)
+        guard let peripheralRegions = buildMaskRegions(from: requests, in: window) else {
+            return false
+        }
+        let merged = mergedMaskRegions(frozenMask, peripheralRegions)
+        window.applyMask(regions: merged)
+        frozenMaskRegionsByDisplayID[displayID] = merged
+        return true
+    }
+
+    private func mergedMaskRegions(
+        _ frozenMask: [OverlayWindow.MaskRegion]?,
+        _ supplementalMask: [OverlayWindow.MaskRegion]
+    ) -> [OverlayWindow.MaskRegion] {
+        guard let frozenMask, !frozenMask.isEmpty else { return supplementalMask }
+        guard !supplementalMask.isEmpty else { return frozenMask }
+        var combined = frozenMask
+        for region in supplementalMask where !combined.contains(region) {
+            combined.append(region)
+        }
+        return combined
+    }
+
+    private func lastKnownMaskRegions(
+        for displayID: DisplayID,
+        cachedEntry: DisplaySnapshotCacheEntry?,
+        ignoring ignoredIdentity: WindowIdentity? = nil
+    ) -> [OverlayWindow.MaskRegion]? {
+        if let frozen = frozenMaskRegionsByDisplayID[displayID], !frozen.isEmpty {
+            return frozen
+        }
+        if let cachedEntry, !cachedEntry.maskRegions.isEmpty {
+            return cachedEntry.maskRegions
+        }
+        guard let cache = cachedSnapshotsByDisplayID[displayID] else {
+            return nil
+        }
+        if let entry = cache.mostRecentMaskEntry(excluding: ignoredIdentity) {
+            return entry.maskRegions
+        }
+        return nil
     }
 
     /// Attempts to map a window frame to a connected display identifier.
@@ -2379,6 +2455,71 @@ final class OverlayController {
         return .updated
     }
 }
+
+#if DEBUG
+extension OverlayController {
+    func testingFrozenMaskRegions(for displayID: DisplayID) -> [OverlayWindow.MaskRegion]? {
+        frozenMaskRegionsByDisplayID[displayID]
+    }
+
+    func testingMergedMaskRegions(
+        frozen: [OverlayWindow.MaskRegion]?,
+        supplemental: [OverlayWindow.MaskRegion]
+    ) -> [OverlayWindow.MaskRegion] {
+        mergedMaskRegions(frozen, supplemental)
+    }
+
+    func testingLastKnownMaskRegions(
+        for displayID: DisplayID,
+        frozenMask: [OverlayWindow.MaskRegion]?,
+        cachedMask: [OverlayWindow.MaskRegion]?,
+        preferredCacheMask: [OverlayWindow.MaskRegion]? = nil
+    ) -> [OverlayWindow.MaskRegion]? {
+        if let frozenMask {
+            frozenMaskRegionsByDisplayID[displayID] = frozenMask
+        } else {
+            frozenMaskRegionsByDisplayID.removeValue(forKey: displayID)
+        }
+
+        cachedSnapshotsByDisplayID.removeValue(forKey: displayID)
+
+        var cachedEntry: DisplaySnapshotCacheEntry?
+        var cachedIdentity: WindowIdentity?
+        let now = Date()
+
+        if let cachedMask {
+            let snapshot = ActiveWindowSnapshot(
+                frame: NSRect(x: 0, y: 0, width: 80, height: 80),
+                cornerRadius: 6,
+                supplementaryMasks: []
+            )
+            let identity = WindowIdentity(snapshot: snapshot)
+            storeSnapshot(snapshot, identity: identity, for: displayID, timestamp: now)
+            storeMaskRegions(cachedMask, for: displayID, identity: identity, timestamp: now)
+            cachedEntry = cachedSnapshotsByDisplayID[displayID]?.entry(for: identity)
+            cachedIdentity = identity
+        }
+
+        if let preferredCacheMask {
+            let snapshot = ActiveWindowSnapshot(
+                frame: NSRect(x: 20, y: 20, width: 60, height: 60),
+                cornerRadius: 4,
+                supplementaryMasks: []
+            )
+            let identity = WindowIdentity(snapshot: snapshot)
+            let timestamp = now.addingTimeInterval(-1)
+            storeSnapshot(snapshot, identity: identity, for: displayID, timestamp: timestamp)
+            storeMaskRegions(preferredCacheMask, for: displayID, identity: identity, timestamp: timestamp)
+        }
+
+        if cachedMask == nil, preferredCacheMask == nil {
+            cachedSnapshotsByDisplayID.removeValue(forKey: displayID)
+        }
+
+        return lastKnownMaskRegions(for: displayID, cachedEntry: cachedEntry, ignoring: cachedIdentity)
+    }
+}
+#endif
 
 extension OverlayController: OverlayServiceDelegate {
     /// Receives overlay updates from the service and replaces the managed window set.
