@@ -52,6 +52,20 @@ struct DisplayRefreshProfile: Equatable {
         return false
     }
 
+    /// Displays that animate windows directly into Stage Manager or dock transitions need continuous prediction.
+    var demandsContinuousPrediction: Bool {
+        if usesVariableRefreshRate && isBuiltIn {
+            return true
+        }
+        if isBuiltIn && preferredFramesPerSecond >= 100 {
+            return true
+        }
+        if preferredFramesPerSecond >= 165 {
+            return true
+        }
+        return false
+    }
+
     /// Preferred Core Animation frame-rate hints tailored to the display's capabilities.
     @available(macOS 12.0, *)
     var preferredFrameRateRange: CAFrameRateRange {

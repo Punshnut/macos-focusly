@@ -24,7 +24,8 @@ final class HighFrequencyPointerSampler {
     private var eventTap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
     private var lastSampledLocation: NSPoint?
-    private let minimumMovementDistance: CGFloat = 0.35
+    private var minimumMovementDistance: CGFloat = 0.35
+    private var dragMovementDistance: CGFloat = 0
 
     init(onSample handler: @escaping Handler) {
         self.handler = handler
@@ -77,6 +78,14 @@ final class HighFrequencyPointerSampler {
         stop()
     }
 
+    /// Updates the movement threshold the sampler should respect when deciding whether to forward events.
+    func updateMinimumMovementDistance(_ distance: CGFloat, dragDistance: CGFloat? = nil) {
+        minimumMovementDistance = max(0, distance)
+        if let dragDistance {
+            dragMovementDistance = max(0, dragDistance)
+        }
+    }
+
     private func processEvent(type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
         switch type {
         case .tapDisabledByTimeout, .tapDisabledByUserInput:
@@ -98,9 +107,10 @@ final class HighFrequencyPointerSampler {
             isDragging = false
         }
 
-        if !isDragging, let last = lastSampledLocation {
+        let threshold = isDragging ? dragMovementDistance : minimumMovementDistance
+        if threshold > 0, let last = lastSampledLocation {
             let delta = hypot(point.x - last.x, point.y - last.y)
-            if delta < minimumMovementDistance {
+            if delta < threshold {
                 return Unmanaged.passUnretained(event)
             }
         }

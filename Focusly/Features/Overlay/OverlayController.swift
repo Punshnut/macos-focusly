@@ -82,14 +82,141 @@ final class OverlayController {
         let timestamp: Date
     }
 
-    private struct WindowIdentity: Equatable {
+    private struct DisplaySnapshotCacheEntry {
+        var snapshot: ActiveWindowSnapshot
+        var timestamp: Date
+        var maskRegions: [OverlayWindow.MaskRegion]
+    }
+
+    private struct DisplaySnapshotCache {
+        var entries: [WindowIdentity: DisplaySnapshotCacheEntry] = [:]
+        var lastIdentity: WindowIdentity?
+
+        mutating func recordSnapshot(
+            _ snapshot: ActiveWindowSnapshot,
+            identity: WindowIdentity,
+            timestamp: Date,
+            limit: Int
+        ) {
+            var entry = entries[identity] ?? DisplaySnapshotCacheEntry(
+                snapshot: snapshot,
+                timestamp: timestamp,
+                maskRegions: []
+            )
+            entry.snapshot = snapshot
+            entry.timestamp = timestamp
+            entries[identity] = entry
+            lastIdentity = identity
+            enforceLimit(limit)
+        }
+
+        mutating func updateMaskRegions(
+            _ regions: [OverlayWindow.MaskRegion],
+            for identity: WindowIdentity,
+            timestamp: Date
+        ) {
+            guard var entry = entries[identity] else { return }
+            entry.maskRegions = regions
+            entry.timestamp = timestamp
+            entries[identity] = entry
+            lastIdentity = identity
+        }
+
+        mutating func touch(identity: WindowIdentity, timestamp: Date) {
+            guard var entry = entries[identity] else { return }
+            entry.timestamp = timestamp
+            entries[identity] = entry
+            lastIdentity = identity
+        }
+
+        mutating func removeEntry(for identity: WindowIdentity) {
+            entries.removeValue(forKey: identity)
+            if lastIdentity == identity {
+                lastIdentity = entries.max(by: { $0.value.timestamp < $1.value.timestamp })?.key
+            }
+        }
+
+        mutating func prune(olderThan cutoff: Date, limit: Int) {
+            entries = entries.filter { $0.value.timestamp >= cutoff }
+            if let identity = lastIdentity, entries[identity] == nil {
+                lastIdentity = entries.max(by: { $0.value.timestamp < $1.value.timestamp })?.key
+            }
+            enforceLimit(limit)
+        }
+
+        mutating func enforceLimit(_ limit: Int) {
+            guard entries.count > limit else { return }
+            let sorted = entries.sorted { $0.value.timestamp > $1.value.timestamp }
+            entries = Dictionary(uniqueKeysWithValues: sorted.prefix(limit).map { ($0.key, $0.value) })
+            if let identity = lastIdentity, entries[identity] == nil {
+                lastIdentity = sorted.first?.key
+            }
+        }
+
+        func preferredEntry() -> (WindowIdentity, DisplaySnapshotCacheEntry)? {
+            if let identity = lastIdentity, let entry = entries[identity] {
+                return (identity, entry)
+            }
+            return entries.max(by: { $0.value.timestamp < $1.value.timestamp })
+        }
+
+        var isEmpty: Bool {
+            entries.isEmpty
+        }
+    }
+
+    private struct WindowIdentity: Hashable {
         let ownerPID: pid_t?
         let windowNumber: Int?
+        private let fallbackSignature: Int
+
+        init(snapshot: ActiveWindowSnapshot) {
+            self.ownerPID = snapshot.ownerPID
+            self.windowNumber = snapshot.windowNumber
+            if snapshot.windowNumber != nil {
+                fallbackSignature = 0
+            } else {
+                fallbackSignature = WindowIdentity.signature(for: snapshot.frame)
+            }
+        }
+
+        init(ownerPID: pid_t?, windowNumber: Int?) {
+            self.ownerPID = ownerPID
+            self.windowNumber = windowNumber
+            self.fallbackSignature = 0
+        }
+
+        private static func signature(for frame: NSRect) -> Int {
+            let scale: CGFloat = 100
+            let components = [
+                Int(frame.origin.x * scale),
+                Int(frame.origin.y * scale),
+                Int(frame.size.width * scale),
+                Int(frame.size.height * scale)
+            ]
+            return components.reduce(5381) { acc, value in
+                (acc &* 33) ^ value
+            }
+        }
+
+        func hash(into hasher: inout Hasher) {
+            hasher.combine(ownerPID ?? 0)
+            hasher.combine(windowNumber ?? 0)
+            hasher.combine(fallbackSignature)
+        }
+
+        static func == (lhs: WindowIdentity, rhs: WindowIdentity) -> Bool {
+            lhs.ownerPID == rhs.ownerPID &&
+            lhs.windowNumber == rhs.windowNumber &&
+            lhs.fallbackSignature == rhs.fallbackSignature
+        }
     }
 
     private let interactionBoostDuration: TimeInterval = 0.6
     private let interactionCooldownDuration: TimeInterval = 0.25
     private let animationBoostDuration: TimeInterval = 0.45
+    private let displaySnapshotRetentionInterval: TimeInterval = 5 * 60
+    private let maxSnapshotsPerDisplay = 4
     private let activeWindowSnapshotResolver: (Set<Int>, Bool) -> ActiveWindowSnapshot?
     private let defaultMinimumPredictionDelta: CGFloat = 0.32
     private let defaultPredictiveLeadCompensationFraction: Double = 0.22
@@ -105,7 +232,7 @@ final class OverlayController {
     private var isClickThroughEnabled = true
     private var isMonitoringActive = false
     private var cachedActiveSnapshot: ActiveWindowSnapshot?
-    private var cachedSnapshotsByDisplayID: [DisplayID: ActiveWindowSnapshot] = [:]
+    private var cachedSnapshotsByDisplayID: [DisplayID: DisplaySnapshotCache] = [:]
     private var predictedSnapshotsByDisplayID: [DisplayID: ActiveWindowSnapshot] = [:]
     private var activeDisplayID: DisplayID?
     private var pointerInteractionMonitor: PointerInteractionMonitor?
@@ -115,10 +242,13 @@ final class OverlayController {
     private var pointerDisplayIDHint: DisplayID?
     private var workspaceAnimationObservers: [NSObjectProtocol] = []
     private var peripheralMaskRequestsByDisplayID: [DisplayID: [MaskRequest]] = [:]
+    private var frozenMaskRegionsByDisplayID: [DisplayID: [OverlayWindow.MaskRegion]] = [:]
     private var cachedPeripheralRegions: [PeripheralInterfaceRegion] = []
     private var lastPeripheralRegionRefresh = Date.distantPast
     private let peripheralRegionCacheLifetime: TimeInterval = 0.25
-    private let peripheralAnimationSampleInterval: TimeInterval = 1.0 / 60.0
+    private let defaultPeripheralAnimationInterval: TimeInterval = 1.0 / 60.0
+    private var resolvedPeripheralAnimationInterval: TimeInterval = 1.0 / 60.0
+    private var activePeripheralAnimationInterval: TimeInterval?
     private let autoHiddenDockEdgeContactTolerance: CGFloat = 4
     private var peripheralAnimationTimer: Timer?
     private var isDesktopPeripheralRevealEnabled = true
@@ -126,7 +256,9 @@ final class OverlayController {
     private var lastDesktopRevealEvaluation = Date.distantPast
     private var cachedDesktopRevealDecision = false
     private var cachedDesktopRevealProcessID: pid_t?
-    private let pointerPredictionMinimumMovement: CGFloat = 0.45
+    private let defaultPointerPredictionMinimumMovement: CGFloat = 0.45
+    private var pointerPredictionMinimumMovement: CGFloat = 0.45
+    private var requiresContinuousPrediction = false
     private lazy var supplementalSnapshotDisplayLink = DisplayLinkDriver { [weak self] timing in
         guard let self else { return }
         self.handleDisplayLinkTick(timing: timing)
@@ -231,6 +363,7 @@ final class OverlayController {
         cachedSnapshotsByDisplayID.removeAll()
         predictedSnapshotsByDisplayID.removeAll()
         activeDisplayID = nil
+        frozenMaskRegionsByDisplayID.removeAll()
         pointerDisplayIDHint = nil
         motionPredictor.reset()
         lastSnapshotIdentity = nil
@@ -238,6 +371,8 @@ final class OverlayController {
         lastBackgroundSnapshotRefresh = .distantPast
         updateDisplayLinkPreferredDisplay()
         updateDisplayPerformanceHints(forceRefresh: true)
+        requiresContinuousPrediction = false
+        pointerPredictionMinimumMovement = defaultPointerPredictionMinimumMovement
         lastDisplayLinkRefreshInterval = 1.0 / 60.0
         overlayWindowsByDisplayID.values.forEach { $0.applyMask(regions: []) }
     }
@@ -338,6 +473,7 @@ final class OverlayController {
         let updatedDisplayIDs = Set(updatedOverlayWindows.keys)
         cachedSnapshotsByDisplayID = cachedSnapshotsByDisplayID.filter { updatedDisplayIDs.contains($0.key) }
         predictedSnapshotsByDisplayID = predictedSnapshotsByDisplayID.filter { updatedDisplayIDs.contains($0.key) }
+        frozenMaskRegionsByDisplayID = frozenMaskRegionsByDisplayID.filter { updatedDisplayIDs.contains($0.key) }
         var didMutateActiveDisplay = false
         if let activeID = activeDisplayID, !updatedDisplayIDs.contains(activeID) {
             activeDisplayID = nil
@@ -366,7 +502,6 @@ final class OverlayController {
     func applyOverlayMask(with snapshot: ActiveWindowSnapshot?) {
         guard let snapshot else {
             cachedActiveSnapshot = nil
-            cachedSnapshotsByDisplayID.removeAll()
             predictedSnapshotsByDisplayID.removeAll()
             activeDisplayID = nil
             motionPredictor.reset()
@@ -495,12 +630,17 @@ final class OverlayController {
                 fastFrameSamplingBounds.maximum
             )
             updateDisplayLinkPersistence(profile: nil)
+            resolvedPeripheralAnimationInterval = defaultPeripheralAnimationInterval
+            refreshPeripheralAnimationTimerIfNeeded()
+            requiresContinuousPrediction = false
+            applyPointerSamplingConfiguration(for: nil)
             return
         }
 
         let preferredFPS = profile.preferredFramesPerSecond
         shouldBiasPredictionsOneFrameAhead = profile.wantsFrameAheadPrediction
         preferredPredictionFrameInterval = profile.recommendedPredictionLead
+        requiresContinuousPrediction = profile.demandsContinuousPrediction
         var idleSuppression = defaultPredictionIdleSuppressionInterval
         if preferredFPS >= 165 {
             minimumPredictionDelta = supportsHighRefreshCompositing ? 0.08 : 0.09
@@ -566,6 +706,9 @@ final class OverlayController {
             fastFrameSamplingBounds.maximum
         )
         updateDisplayLinkPersistence(profile: profile)
+        resolvedPeripheralAnimationInterval = peripheralAnimationInterval(for: profile)
+        refreshPeripheralAnimationTimerIfNeeded()
+        applyPointerSamplingConfiguration(for: profile)
     }
 
     /// Rebuilds known refresh profiles for all connected overlays.
@@ -613,6 +756,96 @@ final class OverlayController {
         }
     }
 
+    /// Applies pointer sampling thresholds tailored to the current display profile.
+    private func applyPointerSamplingConfiguration(for profile: DisplayRefreshProfile?) {
+        let thresholds = pointerSamplingThresholds(for: profile)
+        highFrequencyPointerSampler?.updateMinimumMovementDistance(thresholds.idle, dragDistance: thresholds.drag)
+        pointerPredictionMinimumMovement = pointerPredictionThreshold(for: profile)
+    }
+
+    /// Returns the pointer sampling distance thresholds to use for a given refresh profile.
+    private func pointerSamplingThresholds(for profile: DisplayRefreshProfile?) -> (idle: CGFloat, drag: CGFloat) {
+        guard let profile else { return (0.35, 0) }
+        if profile.preferredFramesPerSecond >= 165 {
+            return (0.12, 0)
+        }
+        if profile.preferredFramesPerSecond >= 144 {
+            return (0.15, 0)
+        }
+        if profile.preferredFramesPerSecond >= 120 {
+            return (0.18, 0)
+        }
+        if profile.preferredFramesPerSecond >= 90 {
+            return (0.25, 0)
+        }
+        return (0.35, 0)
+    }
+
+    /// Keeps the pointer prediction jitter threshold in sync with the active display.
+    private func pointerPredictionThreshold(for profile: DisplayRefreshProfile?) -> CGFloat {
+        guard let profile else { return defaultPointerPredictionMinimumMovement }
+        let fps = profile.preferredFramesPerSecond
+        if fps >= 165 {
+            return isThirdGenerationAppleSilicon ? 0.1 : 0.14
+        }
+        if fps >= 144 {
+            return isThirdGenerationAppleSilicon ? 0.13 : 0.17
+        }
+        if fps >= 120 {
+            if profile.isBuiltIn {
+                return isThirdGenerationAppleSilicon ? 0.16 : 0.2
+            }
+            return 0.22
+        }
+        if profile.usesVariableRefreshRate && profile.isBuiltIn {
+            return 0.24
+        }
+        if fps >= 90 {
+            return 0.32
+        }
+        return defaultPointerPredictionMinimumMovement
+    }
+
+    /// Resolves the cadence the peripheral animation driver should use for the active display.
+    private func peripheralAnimationInterval(for profile: DisplayRefreshProfile?) -> TimeInterval {
+        guard let profile else { return defaultPeripheralAnimationInterval }
+        if profile.isBuiltIn && profile.usesVariableRefreshRate {
+            return 1.0 / max(profile.preferredFramesPerSecond, 120)
+        }
+        if profile.preferredFramesPerSecond >= 165 {
+            return 1.0 / min(profile.preferredFramesPerSecond, 240)
+        }
+        if profile.preferredFramesPerSecond >= 144 {
+            return 1.0 / 144.0
+        }
+        if profile.preferredFramesPerSecond >= 120 {
+            return 1.0 / max(profile.preferredFramesPerSecond, 120)
+        }
+        if profile.preferredFramesPerSecond >= 90 {
+            return 1.0 / 90.0
+        }
+        return defaultPeripheralAnimationInterval
+    }
+
+    /// Restarts the peripheral animation timer when the desired interval changes.
+    private func refreshPeripheralAnimationTimerIfNeeded() {
+        guard peripheralAnimationTimer != nil else {
+            activePeripheralAnimationInterval = nil
+            return
+        }
+        guard let currentInterval = activePeripheralAnimationInterval else {
+            stopPeripheralAnimationDriver()
+            startPeripheralAnimationDriver()
+            return
+        }
+        let delta = abs(currentInterval - resolvedPeripheralAnimationInterval)
+        if delta <= 0.0005 {
+            return
+        }
+        stopPeripheralAnimationDriver()
+        startPeripheralAnimationDriver()
+    }
+
     /// Periodically logs how often we fall back to bitmap mask rendering.
     private func evaluateMaskRenderingDiagnosticsIfNeeded() {
         let now = Date()
@@ -631,7 +864,7 @@ final class OverlayController {
 
     /// Updates cached mask metadata for the latest active window snapshot.
     private func cacheActiveSnapshot(_ snapshot: ActiveWindowSnapshot, resolvedDisplayID: DisplayID? = nil) {
-        let identity = WindowIdentity(ownerPID: snapshot.ownerPID, windowNumber: snapshot.windowNumber)
+        let identity = WindowIdentity(snapshot: snapshot)
         if identity != lastSnapshotIdentity {
             motionPredictor.reset()
             lastSnapshotIdentity = identity
@@ -665,53 +898,103 @@ final class OverlayController {
         primePredictionForCurrentFrameIfNeeded()
     }
 
+    private func storeSnapshot(
+        _ snapshot: ActiveWindowSnapshot,
+        identity: WindowIdentity,
+        for displayID: DisplayID,
+        timestamp: Date
+    ) {
+        var cache = cachedSnapshotsByDisplayID[displayID] ?? DisplaySnapshotCache()
+        cache.recordSnapshot(snapshot, identity: identity, timestamp: timestamp, limit: maxSnapshotsPerDisplay)
+        cachedSnapshotsByDisplayID[displayID] = cache
+    }
+
+    private func storeMaskRegions(
+        _ regions: [OverlayWindow.MaskRegion],
+        for displayID: DisplayID,
+        identity: WindowIdentity,
+        timestamp: Date = Date()
+    ) {
+        var cache = cachedSnapshotsByDisplayID[displayID] ?? DisplaySnapshotCache()
+        cache.updateMaskRegions(regions, for: identity, timestamp: timestamp)
+        cachedSnapshotsByDisplayID[displayID] = cache
+    }
+
+    private func touchCacheEntry(for displayID: DisplayID, identity: WindowIdentity, timestamp: Date = Date()) {
+        guard var cache = cachedSnapshotsByDisplayID[displayID] else { return }
+        cache.touch(identity: identity, timestamp: timestamp)
+        cachedSnapshotsByDisplayID[displayID] = cache
+    }
+
+    private func removeCacheEntry(for displayID: DisplayID, identity: WindowIdentity) {
+        guard var cache = cachedSnapshotsByDisplayID[displayID] else { return }
+        cache.removeEntry(for: identity)
+        if cache.isEmpty {
+            cachedSnapshotsByDisplayID.removeValue(forKey: displayID)
+        } else {
+            cachedSnapshotsByDisplayID[displayID] = cache
+        }
+    }
+
+    private func preferredCacheEntry(for displayID: DisplayID) -> (WindowIdentity, DisplaySnapshotCacheEntry)? {
+        cachedSnapshotsByDisplayID[displayID]?.preferredEntry()
+    }
+
     /// Rebuilds the per-display snapshot cache so each monitor only receives relevant carve-outs.
     private func rebuildDisplayScopedSnapshotCache(
         for snapshot: ActiveWindowSnapshot,
         preferredDisplayID: DisplayID? = nil
     ) {
+        let now = Date()
+        pruneExpiredDisplaySnapshots(referenceDate: now)
         let fallbackDisplayID = preferredDisplayID ?? activeDisplayID
         guard !overlayWindowsByDisplayID.isEmpty else {
             if let fallbackDisplayID {
-                cachedSnapshotsByDisplayID = [fallbackDisplayID: snapshot]
+                cachedSnapshotsByDisplayID.removeAll()
+                let identity = WindowIdentity(snapshot: snapshot)
+                storeSnapshot(snapshot, identity: identity, for: fallbackDisplayID, timestamp: now)
             } else {
                 cachedSnapshotsByDisplayID.removeAll()
             }
             return
         }
 
-        var scopedSnapshots: [DisplayID: ActiveWindowSnapshot] = [:]
+        let identity = WindowIdentity(snapshot: snapshot)
+        var didUpdateAnyPrimaryDisplay = false
         for (displayID, overlayWindow) in overlayWindowsByDisplayID {
-            guard snapshotIntersectsDisplayFrame(snapshot, displayFrame: overlayWindow.frame) else { continue }
-            scopedSnapshots[displayID] = snapshot
+            guard snapshotPrimaryFrameIntersectsDisplay(snapshot, displayFrame: overlayWindow.frame) else { continue }
+            storeSnapshot(snapshot, identity: identity, for: displayID, timestamp: now)
+            didUpdateAnyPrimaryDisplay = true
         }
 
-        if scopedSnapshots.isEmpty, let fallbackDisplayID {
-            scopedSnapshots[fallbackDisplayID] = snapshot
+        if !didUpdateAnyPrimaryDisplay, let fallbackDisplayID {
+            storeSnapshot(snapshot, identity: identity, for: fallbackDisplayID, timestamp: now)
         }
+    }
 
-        cachedSnapshotsByDisplayID = scopedSnapshots
+    private func pruneExpiredDisplaySnapshots(referenceDate: Date = Date()) {
+        guard !cachedSnapshotsByDisplayID.isEmpty else { return }
+        let cutoff = referenceDate.addingTimeInterval(-displaySnapshotRetentionInterval)
+        cachedSnapshotsByDisplayID = cachedSnapshotsByDisplayID.compactMapValues { cache in
+            var mutableCache = cache
+            mutableCache.prune(olderThan: cutoff, limit: maxSnapshotsPerDisplay)
+            return mutableCache.isEmpty ? nil : mutableCache
+        }
     }
 
     /// Returns whether a snapshot intersects a particular display's bounds.
-    private func snapshotIntersectsDisplayFrame(_ snapshot: ActiveWindowSnapshot, displayFrame: NSRect) -> Bool {
-        if !snapshot.frame.intersection(displayFrame).isNull {
-            return true
-        }
-        for region in snapshot.supplementaryMasks {
-            if !region.frame.intersection(displayFrame).isNull {
-                return true
-            }
-        }
-        return false
+    private func snapshotPrimaryFrameIntersectsDisplay(_ snapshot: ActiveWindowSnapshot, displayFrame: NSRect) -> Bool {
+        !snapshot.frame.intersection(displayFrame).isNull
     }
 
     /// Applies cached highlight regions to every overlay window.
     private func applyOverlayMasksFromCache() {
         guard !overlayWindowsByDisplayID.isEmpty else { return }
+        let now = Date()
+        pruneExpiredDisplaySnapshots(referenceDate: now)
 
         var didApplyMask = false
-        var staleDisplayIDs: [DisplayID] = []
+        var staleEntries: [(DisplayID, WindowIdentity)] = []
         var didMutateActiveDisplay = false
 
         for (displayID, window) in overlayWindowsByDisplayID {
@@ -726,29 +1009,47 @@ final class OverlayController {
                 }
             }
 
-            if !applied, let cachedSnapshot = cachedSnapshotsByDisplayID[displayID] {
-                if apply(snapshot: cachedSnapshot, to: window, displayID: displayID) {
+            if !applied, let (identity, cachedEntry) = preferredCacheEntry(for: displayID) {
+                if apply(snapshot: cachedEntry.snapshot, to: window, displayID: displayID, cacheIdentity: identity) {
                     didApplyMask = true
                     applied = true
                     predictedSnapshotsByDisplayID.removeValue(forKey: displayID)
                 } else {
-                    staleDisplayIDs.append(displayID)
+                    if !cachedEntry.maskRegions.isEmpty {
+                        window.applyMask(regions: cachedEntry.maskRegions)
+                        frozenMaskRegionsByDisplayID[displayID] = cachedEntry.maskRegions
+                        touchCacheEntry(for: displayID, identity: identity, timestamp: now)
+                        didApplyMask = true
+                        applied = true
+                    } else {
+                        staleEntries.append((displayID, identity))
+                    }
                 }
             }
 
             if !applied {
+                if applyActiveSupplementaryMasksIfNeeded(to: window) {
+                    didApplyMask = true
+                    continue
+                }
                 if applyPeripheralMasksIfNeeded(to: window, displayID: displayID) {
+                    didApplyMask = true
+                    continue
+                }
+                if let frozenMask = frozenMaskRegionsByDisplayID[displayID], !frozenMask.isEmpty {
+                    window.applyMask(regions: frozenMask)
                     didApplyMask = true
                 } else {
                     window.applyMask(regions: [])
+                    frozenMaskRegionsByDisplayID.removeValue(forKey: displayID)
                 }
             }
         }
 
-        if !staleDisplayIDs.isEmpty {
-            for displayID in staleDisplayIDs {
-                cachedSnapshotsByDisplayID.removeValue(forKey: displayID)
-                if activeDisplayID == displayID {
+        if !staleEntries.isEmpty {
+            for (displayID, identity) in staleEntries {
+                removeCacheEntry(for: displayID, identity: identity)
+                if cachedSnapshotsByDisplayID[displayID] == nil, activeDisplayID == displayID {
                     activeDisplayID = nil
                     didMutateActiveDisplay = true
                 }
@@ -770,12 +1071,23 @@ final class OverlayController {
     }
 
     /// Converts an active window snapshot into overlay mask regions for the supplied window.
-    private func apply(snapshot: ActiveWindowSnapshot, to window: OverlayWindow, displayID: DisplayID) -> Bool {
+    private func apply(
+        snapshot: ActiveWindowSnapshot,
+        to window: OverlayWindow,
+        displayID: DisplayID,
+        cacheIdentity: WindowIdentity? = nil
+    ) -> Bool {
         var requests = maskRequests(for: snapshot, mode: maskingMode(for: displayID))
         if let peripheralRequests = peripheralMaskRequestsByDisplayID[displayID], !peripheralRequests.isEmpty {
             requests.append(contentsOf: peripheralRequests)
         }
-        return apply(maskRequests: requests, to: window)
+        if let supplementaryRequests = supplementaryMaskRequestsForActiveSnapshot(
+            intersecting: window.frame,
+            excluding: snapshot
+        ), !supplementaryRequests.isEmpty {
+            requests.append(contentsOf: supplementaryRequests)
+        }
+        return apply(maskRequests: requests, to: window, cachingDisplayID: displayID, identity: cacheIdentity)
     }
 
     /// Builds mask requests for the supplied snapshot including supplementary carve-outs.
@@ -802,15 +1114,68 @@ final class OverlayController {
         return requests
     }
 
+    /// Applies supplementary masks from the current active snapshot even if the base snapshot belongs to another display.
+    private func supplementaryMaskRequestsForActiveSnapshot(
+        intersecting displayFrame: NSRect,
+        excluding snapshot: ActiveWindowSnapshot?
+    ) -> [MaskRequest]? {
+        guard let activeSnapshot = cachedActiveSnapshot else { return nil }
+        if let snapshot, snapshot == activeSnapshot {
+            return nil
+        }
+        var requests: [MaskRequest] = []
+        for region in activeSnapshot.supplementaryMasks where region.purpose != .applicationWindow {
+            if region.frame.intersection(displayFrame).isNull {
+                continue
+            }
+            requests.append(
+                MaskRequest(
+                    rect: region.frame,
+                    cornerRadius: region.cornerRadius,
+                    purpose: region.purpose
+                )
+            )
+        }
+        return requests.isEmpty ? nil : requests
+    }
+
+    /// Applies supplementary masks from the active snapshot when no cached window highlight is available.
+    private func applyActiveSupplementaryMasksIfNeeded(to window: OverlayWindow) -> Bool {
+        guard let requests = supplementaryMaskRequestsForActiveSnapshot(intersecting: window.frame, excluding: nil) else {
+            return false
+        }
+        let displayID = overlayWindowsByDisplayID.first(where: { $0.value === window })?.key
+        return apply(maskRequests: requests, to: window, cachingDisplayID: displayID)
+    }
+
     /// Applies the supplied mask requests to the overlay window, accounting for blur tolerances.
-    private func apply(maskRequests: [MaskRequest], to window: OverlayWindow) -> Bool {
-        guard let contentView = window.contentView else {
+    private func apply(
+        maskRequests: [MaskRequest],
+        to window: OverlayWindow,
+        cachingDisplayID displayID: DisplayID? = nil,
+        identity: WindowIdentity? = nil
+    ) -> Bool {
+        guard let maskRegions = buildMaskRegions(from: maskRequests, in: window) else {
             window.applyMask(regions: [])
             return false
         }
+        window.applyMask(regions: maskRegions)
+        if let displayID {
+            frozenMaskRegionsByDisplayID[displayID] = maskRegions
+        }
+        if let displayID, let identity {
+            storeMaskRegions(maskRegions, for: displayID, identity: identity)
+        }
+        return true
+    }
+
+    /// Translates mask requests into overlay-ready regions, or nil if nothing intersects.
+    private func buildMaskRegions(from maskRequests: [MaskRequest], in window: OverlayWindow) -> [OverlayWindow.MaskRegion]? {
+        guard let contentView = window.contentView else {
+            return nil
+        }
         guard !maskRequests.isEmpty else {
-            window.applyMask(regions: [])
-            return false
+            return nil
         }
 
         let windowScreenFrame = window.frame
@@ -850,27 +1215,28 @@ final class OverlayController {
             maskRegions.append(
                 OverlayWindow.MaskRegion(
                     rect: finalRect,
-                    cornerRadius: adjustedCornerRadius(for: request, expansion: expansion, shrink: clampedShrink, scale: backingScale)
+                    cornerRadius: adjustedCornerRadius(
+                        for: request,
+                        rect: finalRect,
+                        expansion: expansion,
+                        shrink: clampedShrink,
+                        scale: backingScale
+                    )
                 )
             )
         }
 
-        guard !maskRegions.isEmpty else {
-            window.applyMask(regions: [])
-            return false
-        }
-
-        window.applyMask(regions: maskRegions)
-        return true
+        return maskRegions.isEmpty ? nil : maskRegions
     }
 
     /// Applies only peripheral carve-outs when no active window snapshot is available.
     private func applyPeripheralMasksIfNeeded(to window: OverlayWindow, displayID: DisplayID) -> Bool {
         guard let requests = peripheralMaskRequestsByDisplayID[displayID], !requests.isEmpty else {
             window.applyMask(regions: [])
+            frozenMaskRegionsByDisplayID.removeValue(forKey: displayID)
             return false
         }
-        return apply(maskRequests: requests, to: window)
+        return apply(maskRequests: requests, to: window, cachingDisplayID: displayID)
     }
 
     /// Attempts to map a window frame to a connected display identifier.
@@ -1043,16 +1409,22 @@ final class OverlayController {
     }
 
     /// Adjusts the corner radius to match the expanded mask rect.
-    private func adjustedCornerRadius(for request: MaskRequest, expansion: CGFloat, shrink: CGFloat, scale: CGFloat) -> CGFloat {
+    private func adjustedCornerRadius(
+        for request: MaskRequest,
+        rect: NSRect,
+        expansion: CGFloat,
+        shrink: CGFloat,
+        scale: CGFloat
+    ) -> CGFloat {
         let baseRadius = max(0, request.cornerRadius)
         let expanded = expansion > 0 ? baseRadius + expansion : baseRadius
-        guard shrink > 0 else {
-            return max(0, expanded + cornerRadiusBias(for: request.purpose))
-        }
-
         let pixelEpsilon = scale > 0 ? (0.5 / scale) : 0
-        let adjusted = max(0, expanded - max(0, shrink - pixelEpsilon))
-        return max(0, adjusted + cornerRadiusBias(for: request.purpose))
+        var adjusted = expanded
+        if shrink > 0 {
+            adjusted = max(0, expanded - max(0, shrink - pixelEpsilon))
+        }
+        adjusted = max(0, adjusted + cornerRadiusBias(for: request.purpose))
+        return refinedCornerRadius(for: rect, baseRadius: adjusted, purpose: request.purpose)
     }
 
     /// Introduces a subtle bias so menu carve-outs keep their rounded edges distinctive.
@@ -1065,6 +1437,37 @@ final class OverlayController {
         default:
             return 0
         }
+    }
+
+    /// Re-evaluates the requested corner radius so sharp-edged windows do not inherit oversized rounding.
+    private func refinedCornerRadius(
+        for rect: NSRect,
+        baseRadius: CGFloat,
+        purpose: ActiveWindowSnapshot.MaskRegion.Purpose?
+    ) -> CGFloat {
+        guard baseRadius > 0 else { return 0 }
+        let minDimension = max(0, min(rect.width, rect.height))
+        guard minDimension > 0 else { return 0 }
+        var radius = min(baseRadius, minDimension / 2)
+        guard purpose == .applicationWindow else {
+            return radius
+        }
+        if minDimension <= 220 {
+            radius *= 0.9
+        } else if minDimension >= 720 {
+            radius *= 1.05
+        }
+        let aspectRatio = max(rect.width, rect.height) / max(minDimension, CGFloat.ulpOfOne)
+        if aspectRatio >= 2.6 {
+            radius *= 0.82
+        } else if aspectRatio >= 1.85 {
+            radius *= 0.9
+        }
+        let normalizedRadius = radius / minDimension
+        if normalizedRadius >= 0.42 {
+            radius = min(minDimension * 0.42, radius * 0.95)
+        }
+        return radius
     }
 
     /// Creates and starts a pointer monitor so we can react to drag and resize interactions.
@@ -1095,6 +1498,7 @@ final class OverlayController {
         stopDisplayLinkIfNeeded()
         stopHighFrequencyPointerSampling()
         lastPointerDragSample = nil
+        pointerPredictionMinimumMovement = defaultPointerPredictionMinimumMovement
     }
 
     /// Starts a high-frequency event tap so drag updates stay in lockstep with the display cadence.
@@ -1106,6 +1510,7 @@ final class OverlayController {
             }
         }
         highFrequencyPointerSampler?.start()
+        applyPointerSamplingConfiguration(for: activeRefreshProfile())
     }
 
     /// Stops the high-frequency pointer sampler when overlays are inactive.
@@ -1235,10 +1640,23 @@ final class OverlayController {
         }
     }
 
+    /// Determines the most appropriate lead time when pre-warming predictions for macOS animations.
+    private func desiredAnimationLeadTime() -> TimeInterval {
+        let candidate: TimeInterval
+        if preferredPredictionFrameInterval > 0 {
+            candidate = preferredPredictionFrameInterval
+        } else if lastDisplayLinkRefreshInterval > 0 {
+            candidate = lastDisplayLinkRefreshInterval
+        } else {
+            candidate = 1.0 / 60.0
+        }
+        return resolvedPredictionLeadInterval(for: candidate, profile: activeRefreshProfile())
+    }
+
     /// Ensures predictions are refreshed before macOS animates windows across displays or spaces.
     private func prewarmPredictionsForImpendingAnimation() {
         guard cachedActiveSnapshot != nil else { return }
-        let lead = preferredPredictionFrameInterval > 0 ? preferredPredictionFrameInterval : lastDisplayLinkRefreshInterval
+        let lead = desiredAnimationLeadTime()
         guard lead > 0 else { return }
         applyPredictedFrameIfPossible(leadTime: lead, force: true)
     }
@@ -1515,12 +1933,14 @@ final class OverlayController {
     /// Starts a short-lived timer so Dock carve-outs follow macOS' autohide animation.
     private func startPeripheralAnimationDriver() {
         guard peripheralAnimationTimer == nil else { return }
-        let timer = Timer(timeInterval: peripheralAnimationSampleInterval, repeats: true) { [weak self] _ in
+        let interval = max(resolvedPeripheralAnimationInterval, 1.0 / 360.0)
+        let timer = Timer(timeInterval: interval, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in
                 self?.handlePeripheralAnimationTick()
             }
         }
         peripheralAnimationTimer = timer
+        activePeripheralAnimationInterval = interval
         RunLoop.main.add(timer, forMode: .common)
     }
 
@@ -1529,6 +1949,7 @@ final class OverlayController {
         guard let timer = peripheralAnimationTimer else { return }
         timer.invalidate()
         peripheralAnimationTimer = nil
+        activePeripheralAnimationInterval = nil
     }
 
     /// Keeps sampling Dock regions while the system animates them on or off screen.
@@ -1744,7 +2165,9 @@ final class OverlayController {
         let normalizedInterval = normalizedRefreshInterval(timing.refreshPeriod)
         lastDisplayLinkRefreshInterval = normalizedInterval
         updateFastFrameSamplingInterval(for: normalizedInterval)
-        applyPredictedFrameIfPossible(leadTime: normalizedInterval)
+        let profile = activeRefreshProfile()
+        let predictionInterval = resolvedPredictionLeadInterval(for: normalizedInterval, profile: profile)
+        applyPredictedFrameIfPossible(leadTime: predictionInterval)
         if shouldPerformFastFrameSample(hostTime: timing.hostTime) {
             lastFastFrameHostTime = timing.hostTime
             switch refreshActiveWindowFrameFast() {
@@ -1769,6 +2192,25 @@ final class OverlayController {
         let minimum = 1.0 / 240.0
         let maximum = 1.0 / 24.0
         return min(max(period, minimum), maximum)
+    }
+
+    /// Determines how far ahead predictions should be biased for the supplied interval/profile.
+    private func resolvedPredictionLeadInterval(for interval: TimeInterval, profile: DisplayRefreshProfile?) -> TimeInterval {
+        let safeInterval = interval.isFinite && interval > 0 ? interval : 1.0 / 60.0
+        guard let profile else {
+            return min(max(safeInterval, 1.0 / 120.0), maximumPredictionLeadTime)
+        }
+        var lead = max(safeInterval, profile.preferredFrameInterval)
+        if profile.usesVariableRefreshRate && profile.isBuiltIn {
+            lead = max(lead, profile.preferredFrameInterval * 1.35)
+        } else if profile.preferredFramesPerSecond >= 165 {
+            lead = max(lead, safeInterval * 1.45)
+        } else if profile.preferredFramesPerSecond >= 144 {
+            lead = max(lead, safeInterval * 1.3)
+        } else if profile.preferredFramesPerSecond >= 120 {
+            lead = max(lead, safeInterval * 1.15)
+        }
+        return min(max(lead, 1.0 / 150.0), maximumPredictionLeadTime)
     }
 
     /// Adjusts the fast-frame sampling interval to follow the currently active display cadence.
@@ -1831,8 +2273,10 @@ final class OverlayController {
         guard let snapshot = cachedActiveSnapshot else { return }
         guard let displayID = activeDisplayID else { return }
         guard overlayWindowsByDisplayID[displayID] != nil else { return }
+        let profile = displayRefreshProfiles[displayID]
         let now = CACurrentMediaTime()
-        if !force,
+        let bypassIdleSuppression = force || requiresContinuousPrediction || (profile?.demandsContinuousPrediction == true)
+        if !bypassIdleSuppression,
            interactionBoostExpiration == nil,
            !motionPredictor.hasRecentSignificantMovement(within: predictionIdleSuppressionInterval, now: now) {
             if predictedSnapshotsByDisplayID.removeValue(forKey: displayID) != nil {
@@ -1840,7 +2284,6 @@ final class OverlayController {
             }
             return
         }
-        let profile = displayRefreshProfiles[displayID]
         let leadMultiplier = predictiveLeadMultiplier(for: leadTime, profile: profile)
         var boostedLead = leadTime * (leadMultiplier + predictiveLeadCompensationFraction)
         if shouldBiasPredictionsOneFrameAhead {

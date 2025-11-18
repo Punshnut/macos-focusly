@@ -8,6 +8,7 @@ final class ApplicationMaskShapeCache {
 
     private struct Entry {
         var frame: NSRect
+        var cornerRadius: CGFloat
         var regions: [ActiveWindowSnapshot.MaskRegion]
         var timestamp: Date
     }
@@ -26,7 +27,12 @@ final class ApplicationMaskShapeCache {
             return
         }
 
-        entries[pid] = Entry(frame: snapshot.frame, regions: snapshot.supplementaryMasks, timestamp: Date())
+        entries[pid] = Entry(
+            frame: snapshot.frame,
+            cornerRadius: snapshot.cornerRadius,
+            regions: snapshot.supplementaryMasks,
+            timestamp: Date()
+        )
         if entries.count > maximumEntries {
             dropOldestEntries()
         }
@@ -43,6 +49,18 @@ final class ApplicationMaskShapeCache {
         )
         guard entry.frame.isApproximatelyEqual(to: frame, tolerance: tolerance) else { return nil }
         return entry.regions
+    }
+
+    /// Returns the cached corner radius for a process when the frame still matches.
+    func cachedCornerRadius(forPID pid: pid_t, matching frame: NSRect) -> CGFloat? {
+        pruneExpiredEntries()
+        guard let entry = entries[pid] else { return nil }
+        let tolerance = max(
+            defaultFrameTolerance,
+            min(frame.width, frame.height) * 0.08
+        )
+        guard entry.frame.isApproximatelyEqual(to: frame, tolerance: tolerance) else { return nil }
+        return entry.cornerRadius
     }
 
     private func pruneExpiredEntries() {

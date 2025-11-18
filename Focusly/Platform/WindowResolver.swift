@@ -9,7 +9,6 @@ private let menuOwnerFragmentSet: Set<String> = ["rectangle"]
 private let stageManagerReplicaCoverageThreshold: CGFloat = 0.62
 private let stageManagerReplicaPadding: CGFloat = 12
 private let maskResolverLogger = Logger(subsystem: "com.focusly.app", category: "MaskResolver")
-
 /// Cardinal direction describing which screen edge a peripheral element hugs.
 enum PeripheralEdge: Equatable {
     case leading
@@ -283,7 +282,7 @@ func resolveRecentWindowSnapshots(
             pid: resolvedProcessID,
             frame: cocoaFrame,
             cache: &cornerSnapshotCache
-        ) ?? fallbackCornerRadius(for: cocoaFrame)
+        )
 
         let cachedSupplementaryMasks = ApplicationMaskShapeCache.shared.cachedSupplementaryMasks(
             forPID: resolvedProcessID,
@@ -291,7 +290,7 @@ func resolveRecentWindowSnapshots(
         )
         let snapshot = ActiveWindowSnapshot(
             frame: cocoaFrame,
-            cornerRadius: clampCornerRadius(resolvedCornerRadius, to: cocoaFrame),
+            cornerRadius: resolvedCornerRadius,
             supplementaryMasks: cachedSupplementaryMasks ?? [],
             ownerPID: resolvedProcessID,
             windowNumber: windowNumber
@@ -663,13 +662,13 @@ private func collectSupplementaryMasks(
         )
 
         let resolvedCornerRadius: CGFloat
-        if let resolvedProcessID,
-           let matchedRadius = resolveCornerRadiusForWindow(
-               pid: resolvedProcessID,
-               frame: maskFrame,
-               cache: &cornerSnapshotCache
-           ) {
-            resolvedCornerRadius = clampCornerRadius(matchedRadius, to: maskFrame)
+        if let resolvedProcessID {
+            let matchedRadius = resolveCornerRadiusForWindow(
+                pid: resolvedProcessID,
+                frame: maskFrame,
+                cache: &cornerSnapshotCache
+            )
+            resolvedCornerRadius = matchedRadius
         } else {
             switch maskPurpose {
             case .applicationWindow:
@@ -848,16 +847,20 @@ private func resolveCornerRadiusForWindow(
     pid: pid_t,
     frame: NSRect,
     cache: inout [pid_t: [AXWindowCornerSnapshot]]
-) -> CGFloat? {
+) -> CGFloat {
     let snapshots = windowCornerSnapshots(for: pid, cache: &cache)
 
-    guard let match = snapshots.first(where: { $0.frame.isApproximatelyEqual(to: frame, tolerance: 3) }) else {
-        return nil
+    if let match = snapshots.first(where: { $0.frame.isApproximatelyEqual(to: frame, tolerance: 3) }),
+       let radius = match.cornerRadius,
+       radius > 0.1 {
+        return clampCornerRadius(radius, to: frame)
     }
-    if let radius = match.cornerRadius, radius > 0.1 {
-        return radius
+
+    if let cachedRadius = ApplicationMaskShapeCache.shared.cachedCornerRadius(forPID: pid, matching: frame) {
+        return clampCornerRadius(cachedRadius, to: frame)
     }
-    return nil
+
+    return heuristicCornerRadius(for: frame)
 }
 
 @MainActor
@@ -1494,6 +1497,24 @@ private func screenMatching(_ rect: CGRect) -> NSScreen? {
     }
 
     return NSScreen.main ?? NSScreen.screens.first
+}
+
+/// Produces a best-effort corner radius estimate when no system metadata is available.
+private func heuristicCornerRadius(for frame: NSRect) -> CGFloat {
+    let minDimension = max(4, min(frame.width, frame.height))
+    var radius = fallbackCornerRadius(for: frame)
+    if minDimension < 260 {
+        radius *= 0.82
+    } else if minDimension > 600 {
+        radius *= 1.05
+    }
+    let aspect = max(frame.width, frame.height) / max(minDimension, 1)
+    if aspect >= 2.4 {
+        radius *= 0.8
+    } else if aspect >= 1.7 {
+        radius *= 0.92
+    }
+    return clampCornerRadius(radius, to: frame)
 }
 
 /// Clamps a corner radius so it never exceeds half the window dimensions.
