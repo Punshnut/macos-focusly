@@ -219,4 +219,6 @@ Released under the **MIT License** - see [LICENSE](./LICENSE) for details.
 
 ---
 
+[Ko-Fi](https://ko-fi.com/janfeuerbacher)
+
 **Made with ❤️**
