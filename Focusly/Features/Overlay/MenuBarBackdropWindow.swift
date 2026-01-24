@@ -255,7 +255,8 @@ final class MenuBarBackdropWindow: NSPanel {
         guard rawHeight > 0 else { return nil }
 
         let scale = max(screen.backingScaleFactor, 1)
-        let overlap = 1.0 / scale
+        // Overlap slightly into the content region so blur/tint meet the main overlay without a seam.
+        let overlap = 2.0 / scale
 
         let topEdge = screenFrame.maxY
         let bottomEdge = max(screenFrame.origin.y, (screenFrame.maxY - rawHeight) - overlap)

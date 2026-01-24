@@ -24,7 +24,18 @@ final class OverlayWindow: NSPanel {
         }
     }
 
-    private let blurBackend: BlurBackend = BackdropHostView.isSupported ? .backdrop(BackdropHostView()) : .visualEffect(OverlayBlurView())
+    private static var shouldUseBackdrop: Bool = {
+        // CABackdropLayer can mis-render on some external displays; keep opt-in behind a user default.
+        let enabled = UserDefaults.standard.bool(forKey: "Focusly.EnableBackdropBlur")
+        return enabled && BackdropHostView.isSupported
+    }()
+
+    private let blurBackend: BlurBackend = {
+        if OverlayWindow.shouldUseBackdrop {
+            return .backdrop(BackdropHostView())
+        }
+        return .visualEffect(OverlayBlurView())
+    }()
 
     /// Represents a transparent region that should be carved out of the overlay.
     struct MaskRegion: Equatable {
@@ -71,7 +82,8 @@ final class OverlayWindow: NSPanel {
     private var lastAppliedRefreshProfile: DisplayRefreshProfile?
     @available(macOS 12.0, *)
     private static let defaultFrameRateRange = CAFrameRateRange(minimum: 60, maximum: 240, preferred: 120)
-    private let menuBarMaskInsets = NSEdgeInsets(top: 0.4, left: 6, bottom: 1.4, right: 6)
+    // Keep a slight overlap with the menu bar backdrop to prevent a visible seam.
+    private let menuBarMaskInsets = NSEdgeInsets(top: 0.25, left: 3.0, bottom: 0.6, right: 3.0)
     private enum AnimationTuning {
         static let minFade: TimeInterval = 0.12
         static let maxFade: TimeInterval = 0.26
@@ -224,7 +236,7 @@ final class OverlayWindow: NSPanel {
     }
 
     /// Applies multiple carved-out regions so windows, menus, and other UI remain visible.
-    func applyMask(regions: [MaskRegion]) {
+    func applyMask(regions: [MaskRegion], animated: Bool = false) {
         guard let contentView else { return }
 
         let bounds = contentView.bounds
@@ -258,7 +270,7 @@ final class OverlayWindow: NSPanel {
                 return
             }
             currentMaskRegions = []
-            refreshMaskLayers()
+            refreshMaskLayers(animated: animated)
             return
         }
 
@@ -273,7 +285,7 @@ final class OverlayWindow: NSPanel {
         }
 
         currentMaskRegions = ordered
-        refreshMaskLayers()
+        refreshMaskLayers(animated: animated)
     }
 
     /// Resizes the window to match the bounds of the current target screen.
@@ -517,7 +529,7 @@ final class OverlayWindow: NSPanel {
     }
 
     /// Updates CALayer masks to reflect the latest static and dynamic carve-outs.
-    private func refreshMaskLayers() {
+    private func refreshMaskLayers(animated: Bool = false) {
         guard let contentView else { return }
         guard areFiltersActive else {
             resetMaskLayers(preserveActiveRegions: true)
@@ -557,6 +569,15 @@ final class OverlayWindow: NSPanel {
         }
 
         CATransaction.commit()
+
+        guard animated else { return }
+        let fade = CABasicAnimation(keyPath: "opacity")
+        fade.fromValue = 0
+        fade.toValue = 1
+        fade.duration = 0.16
+        fade.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        tintMaskLayer.add(fade, forKey: "maskFade")
+        blurMaskLayer.add(fade, forKey: "maskFade")
     }
 
     /// Clears active masks and releases mask images.

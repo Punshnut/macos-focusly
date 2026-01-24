@@ -22,7 +22,10 @@ final class ApplicationMaskingIgnoreList {
         static let ignoredBundleEntries = "Focusly.MaskingIgnoredBundleEntries"
     }
 
-    static let defaultBundleEntryPreferences: [String: Preference] = [:]
+    static let defaultBundleEntryPreferences: [String: Preference] = [
+        // Arc browser should always be considered for masking (never ignored).
+        "company.thebrowser.arc": .alwaysMask
+    ]
     static let defaultProcessNameFragmentPreferences: [String: Preference] = [
         "alcove": .excludeExceptSettingsWindow
     ]

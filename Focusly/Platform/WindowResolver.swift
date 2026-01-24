@@ -331,7 +331,7 @@ private func cgFrontWindow(
     var cornerSnapshotCache: [pid_t: [AXWindowCornerSnapshot]] = [:]
     var bundleIdentifierCache: [pid_t: String?] = [:]
 
-    let candidateWindowList = Array(completeWindowList.prefix(24))
+    let candidateWindowList = Array(completeWindowList.prefix(72))
     let resolvedPreferredPID: pid_t? = {
         if let preferredPID {
             return preferredPID
@@ -433,7 +433,10 @@ private func findFrontWindow(
     for windowDictionary in windowDictionaries {
         guard let windowNumber = windowDictionary[kCGWindowNumber as String] as? Int else { continue }
         if windowNumbers.contains(windowNumber) { continue }
-        guard let layerIndex = windowDictionary[kCGWindowLayer as String] as? Int, layerIndex == 0 else { continue }
+        guard let layerIndex = windowDictionary[kCGWindowLayer as String] as? Int,
+              layerIndex >= 0 else { continue }
+        let isHighLayerAccessory = layerIndex > floatingAccessoryWindowLevel && layerIndex <= popUpMenuWindowLevel
+        if layerIndex > popUpMenuWindowLevel { continue }
         if let alphaValue = windowDictionary[kCGWindowAlpha as String] as? Double, alphaValue < 0.05 { continue }
         guard
             let boundsDictionary = windowDictionary[kCGWindowBounds as String] as? [String: Any],
@@ -485,6 +488,11 @@ private func findFrontWindow(
                 category: "FrontWindow",
                 "Skipped notification banner owner=\(ownerApplicationName ?? "(unknown)") title=\(resolvedWindowName ?? "(untitled)")"
             )
+            continue
+        }
+
+        // Avoid elevating menus/tooltips as front windows unless they belong to the preferred PID.
+        if isHighLayerAccessory, let preferredPID, preferredPID != resolvedProcessID {
             continue
         }
 
