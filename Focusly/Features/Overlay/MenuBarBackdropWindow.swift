@@ -22,6 +22,15 @@ final class MenuBarBackdropWindow: NSPanel {
     private var lastAppliedRefreshProfile: DisplayRefreshProfile?
     @available(macOS 12.0, *)
     private static let defaultFrameRateRange = CAFrameRateRange(minimum: 60, maximum: 240, preferred: 120)
+    private enum AnimationTuning {
+        static let minFade: TimeInterval = 0.12
+        static let maxFade: TimeInterval = 0.26
+
+        static func clamp(_ duration: TimeInterval) -> TimeInterval {
+            guard duration > 0 else { return 0 }
+            return min(max(duration, minFade), maxFade)
+        }
+    }
 
     init(screen: NSScreen, displayID: DisplayID) {
         self.displayID = displayID
@@ -63,7 +72,7 @@ final class MenuBarBackdropWindow: NSPanel {
 
     /// Fades the window in when the backdrop becomes visible.
     func animatePresentation(duration: TimeInterval, animated: Bool) {
-        let clampedDuration = max(0, duration)
+        let clampedDuration = AnimationTuning.clamp(max(0, duration))
         guard animated, clampedDuration > 0 else {
             alphaValue = 1
             return
@@ -80,7 +89,7 @@ final class MenuBarBackdropWindow: NSPanel {
 
     /// Hides the backdrop, optionally animating the fade-out.
     func hide(animated: Bool) {
-        let duration = currentStyle?.animationDuration ?? 0.25
+        let duration = AnimationTuning.clamp(currentStyle?.animationDuration ?? 0.22)
         let teardown = { [weak self] in
             guard let self else { return }
             self.alphaValue = 0
@@ -107,7 +116,7 @@ final class MenuBarBackdropWindow: NSPanel {
         areFiltersActive = enabled
 
         let targetOpacity = CGFloat(max(0, min(currentStyle?.opacity ?? 1, 1)))
-        let duration = animated ? max(0, currentStyle?.animationDuration ?? 0.25) : 0
+        let duration = animated ? AnimationTuning.clamp(currentStyle?.animationDuration ?? 0.22) : 0
 
         if enabled {
             blurView.setBlurEnabled(true)
@@ -163,6 +172,7 @@ final class MenuBarBackdropWindow: NSPanel {
         guard areFiltersActive else { return }
 
         let targetOpacity = CGFloat(max(0, min(style.opacity, 1)))
+        let duration = AnimationTuning.clamp(style.animationDuration)
 
         guard animated else {
             blurView.alphaValue = targetOpacity
@@ -171,7 +181,7 @@ final class MenuBarBackdropWindow: NSPanel {
         }
 
         NSAnimationContext.runAnimationGroup { context in
-            context.duration = style.animationDuration
+            context.duration = duration
             context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
             self.blurView.animator().alphaValue = targetOpacity
             self.tintView.animator().alphaValue = targetOpacity

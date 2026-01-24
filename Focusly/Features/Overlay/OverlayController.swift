@@ -5,6 +5,8 @@
 import AppKit
 import os.log
 import QuartzCore
+import CoreGraphics
+import Cocoa
 
 /// Keeps OverlayWindow instances synchronized with the focused window and display configuration.
 @MainActor
@@ -287,6 +289,7 @@ final class OverlayController {
         return nanosecondsPerTick / 1_000_000_000.0
     }()
     private var nextMaskDiagnosticsLogDate = Date.distantPast
+    private var lastMaskApplicationDate = Date.distantPast
     private let maskDiagnosticsLogger = Logger(subsystem: "com.focusly.app", category: "OverlayMask")
     private var defaultApplicationMaskingMode: ApplicationMaskingMode = .allApplicationWindows
     private var maskingModeOverrides: [DisplayID: ApplicationMaskingMode] = [:]
@@ -1014,7 +1017,9 @@ final class OverlayController {
             var ignoredCacheIdentity: WindowIdentity?
 
             if let predictedSnapshot = predictedSnapshotsByDisplayID[displayID] {
-                if apply(snapshot: predictedSnapshot, to: window, displayID: displayID, cacheIdentity: nil) {
+                if window.frame.intersection(predictedSnapshot.frame).isNull {
+                    predictedSnapshotsByDisplayID.removeValue(forKey: displayID)
+                } else if apply(snapshot: predictedSnapshot, to: window, displayID: displayID, cacheIdentity: nil) {
                     didApplyMask = true
                     applied = true
                 } else {
@@ -1025,6 +1030,10 @@ final class OverlayController {
             if !applied, let entry = preferredCacheEntry(for: displayID) {
                 cachedSnapshotEntry = entry
                 let (identity, cachedEntry) = entry
+                if window.frame.intersection(cachedEntry.snapshot.frame).isNull {
+                    staleEntries.append((displayID, identity))
+                    continue
+                }
                 if apply(snapshot: cachedEntry.snapshot, to: window, displayID: displayID, cacheIdentity: identity) {
                     didApplyMask = true
                     applied = true
@@ -1059,32 +1068,25 @@ final class OverlayController {
                     didApplyMask = true
                     continue
                 }
-                if shouldPreserveFrozenMask, let frozenMask, !frozenMask.isEmpty {
-                    window.applyMask(regions: frozenMask)
-                    didApplyMask = true
-                    continue
-                }
                 if let frozenMask, !frozenMask.isEmpty {
                     window.applyMask(regions: frozenMask)
                     didApplyMask = true
-                } else {
-                    window.applyMask(regions: [])
+                    shouldPreserveFrozenMask = true
                 }
+            }
+
+            if shouldPreserveFrozenMask == false {
+                frozenMaskRegionsByDisplayID[displayID] = nil
             }
         }
 
-        if !staleEntries.isEmpty {
-            for (displayID, identity) in staleEntries {
-                removeCacheEntry(for: displayID, identity: identity)
-                if cachedSnapshotsByDisplayID[displayID] == nil, activeDisplayID == displayID {
-                    activeDisplayID = nil
-                    didMutateActiveDisplay = true
-                }
-            }
+        if didApplyMask {
+            pruneStaleEntries(staleEntries)
+            didMutateActiveDisplay = true
         }
 
         if didMutateActiveDisplay {
-            updateDisplayLinkPreferredDisplay()
+            lastMaskApplicationDate = now
         }
 
         evaluateMaskRenderingDiagnosticsIfNeeded()
@@ -1097,6 +1099,13 @@ final class OverlayController {
         }
     }
 
+    private func pruneStaleEntries(_ staleEntries: [(DisplayID, WindowIdentity)]) {
+        if staleEntries.isEmpty { return }
+        for (displayID, identity) in staleEntries {
+            cachedSnapshotsByDisplayID[displayID]?.removeEntry(for: identity)
+        }
+    }
+
     /// Converts an active window snapshot into overlay mask regions for the supplied window.
     private func apply(
         snapshot: ActiveWindowSnapshot,
@@ -1104,7 +1113,7 @@ final class OverlayController {
         displayID: DisplayID,
         cacheIdentity: WindowIdentity? = nil
     ) -> Bool {
-        var requests = maskRequests(for: snapshot, mode: maskingMode(for: displayID))
+        var requests = maskRequests(for: snapshot, mode: maskingMode(for: displayID), window: window)
         if let peripheralRequests = peripheralMaskRequestsByDisplayID[displayID], !peripheralRequests.isEmpty {
             requests.append(contentsOf: peripheralRequests)
         }
@@ -1118,18 +1127,32 @@ final class OverlayController {
     }
 
     /// Builds mask requests for the supplied snapshot including supplementary carve-outs.
-    private func maskRequests(for snapshot: ActiveWindowSnapshot, mode: ApplicationMaskingMode) -> [MaskRequest] {
-        var requests: [MaskRequest] = [
+    private func maskRequests(for snapshot: ActiveWindowSnapshot, mode: ApplicationMaskingMode, window: OverlayWindow) -> [MaskRequest] {
+        var requests: [MaskRequest] = []
+        guard snapshot.frame.intersects(window.frame) else { return [] }
+
+        requests.append(
             MaskRequest(
                 rect: snapshot.frame,
                 cornerRadius: snapshot.cornerRadius,
                 purpose: .applicationWindow
             )
-        ]
+        )
+
+        let dragActive = motionPredictor.hasRecentSignificantMovement(
+            within: 0.2,
+            now: CACurrentMediaTime()
+        )
 
         if !snapshot.supplementaryMasks.isEmpty {
             for region in snapshot.supplementaryMasks {
                 if region.purpose == .applicationWindow, mode == .focusedWindow {
+                    continue
+                }
+                if dragActive && region.purpose == .systemMenu {
+                    continue
+                }
+                if region.frame.intersection(window.frame).isNull {
                     continue
                 }
                 requests.append(
@@ -1151,7 +1174,15 @@ final class OverlayController {
             return nil
         }
         var requests: [MaskRequest] = []
+        let dragActive = motionPredictor.hasRecentSignificantMovement(
+            within: 0.2,
+            now: CACurrentMediaTime()
+        )
+
         for region in activeSnapshot.supplementaryMasks where region.purpose != .applicationWindow {
+            if dragActive && region.purpose == .systemMenu {
+                continue
+            }
             if region.frame.intersection(displayFrame).isNull {
                 continue
             }
@@ -1218,11 +1249,24 @@ final class OverlayController {
         maskRegions.reserveCapacity(maskRequests.count)
 
         let backingScale = window.backingScaleFactor
+        let maxInflation: CGFloat = 1.1
+        let displayArea = max(windowScreenFrame.width * windowScreenFrame.height, .ulpOfOne)
 
         for request in maskRequests {
             let expansion = maskExpansion(for: request.purpose)
             let baseIntersection = request.rect.intersection(windowScreenFrame)
             guard !baseIntersection.isNull else { continue }
+
+            // Skip obviously runaway rectangles relative to the display.
+            if baseIntersection.width > windowScreenFrame.width * maxInflation ||
+                baseIntersection.height > windowScreenFrame.height * maxInflation {
+                continue
+            }
+            let area = baseIntersection.width * baseIntersection.height
+            let areaRatio = area / displayArea
+            if areaRatio < 0.0008 || areaRatio > 0.45 { // cap at 45% of the display
+                continue
+            }
 
             let expandedRect: NSRect
             if expansion != 0 {
@@ -1462,13 +1506,17 @@ final class OverlayController {
 
     /// Determines how much a given mask should expand to cover drop-shadows and hover states.
     private func maskExpansion(for purpose: ActiveWindowSnapshot.MaskRegion.Purpose?) -> CGFloat {
+        let dragActive = motionPredictor.hasRecentSignificantMovement(
+            within: 0.18,
+            now: CACurrentMediaTime()
+        )
         switch purpose {
         case .systemMenu?:
-            return 0.07
+            return dragActive ? 0.04 : 0.07
         case .applicationMenu?:
-            return 0.06
+            return dragActive ? 0.035 : 0.06
         case .applicationWindow?:
-            return 0.1
+            return dragActive ? 0.028 : 0.1
         case nil:
             return 0.1
         }
@@ -1476,9 +1524,14 @@ final class OverlayController {
 
     /// Slightly shrinks carved-out menus so their edges remain pixel-tight after rounding.
     private func maskShrink(for purpose: ActiveWindowSnapshot.MaskRegion.Purpose?, rect: NSRect) -> CGFloat {
+        let dragActive = motionPredictor.hasRecentSignificantMovement(
+            within: 0.18,
+            now: CACurrentMediaTime()
+        )
         switch purpose {
         case .systemMenu?, .applicationMenu?:
-            return min(0.35, min(rect.width, rect.height) * 0.3)
+            let base = min(0.35, min(rect.width, rect.height) * 0.3)
+            return dragActive ? base * 0.55 : base
         case .applicationWindow?, nil:
             return 0
         }
@@ -2393,6 +2446,18 @@ final class OverlayController {
             abs(predictedFrame.width - snapshot.frame.width),
             abs(predictedFrame.height - snapshot.frame.height)
         )
+        let areaRatio = (max(predictedFrame.width * predictedFrame.height, .ulpOfOne)) /
+        max(snapshot.frame.width * snapshot.frame.height, .ulpOfOne)
+        let sizeRatio = max(predictedFrame.width / max(snapshot.frame.width, 1),
+                            predictedFrame.height / max(snapshot.frame.height, 1))
+        let sizeOK = sizeRatio >= 0.55 && sizeRatio <= 1.2
+        if !sizeOK || areaRatio < 0.55 || areaRatio > 1.4 {
+            // Discard runaway predictions that would balloon the mask.
+            if predictedSnapshotsByDisplayID.removeValue(forKey: displayID) != nil {
+                applyOverlayMasksFromCache()
+            }
+            return
+        }
         if centerShift < minimumPredictionDelta && sizeShift < minimumPredictionDelta {
             if predictedSnapshotsByDisplayID.removeValue(forKey: displayID) != nil {
                 applyOverlayMasksFromCache()
@@ -2403,7 +2468,11 @@ final class OverlayController {
         let predictedSnapshot = ActiveWindowSnapshot(
             frame: predictedFrame,
             cornerRadius: snapshot.cornerRadius,
-            supplementaryMasks: snapshot.supplementaryMasks
+            supplementaryMasks: translatedMasks(
+                snapshot.supplementaryMasks,
+                dx: predictedFrame.origin.x - snapshot.frame.origin.x,
+                dy: predictedFrame.origin.y - snapshot.frame.origin.y
+            )
         )
         if predictedSnapshotsByDisplayID[displayID] == predictedSnapshot {
             return
@@ -2436,19 +2505,27 @@ final class OverlayController {
 
         guard var cachedSnapshot = cachedActiveSnapshot else {
             motionPredictor.record(frame: cgFrame)
+            applyOverlayMasksFromCache()
             return .needsFallback
         }
 
         let tolerance: CGFloat = 0.35
         if cachedSnapshot.frame.isApproximatelyEqual(to: cgFrame, tolerance: tolerance) {
             motionPredictor.record(frame: cgFrame)
+            applyOverlayMasksFromCache()
             return .noChange
         }
 
+        let dx = cgFrame.origin.x - cachedSnapshot.frame.origin.x
+        let dy = cgFrame.origin.y - cachedSnapshot.frame.origin.y
         cachedSnapshot = ActiveWindowSnapshot(
             frame: cgFrame,
             cornerRadius: cachedSnapshot.cornerRadius,
-            supplementaryMasks: cachedSnapshot.supplementaryMasks
+            supplementaryMasks: translatedMasks(
+                cachedSnapshot.supplementaryMasks,
+                dx: dx,
+                dy: dy
+            )
         )
         cacheActiveSnapshot(cachedSnapshot)
         applyOverlayMasksFromCache()
@@ -2520,6 +2597,25 @@ extension OverlayController {
     }
 }
 #endif
+
+/// Translates mask regions by a delta so cached geometry can be re-used during prediction/drag.
+private func translatedMasks(
+    _ masks: [ActiveWindowSnapshot.MaskRegion],
+    dx: CGFloat,
+    dy: CGFloat
+) -> [ActiveWindowSnapshot.MaskRegion] {
+    guard (dx != 0 || dy != 0), !masks.isEmpty else { return masks }
+    return masks.map { region in
+        var frame = region.frame
+        frame.origin.x += dx
+        frame.origin.y += dy
+        return ActiveWindowSnapshot.MaskRegion(
+            frame: frame,
+            cornerRadius: region.cornerRadius,
+            purpose: region.purpose
+        )
+    }
+}
 
 extension OverlayController: OverlayServiceDelegate {
     /// Receives overlay updates from the service and replaces the managed window set.

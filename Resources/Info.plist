@@ -21,7 +21,7 @@
 	<key>LSApplicationCategoryType</key>
 	<string>public.app-category.productivity</string>
 	<key>NSHumanReadableCopyright</key>
-	<string>Copyright © 2025 Jan Feuerbacher. All rights reserved.</string>
+	<string>Copyright © 2026 Jan Feuerbacher. All rights reserved.</string>
 	<key>NSAppleEventsUsageDescription</key>
 	<string>Focusly needs automation permission to read window frames and keep the ambient overlay aligned with your active app.</string>
 </dict>

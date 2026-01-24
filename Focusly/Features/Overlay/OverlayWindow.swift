@@ -5,7 +5,26 @@ import CoreImage
 /// Full-screen, click-through panel that renders Focusly's blur and tint overlay above a display.
 @MainActor
 final class OverlayWindow: NSPanel {
-    private let overlayBlurView = OverlayBlurView()
+    private enum BlurBackend {
+        case visualEffect(OverlayBlurView)
+        case backdrop(BackdropHostView)
+
+        @MainActor var view: NSView {
+            switch self {
+            case .visualEffect(let view): return view
+            case .backdrop(let view): return view
+            }
+        }
+
+        @MainActor var layer: CALayer? {
+            switch self {
+            case .visualEffect(let view): return view.layer
+            case .backdrop(let view): return view.layer
+            }
+        }
+    }
+
+    private let blurBackend: BlurBackend = BackdropHostView.isSupported ? .backdrop(BackdropHostView()) : .visualEffect(OverlayBlurView())
 
     /// Represents a transparent region that should be carved out of the overlay.
     struct MaskRegion: Equatable {
@@ -52,6 +71,16 @@ final class OverlayWindow: NSPanel {
     private var lastAppliedRefreshProfile: DisplayRefreshProfile?
     @available(macOS 12.0, *)
     private static let defaultFrameRateRange = CAFrameRateRange(minimum: 60, maximum: 240, preferred: 120)
+    private let menuBarMaskInsets = NSEdgeInsets(top: 0.4, left: 6, bottom: 1.4, right: 6)
+    private enum AnimationTuning {
+        static let minFade: TimeInterval = 0.12
+        static let maxFade: TimeInterval = 0.26
+
+        static func clamp(_ duration: TimeInterval) -> TimeInterval {
+            guard duration > 0 else { return 0 }
+            return min(max(duration, minFade), maxFade)
+        }
+    }
 
     /// Creates a new overlay window that is pinned to the given screen and display identifier.
     init(screen: NSScreen, displayID: DisplayID) {
@@ -119,37 +148,47 @@ final class OverlayWindow: NSPanel {
         areFiltersActive = enabled
 
         let targetOpacity = CGFloat(max(0, min(currentStyle?.opacity ?? 1, 1)))
-        let duration = animated ? max(0, currentStyle?.animationDuration ?? 0.25) : 0
+        let duration = animated ? AnimationTuning.clamp(currentStyle?.animationDuration ?? 0.22) : 0
 
         if enabled {
-            overlayBlurView.setBlurEnabled(true)
+            switch blurBackend {
+            case .visualEffect(let blurView):
+                blurView.setBlurEnabled(true)
+            case .backdrop(let host):
+                host.setEnabled(true)
+            }
             tintView.isHidden = false
             refreshMaskLayers()
 
             guard duration > 0 else {
-                overlayBlurView.alphaValue = targetOpacity
+                blurBackend.view.alphaValue = targetOpacity
                 tintView.alphaValue = targetOpacity
                 return
             }
 
-            overlayBlurView.alphaValue = 0
+            blurBackend.view.alphaValue = 0
             tintView.alphaValue = 0
 
             NSAnimationContext.runAnimationGroup { context in
                 context.duration = duration
                 context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-                self.overlayBlurView.animator().alphaValue = targetOpacity
+                self.blurBackend.view.animator().alphaValue = targetOpacity
                 self.tintView.animator().alphaValue = targetOpacity
             }
         } else {
             let applyDisabledState = {
-                self.overlayBlurView.setBlurEnabled(false)
+                switch self.blurBackend {
+                case .visualEffect(let blurView):
+                    blurView.setBlurEnabled(false)
+                case .backdrop(let host):
+                    host.setEnabled(false)
+                }
                 self.tintView.isHidden = true
                 self.resetMaskLayers(preserveActiveRegions: true)
             }
 
             guard duration > 0 else {
-                overlayBlurView.alphaValue = 0
+                blurBackend.view.alphaValue = 0
                 tintView.alphaValue = 0
                 applyDisabledState()
                 return
@@ -159,7 +198,7 @@ final class OverlayWindow: NSPanel {
                 context.duration = duration
                 context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
                 context.completionHandler = applyDisabledState
-                self.overlayBlurView.animator().alphaValue = 0
+                self.blurBackend.view.animator().alphaValue = 0
                 self.tintView.animator().alphaValue = 0
             }
         }
@@ -167,7 +206,12 @@ final class OverlayWindow: NSPanel {
 
     /// Updates the underlying `NSVisualEffectView` material used for blurring.
     func setMaterial(_ material: NSVisualEffectView.Material) {
-        overlayBlurView.material = material
+        switch blurBackend {
+        case .visualEffect(let blurView):
+            blurView.material = material
+        case .backdrop:
+            break
+        }
     }
 
     /// Applies a single carved-out mask region, typically matching a focused window.
@@ -295,14 +339,15 @@ final class OverlayWindow: NSPanel {
             applyFrameRateRange(Self.defaultFrameRateRange)
         }
 
-        contentView.addSubview(overlayBlurView)
+        blurBackend.view.translatesAutoresizingMaskIntoConstraints = false
+        contentView.addSubview(blurBackend.view)
         contentView.addSubview(tintView)
 
         NSLayoutConstraint.activate([
-            overlayBlurView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
-            overlayBlurView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
-            overlayBlurView.topAnchor.constraint(equalTo: contentView.topAnchor),
-            overlayBlurView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
+            blurBackend.view.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+            blurBackend.view.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+            blurBackend.view.topAnchor.constraint(equalTo: contentView.topAnchor),
+            blurBackend.view.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
             tintView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
             tintView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
             tintView.topAnchor.constraint(equalTo: contentView.topAnchor),
@@ -324,7 +369,9 @@ final class OverlayWindow: NSPanel {
     func prepareForPresentation() {
         alphaValue = 0
         tintView.layer?.removeAllAnimations()
-        overlayBlurView.prepareForReuse()
+        if case .visualEffect(let blurView) = blurBackend {
+            blurView.prepareForReuse()
+        }
         contentView?.layer?.removeAllAnimations()
         if let targetScreen = boundScreen ?? screen {
             recalculateStaticExclusions(for: targetScreen)
@@ -334,7 +381,7 @@ final class OverlayWindow: NSPanel {
 
     /// Fades the window in when the overlay is presented on screen.
     func animatePresentation(duration: TimeInterval, animated: Bool) {
-        let clampedDuration = max(0, duration)
+        let clampedDuration = AnimationTuning.clamp(max(0, duration))
         guard animated, clampedDuration > 0 else {
             alphaValue = 1
             return
@@ -351,7 +398,7 @@ final class OverlayWindow: NSPanel {
 
     /// Hides the overlay, optionally animating the fade-out.
     func hide(animated: Bool) {
-        let duration = currentStyle?.animationDuration ?? 0.25
+        let duration = AnimationTuning.clamp(currentStyle?.animationDuration ?? 0.22)
         let teardown = { [weak self] in
             guard let self else { return }
             self.alphaValue = 0
@@ -375,7 +422,7 @@ final class OverlayWindow: NSPanel {
     /// Applies the supplied overlay style, optionally animating opacity and colors.
     func apply(style: FocusOverlayStyle, animated: Bool) {
         currentStyle = style
-        let duration = style.animationDuration
+        let duration = AnimationTuning.clamp(style.animationDuration)
         let targetOpacity = CGFloat(max(0, min(style.opacity, 1)))
         let targetColor = style.tint.makeColor()
 
@@ -383,14 +430,19 @@ final class OverlayWindow: NSPanel {
             if self.alphaValue != 1 {
                 self.alphaValue = 1
             }
-            self.overlayBlurView.alphaValue = targetOpacity
+            self.blurBackend.view.alphaValue = targetOpacity
             self.tintView.alphaValue = targetOpacity
             self.tintView.layer?.backgroundColor = targetColor.cgColor
         }
 
-        overlayBlurView.setMaterial(style.blurMaterial.visualEffectMaterial)
-        overlayBlurView.setExtraBlurRadius(CGFloat(max(0, style.blurRadius)))
-        overlayBlurView.setColorTreatment(style.colorTreatment)
+        switch blurBackend {
+        case .visualEffect(let blurView):
+            blurView.setMaterial(style.blurMaterial.visualEffectMaterial)
+            blurView.setExtraBlurRadius(CGFloat(max(0, style.blurRadius)))
+            blurView.setColorTreatment(style.colorTreatment)
+        case .backdrop(let host):
+            host.setBlurRadius(CGFloat(max(0, style.blurRadius)))
+        }
 
         guard animated else {
             applyValues()
@@ -403,7 +455,7 @@ final class OverlayWindow: NSPanel {
             if self.alphaValue != 1 {
                 self.animator().alphaValue = 1
             }
-            self.overlayBlurView.animator().alphaValue = targetOpacity
+            self.blurBackend.view.animator().alphaValue = targetOpacity
             self.tintView.animator().alphaValue = targetOpacity
         }
 
@@ -452,8 +504,16 @@ final class OverlayWindow: NSPanel {
         let backingRect = contentView.convertToBacking(rectInContent).integral
         let alignedRect = contentView.convertFromBacking(backingRect)
 
-        staticTintExclusions = [alignedRect]
-        staticBlurExclusions = [alignedRect]
+        let insetX = menuBarMaskInsets.left + menuBarMaskInsets.right
+        let insetY = menuBarMaskInsets.top + menuBarMaskInsets.bottom
+        var trimmed = alignedRect
+        trimmed.origin.x += menuBarMaskInsets.left
+        trimmed.origin.y += menuBarMaskInsets.bottom
+        trimmed.size.width = max(0, trimmed.size.width - insetX)
+        trimmed.size.height = max(0, trimmed.size.height - insetY)
+
+        staticTintExclusions = [trimmed]
+        staticBlurExclusions = [trimmed]
     }
 
     /// Updates CALayer masks to reflect the latest static and dynamic carve-outs.
@@ -492,8 +552,8 @@ final class OverlayWindow: NSPanel {
         if tintView.layer?.mask !== tintMaskLayer {
             tintView.layer?.mask = tintMaskLayer
         }
-        if overlayBlurView.layer?.mask !== blurMaskLayer {
-            overlayBlurView.layer?.mask = blurMaskLayer
+        if blurBackend.layer?.mask !== blurMaskLayer {
+            blurBackend.layer?.mask = blurMaskLayer
         }
 
         CATransaction.commit()
@@ -506,8 +566,8 @@ final class OverlayWindow: NSPanel {
         if tintView.layer?.mask === tintMaskLayer {
             tintView.layer?.mask = nil
         }
-        if overlayBlurView.layer?.mask === blurMaskLayer {
-            overlayBlurView.layer?.mask = nil
+        if blurBackend.layer?.mask === blurMaskLayer {
+            blurBackend.layer?.mask = nil
         }
         tintMaskLayer.reset()
         blurMaskLayer.reset()
@@ -545,7 +605,7 @@ final class OverlayWindow: NSPanel {
 private extension OverlayWindow {
     func applyFrameRateRange(_ range: CAFrameRateRange) {
         contentView?.layer?.setValue(range, forKey: "preferredFrameRateRange")
-        overlayBlurView.layer?.setValue(range, forKey: "preferredFrameRateRange")
+        blurBackend.layer?.setValue(range, forKey: "preferredFrameRateRange")
         tintView.layer?.setValue(range, forKey: "preferredFrameRateRange")
     }
 }

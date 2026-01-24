@@ -526,7 +526,8 @@ private func collectSupplementaryMasks(
         if excludingNumbers.contains(number) { continue }
         if visitedWindowNumbers.contains(number) { continue }
         guard let layerIndex = window[kCGWindowLayer as String] as? Int else { continue }
-        if let alphaValue = window[kCGWindowAlpha as String] as? Double, alphaValue < 0.05 { continue }
+        let alphaValue = window[kCGWindowAlpha as String] as? Double
+        if let alphaValue, alphaValue < 0.05 { continue }
         guard
             let boundsDictionary = window[kCGWindowBounds as String] as? [String: Any],
             let coreGraphicsBounds = CGRect(dictionaryRepresentation: boundsDictionary as CFDictionary)
@@ -641,7 +642,8 @@ private func collectSupplementaryMasks(
             bounds: coreGraphicsBounds,
             maskFrame: maskFrame,
             matchesPrimary: matchesPrimary,
-            includeApplicationWindows: includeApplicationWindows
+            includeApplicationWindows: includeApplicationWindows,
+            alphaValue: alphaValue
         ) else {
             logSupplementaryMaskSkip(
                 ownerName: ownerApplicationName,
@@ -1193,7 +1195,8 @@ private func classifySupplementaryWindow(
     bounds coreGraphicsBounds: CGRect,
     maskFrame: NSRect,
     matchesPrimary matchesPrimaryApplication: Bool,
-    includeApplicationWindows: Bool
+    includeApplicationWindows: Bool,
+    alphaValue: Double?
 ) -> ActiveWindowSnapshot.MaskRegion.Purpose? {
     if isSystemNotificationBanner(
         layer: layerIndex,
@@ -1209,6 +1212,26 @@ private func classifySupplementaryWindow(
             purpose: .systemMenu
         )
         return .systemMenu
+    }
+
+    if let alphaValue,
+       isLikelyVisualEffectSurface(
+           alpha: alphaValue,
+           layerIndex: layerIndex,
+           bounds: coreGraphicsBounds,
+           maskFrame: maskFrame,
+           matchesPrimary: matchesPrimaryApplication
+       ) {
+        let purpose: ActiveWindowSnapshot.MaskRegion.Purpose = matchesPrimaryApplication ? .applicationWindow : .systemMenu
+        logSupplementaryMaskClassification(
+            ownerName: ownerApplicationName,
+            windowName: windowName,
+            layerIndex: layerIndex,
+            bounds: coreGraphicsBounds,
+            reason: "visual effect surface heuristics",
+            purpose: purpose
+        )
+        return purpose
     }
 
     if matchesPrimaryApplication {
@@ -1321,6 +1344,49 @@ private func isLikelyMenuWindow(
 
     if isCompactMenu && layerIndex >= 4 {
         return true
+    }
+
+    return false
+}
+
+/// Detects translucent NSVisualEffectView-backed surfaces that often render at low window layers.
+private func isLikelyVisualEffectSurface(
+    alpha: Double,
+    layerIndex: Int,
+    bounds coreGraphicsBounds: CGRect,
+    maskFrame: NSRect,
+    matchesPrimary: Bool
+) -> Bool {
+    guard alpha > 0.05, alpha <= 0.65 else { return false }
+    let area = coreGraphicsBounds.width * coreGraphicsBounds.height
+    guard area >= 2 else { return false }
+
+    let coverage: CGFloat = {
+        guard let screen = screenMatching(coreGraphicsBounds) else { return 0 }
+        let screenArea = max(screen.frame.width * screen.frame.height, .ulpOfOne)
+        return (coreGraphicsBounds.width * coreGraphicsBounds.height) / screenArea
+    }()
+
+    let aspectRatio = max(maskFrame.height, 1) / max(maskFrame.width, 1)
+    let lowLayer = layerIndex <= 2
+
+    if matchesPrimary {
+        if lowLayer && coverage >= 0.18 && coverage <= 0.82 {
+            return true
+        }
+        if layerIndex <= 4 && alpha < 0.34 && coverage >= 0.1 && coverage <= 0.58 {
+            return true
+        }
+        if layerIndex <= 4 && aspectRatio >= 1.4 && coverage >= 0.08 {
+            return true
+        }
+    } else {
+        if lowLayer && alpha < 0.48 && coverage >= 0.28 && coverage <= 0.72 {
+            return true
+        }
+        if layerIndex <= 3 && alpha < 0.32 && aspectRatio >= 1.5 && coverage >= 0.12 {
+            return true
+        }
     }
 
     return false
