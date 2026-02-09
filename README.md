@@ -1,7 +1,7 @@
 # **Focusly - macOS Ambience & Focus Companion**
 
 <p align="center">
-  <img src="https://img.shields.io/badge/platform-macOS-blue" alt="Platform macOS">
+  <img src="https://img.shields.io/badge/macOS-native-000000?style=flat&logo=apple" alt="macOS native">
   <img src="https://img.shields.io/badge/Swift-6.2-orange" alt="Swift 6.2">
   <img src="https://img.shields.io/badge/Stage-Alpha-yellow" alt="Stage Alpha">
   <img src="https://img.shields.io/badge/License-MIT-green.svg" alt="License: MIT">
