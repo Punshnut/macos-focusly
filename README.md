@@ -103,16 +103,12 @@ Being a minimalist, productivity-first app means - at least to me as the develop
 
 - [ ] **Overlay Performance** - higher refresh via smarter blur scheduling *(feature-complete locally; validating on diverse GPUs before calling it done)*.
 - [ ] **Settings Refresh** - enhancing the usability of the app settings window
-- [x] **Full notarization** - signed builds now clear Gatekeeper automatically; only unsigned/test drops (clearly labeled) need **Open Anyway** once.
 
 </details>
 
 ---
 
 ## **Try the newest Alpha Release Today**
-
-<details open>
-<summary>Tap for install steps</summary>
 
 1. Mount `Focusly.dmg` and drag `Focusly.app` into `/Applications`.
 2. Launch `Focusly.app` from `/Applications`. Signed releases (the default) open immediately - I’ll call out any build that isn’t.
@@ -123,91 +119,6 @@ Being a minimalist, productivity-first app means - at least to me as the develop
 Latest alpha DMG lives on [GitHub Releases](https://github.com/Punshnut/macos-focusly/releases).
 
 > 🛡️ Gatekeeper’s **Open Anyway** step only applies to unsigned/test drops. Signed releases are already notarized, so drag-copy-launch is enough.
-
-> Need to roll your own build? Jump to **Build or Customize** below for the one-liner.
-
-</details>
-
----
-
-## **Build or Customize**
-
-```bash
-git clone https://github.com/your-user/macos-focusly.git
-cd macos-focusly
-xcodebuild -scheme Focusly -configuration Release
-open .build/Release/Focusly.app
-```
-
-### Repository Layout
-
-- `Focusly/App` - entry point, app delegate, and coordinator wiring for the menu bar lifecycle.
-- `Focusly/Features/*` - surface-level features including overlays, hotkeys, onboarding, preferences, and status bar UI.
-- `Focusly/Infrastructure` - shared services such as localization, app settings, login helpers, and bundle utilities.
-- `Focusly/Domain` - focus profile models, preset catalogs, and persistence.
-- `Focusly/Platform` - low-level AppKit + Accessibility integrations (window tracker, display link driver, AX helpers).
-- `Focusly/Resources/Localization` - `.lproj` bundles that power every shipped language.
-- `Focusly/Resources/Media` - packaged artwork (centered logo, menu icons) while brand-only files stay excluded from the build.
-- `Resources/` - Info.plist + app icon that get baked into the signed `.app` via the shell scripts.
-- `Scripts/` + root `.sh` helpers - release automation, signing, notarization, and localization checks.
-
----
-
-<details>
-<summary>Distribution & Dev Notes</summary>
-
-### Bundle & Distribution
-
-- `./build_app.sh` → builds an optimized unsigned `Focusly.app` straight from the Swift build artifacts.
-- `./build_dmg.sh` → wraps the app + docs into a tester-friendly `.dmg`.
-- Prefer `swift build -c release` (or `xcodebuild -configuration Release`) before packaging for the crispest overlays.
-
-### Signing & Notarization Prep
-
-```bash
-brew install --cask alienator88-sentinel
-alienator88-sentinel sign Focusly.app \
-  --identity "Developer ID Application: Your Name (TEAMID)"
-spctl --assess --type exec Focusly.app
-```
-
-- Swap the identity for your Developer ID certificate (or use `--identity "-"` for ad-hoc testing).
-- Signed release DMGs are Developer ID signed **and notarized**, so Gatekeeper lets them launch immediately. Only unsigned/ad-hoc test drops (I’ll label them loudly) require **System Settings › Privacy & Security › Open Anyway** once.
-- `Resources/Info.plist` now ships with marketing + build versions, the Productivity category, a human-readable copyright,
-  and the automation usage blurb Gatekeeper surfaces alongside Accessibility prompts.
-- `Focusly.entitlements` is a tracked hardened-runtime manifest; the signing/notarization scripts pick it up automatically so any added capabilities are visible in code review.
-
-### Developer Notebook
-
-- **Window tracking**: `WindowTracker` polls the Accessibility API and gracefully falls back to CoreGraphics when permission is denied.
-- **Debug overlay**: toggle `FOCUSLY_DEBUG_WINDOW=1` (or the `FocuslyDebugWindow` preference) to visualize tracked frames.
-- **Tracking profiles**: `WindowTrackingProfile` presets define cadence + responsiveness inside `OverlayController`.
-- **Launch at login**: `LaunchAtLoginManager` piggybacks on `SMAppService` - Focusly must run from a bundled, signed `.app` before the toggle appears.
-- **Localization & presets**: everything lives beside the code in `Focusly/Resources/Localization/*.lproj` so translators + designers stay in sync.
-
-</details>
-
----
-
-<details>
-<summary>For contributors & QA</summary>
-
-### Tests
-
-```bash
-swift test
-```
-
-Current coverage focuses on `ProfileStore` persistence and preset override logic; more UI-independent pieces move under test as they stabilize.
-
-### Architecture postcard
-
-- `main.swift` boots the `AppDelegate`, which composes the `FocuslyAppCoordinator` and long-lived services such as overlays, hotkeys, and onboarding.
-- `OverlayService` hosts one `OverlayWindow` per screen, driven by `WindowTracker` snapshots and a lightweight display link driver for smooth animation.
-- Preferences and profiles live in `ProfileStore`, `PresetLibrary`, and `AppSettings`, broadcasting via Combine to keep UI + services synced.
-- System bridges (`WindowTracker`, `AXHelper`, `HotkeyCenter`, `LaunchAtLoginManager`) wrap Accessibility, Carbon, and `SMAppService` APIs so the app stays sandbox-friendly.
-
-</details>
 
 ---
 
