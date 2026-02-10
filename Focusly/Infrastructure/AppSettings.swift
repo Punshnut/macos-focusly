@@ -10,4 +10,6 @@ final class AppSettings: ObservableObject {
     @Published var preferencesWindowGlassy: Bool = false
     /// Determines whether Dock/Stage Manager should clear the blur when only the desktop is focused.
     @Published var desktopPeripheralRevealEnabled: Bool = false
+    /// When enabled, the main overlay also covers the menu bar and the dedicated menu-bar backdrop is disabled.
+    @Published var coverMenuBarWithMainOverlay: Bool = false
 }

@@ -14,6 +14,7 @@ final class OverlayService {
     private let profileStore: ProfileStore
     private let appSettings: AppSettings
     private var overlayFiltersSubscription: AnyCancellable?
+    private var menuBarCoverageSubscription: AnyCancellable?
     private var overlayWindowsByDisplayID: [DisplayID: OverlayWindow] = [:]
     private var menuBarWindowsByDisplayID: [DisplayID: MenuBarBackdropWindow] = [:]
     private var areOverlaysActive = false
@@ -29,6 +30,11 @@ final class OverlayService {
             .sink { [weak self] isEnabled in
                 self?.updateFilterActivationState(isEnabled)
             }
+        menuBarCoverageSubscription = appSettings.$coverMenuBarWithMainOverlay
+            .removeDuplicates()
+            .sink { [weak self] coverMenuBar in
+                self?.updateMenuBarCoverageState(coverMenuBar)
+            }
     }
 
     /// Turns overlay windows on or off and primes them with the latest style when becoming active.
@@ -41,6 +47,7 @@ final class OverlayService {
             overlayWindowsByDisplayID.values.forEach { overlayWindow in
                 let displayID = overlayWindow.associatedDisplayID()
                 let overlayStyle = profileStore.style(forDisplayID: displayID)
+                overlayWindow.setMenuBarExclusionEnabled(!appSettings.coverMenuBarWithMainOverlay)
                 overlayWindow.setFiltersEnabled(appSettings.overlayFiltersActive, animated: false)
                 overlayWindow.prepareForPresentation()
                 overlayWindow.orderFrontRegardless()
@@ -97,10 +104,12 @@ final class OverlayService {
             if let overlayWindow = overlayWindowsByDisplayID[displayID] {
                 overlayWindow.updateFrame(to: screen)
                 overlayWindow.setRefreshProfile(refreshProfile)
+                overlayWindow.setMenuBarExclusionEnabled(!appSettings.coverMenuBarWithMainOverlay)
             } else {
                 let overlayWindow = OverlayWindow(screen: screen, displayID: displayID)
                 overlayWindow.setFiltersEnabled(appSettings.overlayFiltersActive, animated: false)
                 overlayWindow.setRefreshProfile(refreshProfile)
+                overlayWindow.setMenuBarExclusionEnabled(!appSettings.coverMenuBarWithMainOverlay)
                 overlayWindowsByDisplayID[displayID] = overlayWindow
                 if areOverlaysActive {
                     overlayWindow.orderFrontRegardless()
@@ -116,7 +125,7 @@ final class OverlayService {
             let visibleFrame = screen.visibleFrame
             let menuBarHeight = max(0, screenFrame.maxY - visibleFrame.maxY)
 
-            if menuBarHeight > 0 {
+            if menuBarHeight > 0 && !appSettings.coverMenuBarWithMainOverlay {
                 if let backdropWindow = menuBarWindowsByDisplayID[displayID] {
                     backdropWindow.updateFrame(to: screen)
                     backdropWindow.setRefreshProfile(refreshProfile)
@@ -168,6 +177,19 @@ final class OverlayService {
         let shouldAnimate = areOverlaysActive && isEnabled
         overlayWindowsByDisplayID.values.forEach { $0.setFiltersEnabled(isEnabled, animated: shouldAnimate) }
         menuBarWindowsByDisplayID.values.forEach { $0.setFiltersEnabled(isEnabled, animated: shouldAnimate) }
+    }
+
+    /// Switches between dedicated menu-bar backdrops and full-screen overlay coverage.
+    private func updateMenuBarCoverageState(_ coverMenuBarWithMainOverlay: Bool) {
+        overlayWindowsByDisplayID.values.forEach {
+            $0.setMenuBarExclusionEnabled(!coverMenuBarWithMainOverlay)
+        }
+        if coverMenuBarWithMainOverlay {
+            menuBarWindowsByDisplayID.values.forEach { $0.orderOut(nil) }
+            menuBarWindowsByDisplayID.removeAll()
+        } else if areOverlaysActive {
+            refreshDisplays(animated: false)
+        }
     }
 
     /// Cancels any pending teardown so overlays can be reactivated without extra work.

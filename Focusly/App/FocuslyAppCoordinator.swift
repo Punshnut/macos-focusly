@@ -17,6 +17,7 @@ final class FocuslyAppCoordinator: NSObject {
         static let preferencesWindowGlassy = "Focusly.Preferences.GlassyChrome"
         static let maskingModes = "Focusly.DisplayMaskingModes"
         static let desktopPeripheralReveal = "Focusly.DesktopPeripheralRevealEnabled"
+        static let coverMenuBarWithMainOverlay = "Focusly.CoverMenuBarWithMainOverlay"
     }
 
     private let environment: FocuslyEnvironment
@@ -33,6 +34,7 @@ final class FocuslyAppCoordinator: NSObject {
     private var trackingProfileCancellable: AnyCancellable?
     private var preferencesWindowAppearanceCancellable: AnyCancellable?
     private var desktopPeripheralRevealCancellable: AnyCancellable?
+    private var menuBarCoverageCancellable: AnyCancellable?
 
     private var preferencesWindow: PreferencesWindowController?
     private var preferencesScreenModel: PreferencesViewModel?
@@ -103,6 +105,9 @@ final class FocuslyAppCoordinator: NSObject {
         if let storedDesktopReveal = defaults.object(forKey: UserDefaultsKey.desktopPeripheralReveal) as? Bool {
             globalSettings.desktopPeripheralRevealEnabled = storedDesktopReveal
         }
+        if let storedMenuBarCoverage = defaults.object(forKey: UserDefaultsKey.coverMenuBarWithMainOverlay) as? Bool {
+            globalSettings.coverMenuBarWithMainOverlay = storedMenuBarCoverage
+        }
         displayMaskingModes = FocuslyAppCoordinator.loadMaskingModes(from: defaults)
 
         super.init()
@@ -154,6 +159,13 @@ final class FocuslyAppCoordinator: NSObject {
                 self.persistDesktopPeripheralRevealPreference(isEnabled)
                 self.overlayCoordinator.setDesktopPeripheralRevealEnabled(isEnabled)
                 self.preferencesScreenModel?.desktopPeripheralRevealEnabled = isEnabled
+            }
+
+        menuBarCoverageCancellable = globalSettings.$coverMenuBarWithMainOverlay
+            .removeDuplicates()
+            .sink { [weak self] isEnabled in
+                guard let self else { return }
+                self.persistMenuBarCoveragePreference(isEnabled)
             }
     }
 
@@ -341,6 +353,11 @@ final class FocuslyAppCoordinator: NSObject {
     /// Persists whether Dock/Stage Manager should automatically clear blur on the desktop.
     private func persistDesktopPeripheralRevealPreference(_ isEnabled: Bool) {
         environment.userDefaults.set(isEnabled, forKey: UserDefaultsKey.desktopPeripheralReveal)
+    }
+
+    /// Persists whether the main overlay should cover the menu bar instead of using a dedicated backdrop.
+    private func persistMenuBarCoveragePreference(_ isEnabled: Bool) {
+        environment.userDefaults.set(isEnabled, forKey: UserDefaultsKey.coverMenuBarWithMainOverlay)
     }
 
     /// Restores a previously persisted hotkey shortcut if one exists.

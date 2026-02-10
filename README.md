@@ -120,7 +120,6 @@ Latest alpha DMG lives on [GitHub Releases](https://github.com/Punshnut/macos-fo
 
 > 🛡️ Gatekeeper’s **Open Anyway** step only applies to unsigned/test drops. Signed releases are already notarized, so drag-copy-launch is enough.
 
----
 
 ## **License**
 

@@ -77,20 +77,32 @@ final class OverlayWindow: NSPanel {
     private var staticBlurExclusions: [NSRect] = []
     private(set) var displayID: DisplayID
     private weak var boundScreen: NSScreen?
+    private var isMenuBarExclusionEnabled = true
     /// Tracks whether blur/tint filters should currently be visible.
     private var areFiltersActive = true
     private var lastAppliedRefreshProfile: DisplayRefreshProfile?
     @available(macOS 12.0, *)
     private static let defaultFrameRateRange = CAFrameRateRange(minimum: 60, maximum: 240, preferred: 120)
     // Keep a slight overlap with the menu bar backdrop to prevent a visible seam.
-    private let menuBarMaskInsets = NSEdgeInsets(top: 0.25, left: 3.0, bottom: 0.6, right: 3.0)
+    private let menuBarMaskInsets = NSEdgeInsets(top: 0.2, left: 1.6, bottom: 0.35, right: 1.6)
     private enum AnimationTuning {
-        static let minFade: TimeInterval = 0.12
-        static let maxFade: TimeInterval = 0.26
+        static let minFade: TimeInterval = 0.08
+        static let maxFade: TimeInterval = 0.18
+        static let minMaskFade: TimeInterval = 0.05
+        static let maxMaskFade: TimeInterval = 0.1
 
         static func clamp(_ duration: TimeInterval) -> TimeInterval {
             guard duration > 0 else { return 0 }
             return min(max(duration, minFade), maxFade)
+        }
+
+        static func maskFadeDuration(styleDuration: TimeInterval?, maskRegionCount: Int) -> TimeInterval {
+            let styleDuration = clamp(styleDuration ?? 0.16)
+            var resolved = min(max(styleDuration * 0.5, minMaskFade), maxMaskFade)
+            if maskRegionCount >= 8 {
+                resolved *= 0.82
+            }
+            return min(max(resolved, minMaskFade), maxMaskFade)
         }
     }
 
@@ -152,6 +164,19 @@ final class OverlayWindow: NSPanel {
             return
         }
         tintView.layer?.backgroundColor = color.withAlphaComponent(clampedAlpha).cgColor
+    }
+
+    /// Enables or disables static menu bar exclusion from the main overlay mask.
+    func setMenuBarExclusionEnabled(_ isEnabled: Bool) {
+        guard isMenuBarExclusionEnabled != isEnabled else { return }
+        isMenuBarExclusionEnabled = isEnabled
+        if let targetScreen = boundScreen ?? screen {
+            recalculateStaticExclusions(for: targetScreen)
+        } else {
+            staticTintExclusions = []
+            staticBlurExclusions = []
+        }
+        refreshMaskLayers()
     }
 
     /// Toggles whether blur/tint effects should be active, optionally animating the transition.
@@ -503,6 +528,11 @@ final class OverlayWindow: NSPanel {
             staticBlurExclusions = []
             return
         }
+        guard isMenuBarExclusionEnabled else {
+            staticTintExclusions = []
+            staticBlurExclusions = []
+            return
+        }
 
         guard let menuBarRectInScreen = MenuBarBackdropWindow.menuBarFrame(for: screen) else {
             staticTintExclusions = []
@@ -574,7 +604,10 @@ final class OverlayWindow: NSPanel {
         let fade = CABasicAnimation(keyPath: "opacity")
         fade.fromValue = 0
         fade.toValue = 1
-        fade.duration = 0.16
+        fade.duration = AnimationTuning.maskFadeDuration(
+            styleDuration: currentStyle?.animationDuration,
+            maskRegionCount: currentMaskRegions.count + staticTintExclusions.count + staticBlurExclusions.count
+        )
         fade.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
         tintMaskLayer.add(fade, forKey: "maskFade")
         blurMaskLayer.add(fade, forKey: "maskFade")

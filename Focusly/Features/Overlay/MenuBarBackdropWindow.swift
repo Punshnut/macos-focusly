@@ -23,8 +23,8 @@ final class MenuBarBackdropWindow: NSPanel {
     @available(macOS 12.0, *)
     private static let defaultFrameRateRange = CAFrameRateRange(minimum: 60, maximum: 240, preferred: 120)
     private enum AnimationTuning {
-        static let minFade: TimeInterval = 0.12
-        static let maxFade: TimeInterval = 0.26
+        static let minFade: TimeInterval = 0.08
+        static let maxFade: TimeInterval = 0.18
 
         static func clamp(_ duration: TimeInterval) -> TimeInterval {
             guard duration > 0 else { return 0 }
@@ -256,7 +256,7 @@ final class MenuBarBackdropWindow: NSPanel {
 
         let scale = max(screen.backingScaleFactor, 1)
         // Overlap slightly into the content region so blur/tint meet the main overlay without a seam.
-        let overlap = 2.0 / scale
+        let overlap = 1.0 / scale
 
         let topEdge = screenFrame.maxY
         let bottomEdge = max(screenFrame.origin.y, (screenFrame.maxY - rawHeight) - overlap)
@@ -280,7 +280,7 @@ final class MenuBarBackdropWindow: NSPanel {
             height: max(0, alignedMaxY - alignedMinY)
         )
 
-        let trimAmount = min(rect.height * 0.35, 1.5 / scale)
+        let trimAmount = min(rect.height * 0.22, 1.0 / scale)
         if trimAmount > 0 {
             rect.origin.y += trimAmount
             rect.size.height = max(0, rect.size.height - trimAmount)
