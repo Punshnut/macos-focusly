@@ -26,11 +26,11 @@ final class ApplicationMaskShapeCache {
 
     private var entries: [CacheKey: [Entry]] = [:]
     private var processDescriptors: [pid_t: ProcessDescriptor] = [:]
-    private let entryLifetime: TimeInterval = 4.2
+    private let entryLifetime: TimeInterval = 8
     private let processDescriptorLifetime: TimeInterval = 30
     private let maximumEntries = 56
     private let maximumEntriesPerProcess = 4
-    private let maximumEntriesPerApplication = 7
+    private let maximumEntriesPerApplication = 10
     private let defaultFrameTolerance: CGFloat = 18
 
     /// Stores the latest supplementary mask regions for the owning process.
@@ -57,6 +57,21 @@ final class ApplicationMaskShapeCache {
 
         for key in keys {
             var bucket = entries[key] ?? []
+            if let first = bucket.first,
+               first.signature == signature,
+               first.frame.isApproximatelyEqual(to: snapshot.frame, tolerance: 0.5),
+               abs(first.cornerRadius - snapshot.cornerRadius) <= 0.5,
+               first.regions == snapshot.supplementaryMasks {
+                bucket[0] = Entry(
+                    signature: first.signature,
+                    frame: first.frame,
+                    cornerRadius: first.cornerRadius,
+                    regions: first.regions,
+                    timestamp: now
+                )
+                entries[key] = bucket
+                continue
+            }
             bucket.removeAll { $0.signature == signature }
             bucket.insert(latestEntry, at: 0)
             let limit = maximumEntriesPerKey(for: key)

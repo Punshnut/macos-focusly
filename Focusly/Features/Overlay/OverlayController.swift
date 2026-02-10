@@ -90,6 +90,15 @@ final class OverlayController {
         var maskRegions: [OverlayWindow.MaskRegion]
     }
 
+    private struct MaskRegionBuildCacheEntry {
+        let fingerprint: Int
+        let windowFrame: NSRect
+        let contentBounds: NSRect
+        let backingScale: CGFloat
+        let regions: [OverlayWindow.MaskRegion]
+        let timestamp: Date
+    }
+
     private struct DisplaySnapshotCache {
         var entries: [WindowIdentity: DisplaySnapshotCacheEntry] = [:]
         var lastIdentity: WindowIdentity?
@@ -236,6 +245,13 @@ final class OverlayController {
     private let animationBoostDuration: TimeInterval = 0.45
     private let displaySnapshotRetentionInterval: TimeInterval = 5 * 60
     private let maxSnapshotsPerDisplay = 4
+    private let maskRegionBuildCacheLifetime: TimeInterval = 2.2
+    private let simplifiedMaskModeDuration: TimeInterval = 6
+    private let maskSimplificationActivationFallbackRatio: Double = 0.55
+    private let maskSimplificationMinimumFrames: UInt64 = 120
+    private let maximumSupplementaryRequests = 14
+    private let maximumSupplementaryRequestsDuringSimplification = 6
+    private let maximumPeripheralRequestsDuringSimplification = 2
     private let activeWindowSnapshotResolver: (Set<Int>, Bool) -> ActiveWindowSnapshot?
     private let defaultMinimumPredictionDelta: CGFloat = 0.32
     private let defaultPredictiveLeadCompensationFraction: Double = 0.22
@@ -331,6 +347,8 @@ final class OverlayController {
     private var lastBackgroundSnapshotRefresh = Date.distantPast
     private var lastSnapshotIdentity: WindowIdentity?
     private var sleepPreservationState: SleepPreservationState?
+    private var maskRegionBuildCacheByDisplayID: [DisplayID: MaskRegionBuildCacheEntry] = [:]
+    private var simplifiedMaskModeUntil = Date.distantPast
 
     init(
         activeWindowSnapshotResolver: @escaping (Set<Int>, Bool) -> ActiveWindowSnapshot? = { windowNumbers, includeApplicationWindows in
@@ -394,6 +412,8 @@ final class OverlayController {
         lastSnapshotIdentity = nil
         backgroundSnapshotEntries.removeAll()
         lastBackgroundSnapshotRefresh = .distantPast
+        maskRegionBuildCacheByDisplayID.removeAll()
+        simplifiedMaskModeUntil = .distantPast
         updateDisplayLinkPreferredDisplay()
         updateDisplayPerformanceHints(forceRefresh: true)
         requiresContinuousPrediction = false
@@ -493,6 +513,7 @@ final class OverlayController {
         let removedDisplayIDs = Set(previousOverlayWindows.keys).subtracting(updatedOverlayWindows.keys)
         for displayID in removedDisplayIDs {
             previousOverlayWindows[displayID]?.applyMask(regions: [])
+            maskRegionBuildCacheByDisplayID.removeValue(forKey: displayID)
         }
 
         let updatedDisplayIDs = Set(updatedOverlayWindows.keys)
@@ -884,6 +905,10 @@ final class OverlayController {
                 "Overlay mask bitmap fallback ratio \(fallbackPercent, format: .fixed(precision: 2), privacy: .public)% (vector: \(diagnostics.vectorFrames, privacy: .public), bitmap: \(diagnostics.bitmapFrames, privacy: .public))"
             )
         }
+        if diagnostics.totalFrames >= maskSimplificationMinimumFrames,
+           fallbackRatio >= maskSimplificationActivationFallbackRatio {
+            simplifiedMaskModeUntil = now.addingTimeInterval(simplifiedMaskModeDuration)
+        }
         nextMaskDiagnosticsLogDate = now.addingTimeInterval(8)
     }
 
@@ -930,6 +955,7 @@ final class OverlayController {
         predictedSnapshotsByDisplayID = predictedSnapshotsByDisplayID.filter { activeIDs.contains($0.key) }
         frozenMaskRegionsByDisplayID = frozenMaskRegionsByDisplayID.filter { activeIDs.contains($0.key) }
         peripheralMaskRequestsByDisplayID = peripheralMaskRequestsByDisplayID.filter { activeIDs.contains($0.key) }
+        maskRegionBuildCacheByDisplayID = maskRegionBuildCacheByDisplayID.filter { activeIDs.contains($0.key) }
         activeSnapshotDisplayIDs = activeSnapshotDisplayIDs.intersection(activeIDs)
         if let activeDisplayID, !activeIDs.contains(activeDisplayID) {
             self.activeDisplayID = nil
@@ -1106,6 +1132,7 @@ final class OverlayController {
             predictedSnapshotsByDisplayID.removeValue(forKey: displayID)
             cachedSnapshotsByDisplayID.removeValue(forKey: displayID)
             frozenMaskRegionsByDisplayID.removeValue(forKey: displayID)
+            maskRegionBuildCacheByDisplayID.removeValue(forKey: displayID)
             overlayWindowsByDisplayID[displayID]?.applyMask(regions: [], animated: shouldAnimateMaskTransition(for: displayID))
         }
 
@@ -1187,6 +1214,7 @@ final class OverlayController {
                 predictedSnapshotsByDisplayID.removeValue(forKey: displayID)
                 cachedSnapshotsByDisplayID.removeValue(forKey: displayID)
                 frozenMaskRegionsByDisplayID[displayID] = nil
+                maskRegionBuildCacheByDisplayID.removeValue(forKey: displayID)
                 window.applyMask(regions: [], animated: animate)
                 didApplyMask = true
                 continue
@@ -1231,13 +1259,19 @@ final class OverlayController {
         cacheIdentity: WindowIdentity? = nil,
         animated: Bool
     ) -> Bool {
-        var requests = maskRequests(for: snapshot, mode: maskingMode(for: displayID), window: window)
-        if let peripheralRequests = peripheralMaskRequestsByDisplayID[displayID], !peripheralRequests.isEmpty {
+        var requests = maskRequests(
+            for: snapshot,
+            mode: maskingMode(for: displayID),
+            window: window,
+            displayID: displayID
+        )
+        if let peripheralRequests = limitedPeripheralRequests(for: displayID), !peripheralRequests.isEmpty {
             requests.append(contentsOf: peripheralRequests)
         }
         if let supplementaryRequests = supplementaryMaskRequestsForActiveSnapshot(
             intersecting: window.frame,
-            excluding: snapshot
+            excluding: snapshot,
+            displayID: displayID
         ), !supplementaryRequests.isEmpty {
             requests.append(contentsOf: supplementaryRequests)
         }
@@ -1245,7 +1279,12 @@ final class OverlayController {
     }
 
     /// Builds mask requests for the supplied snapshot including supplementary carve-outs.
-    private func maskRequests(for snapshot: ActiveWindowSnapshot, mode: ApplicationMaskingMode, window: OverlayWindow) -> [MaskRequest] {
+    private func maskRequests(
+        for snapshot: ActiveWindowSnapshot,
+        mode: ApplicationMaskingMode,
+        window: OverlayWindow,
+        displayID: DisplayID
+    ) -> [MaskRequest] {
         var requests: [MaskRequest] = []
         guard snapshot.frame.intersects(window.frame) else { return [] }
 
@@ -1263,6 +1302,10 @@ final class OverlayController {
         )
 
         if !snapshot.supplementaryMasks.isEmpty {
+            let supplementaryLimit = shouldSimplifyMaskRequests(for: displayID)
+                ? maximumSupplementaryRequestsDuringSimplification
+                : maximumSupplementaryRequests
+            var supplementaryCount = 0
             for region in snapshot.supplementaryMasks {
                 if region.purpose == .applicationWindow, mode == .focusedWindow {
                     continue
@@ -1276,6 +1319,10 @@ final class OverlayController {
                 requests.append(
                     MaskRequest(rect: region.frame, cornerRadius: region.cornerRadius, purpose: region.purpose)
                 )
+                supplementaryCount += 1
+                if supplementaryCount >= supplementaryLimit {
+                    break
+                }
             }
         }
 
@@ -1285,7 +1332,8 @@ final class OverlayController {
     /// Applies supplementary masks from the current active snapshot even if the base snapshot belongs to another display.
     private func supplementaryMaskRequestsForActiveSnapshot(
         intersecting displayFrame: NSRect,
-        excluding snapshot: ActiveWindowSnapshot?
+        excluding snapshot: ActiveWindowSnapshot?,
+        displayID: DisplayID
     ) -> [MaskRequest]? {
         guard let activeSnapshot = cachedActiveSnapshot else { return nil }
         if let snapshot, snapshot == activeSnapshot {
@@ -1297,6 +1345,10 @@ final class OverlayController {
             now: CACurrentMediaTime()
         )
 
+        let supplementaryLimit = shouldSimplifyMaskRequests(for: displayID)
+            ? maximumSupplementaryRequestsDuringSimplification
+            : maximumSupplementaryRequests
+        var supplementaryCount = 0
         for region in activeSnapshot.supplementaryMasks where region.purpose != .applicationWindow {
             if dragActive && region.purpose == .systemMenu {
                 continue
@@ -1311,6 +1363,10 @@ final class OverlayController {
                     purpose: region.purpose
                 )
             )
+            supplementaryCount += 1
+            if supplementaryCount >= supplementaryLimit {
+                break
+            }
         }
         return requests.isEmpty ? nil : requests
     }
@@ -1321,10 +1377,14 @@ final class OverlayController {
         displayID: DisplayID,
         preserving frozenMask: [OverlayWindow.MaskRegion]?
     ) -> Bool {
-        guard let requests = supplementaryMaskRequestsForActiveSnapshot(intersecting: window.frame, excluding: nil) else {
+        guard let requests = supplementaryMaskRequestsForActiveSnapshot(
+            intersecting: window.frame,
+            excluding: nil,
+            displayID: displayID
+        ) else {
             return false
         }
-        guard let supplementaryRegions = buildMaskRegions(from: requests, in: window) else {
+        guard let supplementaryRegions = buildMaskRegions(from: requests, in: window, displayID: displayID) else {
             return false
         }
         let merged = mergedMaskRegions(frozenMask, supplementaryRegions)
@@ -1341,7 +1401,7 @@ final class OverlayController {
         identity: WindowIdentity? = nil,
         animated: Bool
     ) -> Bool {
-        guard let maskRegions = buildMaskRegions(from: maskRequests, in: window) else {
+        guard let maskRegions = buildMaskRegions(from: maskRequests, in: window, displayID: displayID) else {
             return false
         }
         window.applyMask(regions: maskRegions, animated: animated)
@@ -1367,8 +1427,38 @@ final class OverlayController {
         return true
     }
 
+    private func shouldSimplifyMaskRequests(for displayID: DisplayID) -> Bool {
+        if Date() < simplifiedMaskModeUntil {
+            return true
+        }
+        if interactionBoostExpiration != nil, activeDisplayID == displayID {
+            return true
+        }
+        if isDisplayLinkRunning, activeDisplayID == displayID {
+            return true
+        }
+        return false
+    }
+
+    private func limitedPeripheralRequests(for displayID: DisplayID) -> [MaskRequest]? {
+        guard let requests = peripheralMaskRequestsByDisplayID[displayID], !requests.isEmpty else {
+            return nil
+        }
+        guard shouldSimplifyMaskRequests(for: displayID) else {
+            return requests
+        }
+        if requests.count <= maximumPeripheralRequestsDuringSimplification {
+            return requests
+        }
+        return Array(requests.prefix(maximumPeripheralRequestsDuringSimplification))
+    }
+
     /// Translates mask requests into overlay-ready regions, or nil if nothing intersects.
-    private func buildMaskRegions(from maskRequests: [MaskRequest], in window: OverlayWindow) -> [OverlayWindow.MaskRegion]? {
+    private func buildMaskRegions(
+        from maskRequests: [MaskRequest],
+        in window: OverlayWindow,
+        displayID: DisplayID?
+    ) -> [OverlayWindow.MaskRegion]? {
         guard let contentView = window.contentView else {
             return nil
         }
@@ -1376,22 +1466,35 @@ final class OverlayController {
             return nil
         }
 
-        let windowScreenFrame = window.frame
+        pruneMaskRegionBuildCacheIfNeeded()
+
+        let windowFrame = window.frame
+        let contentBounds = contentView.bounds
+        let backingScale = window.backingScaleFactor
+        let fingerprint = maskRequestFingerprint(maskRequests, in: windowFrame)
+        if let displayID,
+           let cached = maskRegionBuildCacheByDisplayID[displayID],
+           cached.fingerprint == fingerprint,
+           abs(cached.backingScale - backingScale) <= 0.001,
+           cached.windowFrame.isApproximatelyEqual(to: windowFrame, tolerance: 0.25),
+           cached.contentBounds.isApproximatelyEqual(to: contentBounds, tolerance: 0.25) {
+            return cached.regions
+        }
+
         var maskRegions: [OverlayWindow.MaskRegion] = []
         maskRegions.reserveCapacity(maskRequests.count)
 
-        let backingScale = window.backingScaleFactor
         let maxInflation: CGFloat = 1.1
-        let displayArea = max(windowScreenFrame.width * windowScreenFrame.height, .ulpOfOne)
+        let displayArea = max(windowFrame.width * windowFrame.height, .ulpOfOne)
 
         for request in maskRequests {
             let expansion = maskExpansion(for: request.purpose)
-            let baseIntersection = request.rect.intersection(windowScreenFrame)
+            let baseIntersection = request.rect.intersection(windowFrame)
             guard !baseIntersection.isNull else { continue }
 
             // Skip obviously runaway rectangles relative to the display.
-            if baseIntersection.width > windowScreenFrame.width * maxInflation ||
-                baseIntersection.height > windowScreenFrame.height * maxInflation {
+            if baseIntersection.width > windowFrame.width * maxInflation ||
+                baseIntersection.height > windowFrame.height * maxInflation {
                 continue
             }
             let area = baseIntersection.width * baseIntersection.height
@@ -1403,7 +1506,7 @@ final class OverlayController {
             let expandedRect: NSRect
             if expansion != 0 {
                 let expanded = baseIntersection.insetBy(dx: -expansion, dy: -expansion)
-                expandedRect = expanded.intersection(windowScreenFrame)
+                expandedRect = expanded.intersection(windowFrame)
             } else {
                 expandedRect = baseIntersection
             }
@@ -1437,7 +1540,83 @@ final class OverlayController {
             )
         }
 
-        return maskRegions.isEmpty ? nil : maskRegions
+        guard !maskRegions.isEmpty else { return nil }
+        if let displayID {
+            maskRegionBuildCacheByDisplayID[displayID] = MaskRegionBuildCacheEntry(
+                fingerprint: fingerprint,
+                windowFrame: windowFrame,
+                contentBounds: contentBounds,
+                backingScale: backingScale,
+                regions: maskRegions,
+                timestamp: Date()
+            )
+        }
+        return maskRegions
+    }
+
+    private func maskRequestFingerprint(_ requests: [MaskRequest], in windowFrame: NSRect) -> Int {
+        var hasher = Hasher()
+        hasher.combine(requests.count)
+        hasher.combine(quantized(windowFrame.origin.x, scale: 2))
+        hasher.combine(quantized(windowFrame.origin.y, scale: 2))
+        hasher.combine(quantized(windowFrame.width, scale: 2))
+        hasher.combine(quantized(windowFrame.height, scale: 2))
+        for request in requests {
+            hasher.combine(quantized(request.rect.origin.x, scale: 4))
+            hasher.combine(quantized(request.rect.origin.y, scale: 4))
+            hasher.combine(quantized(request.rect.width, scale: 4))
+            hasher.combine(quantized(request.rect.height, scale: 4))
+            hasher.combine(quantized(request.cornerRadius, scale: 4))
+            hasher.combine(maskPurposeFingerprint(request.purpose))
+            hasher.combine(peripheralKindFingerprint(request.peripheralKind))
+            hasher.combine(request.isSynthesizedPeripheral)
+        }
+        return hasher.finalize()
+    }
+
+    private func maskPurposeFingerprint(_ purpose: ActiveWindowSnapshot.MaskRegion.Purpose?) -> Int {
+        guard let purpose else { return -1 }
+        switch purpose {
+        case .applicationWindow:
+            return 0
+        case .applicationMenu:
+            return 1
+        case .systemMenu:
+            return 2
+        }
+    }
+
+    private func peripheralKindFingerprint(_ kind: PeripheralInterfaceRegion.Kind?) -> Int {
+        guard let kind else { return -1 }
+        switch kind {
+        case .dock(let edge, let isAutoHidden):
+            return 100 + peripheralEdgeFingerprint(edge) * 10 + (isAutoHidden ? 1 : 0)
+        case .stageManagerShelf(let edge, let cards):
+            return 200 + peripheralEdgeFingerprint(edge) * 100 + min(cards.count, 99)
+        }
+    }
+
+    private func peripheralEdgeFingerprint(_ edge: PeripheralEdge) -> Int {
+        switch edge {
+        case .leading:
+            return 0
+        case .trailing:
+            return 1
+        case .top:
+            return 2
+        case .bottom:
+            return 3
+        }
+    }
+
+    private func quantized(_ value: CGFloat, scale: CGFloat) -> Int {
+        Int((value * scale).rounded())
+    }
+
+    private func pruneMaskRegionBuildCacheIfNeeded(referenceDate: Date = Date()) {
+        guard !maskRegionBuildCacheByDisplayID.isEmpty else { return }
+        let cutoff = referenceDate.addingTimeInterval(-maskRegionBuildCacheLifetime)
+        maskRegionBuildCacheByDisplayID = maskRegionBuildCacheByDisplayID.filter { $0.value.timestamp >= cutoff }
     }
 
     /// Applies only peripheral carve-outs when no active window snapshot is available.
@@ -1446,10 +1625,10 @@ final class OverlayController {
         displayID: DisplayID,
         preserving frozenMask: [OverlayWindow.MaskRegion]?
     ) -> Bool {
-        guard let requests = peripheralMaskRequestsByDisplayID[displayID], !requests.isEmpty else {
+        guard let requests = limitedPeripheralRequests(for: displayID), !requests.isEmpty else {
             return false
         }
-        guard let peripheralRegions = buildMaskRegions(from: requests, in: window) else {
+        guard let peripheralRegions = buildMaskRegions(from: requests, in: window, displayID: displayID) else {
             return false
         }
         let merged = mergedMaskRegions(frozenMask, peripheralRegions)

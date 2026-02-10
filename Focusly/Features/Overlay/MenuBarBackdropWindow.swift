@@ -23,8 +23,8 @@ final class MenuBarBackdropWindow: NSPanel {
     @available(macOS 12.0, *)
     private static let defaultFrameRateRange = CAFrameRateRange(minimum: 60, maximum: 240, preferred: 120)
     private enum AnimationTuning {
-        static let minFade: TimeInterval = 0.08
-        static let maxFade: TimeInterval = 0.18
+        static let minFade: TimeInterval = 0.06
+        static let maxFade: TimeInterval = 0.14
 
         static func clamp(_ duration: TimeInterval) -> TimeInterval {
             guard duration > 0 else { return 0 }

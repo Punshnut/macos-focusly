@@ -84,12 +84,12 @@ final class OverlayWindow: NSPanel {
     @available(macOS 12.0, *)
     private static let defaultFrameRateRange = CAFrameRateRange(minimum: 60, maximum: 240, preferred: 120)
     // Keep a slight overlap with the menu bar backdrop to prevent a visible seam.
-    private let menuBarMaskInsets = NSEdgeInsets(top: 0.2, left: 1.6, bottom: 0.35, right: 1.6)
+    private let menuBarMaskInsets = NSEdgeInsets(top: 0.15, left: 0.9, bottom: 0.28, right: 0.9)
     private enum AnimationTuning {
-        static let minFade: TimeInterval = 0.08
-        static let maxFade: TimeInterval = 0.18
-        static let minMaskFade: TimeInterval = 0.05
-        static let maxMaskFade: TimeInterval = 0.1
+        static let minFade: TimeInterval = 0.06
+        static let maxFade: TimeInterval = 0.14
+        static let minMaskFade: TimeInterval = 0.035
+        static let maxMaskFade: TimeInterval = 0.075
 
         static func clamp(_ duration: TimeInterval) -> TimeInterval {
             guard duration > 0 else { return 0 }
@@ -97,10 +97,10 @@ final class OverlayWindow: NSPanel {
         }
 
         static func maskFadeDuration(styleDuration: TimeInterval?, maskRegionCount: Int) -> TimeInterval {
-            let styleDuration = clamp(styleDuration ?? 0.16)
-            var resolved = min(max(styleDuration * 0.5, minMaskFade), maxMaskFade)
+            let styleDuration = clamp(styleDuration ?? 0.14)
+            var resolved = min(max(styleDuration * 0.45, minMaskFade), maxMaskFade)
             if maskRegionCount >= 8 {
-                resolved *= 0.82
+                resolved *= 0.78
             }
             return min(max(resolved, minMaskFade), maxMaskFade)
         }
