@@ -43,6 +43,8 @@ final class WindowTracker {
 
     /// Collects the latest window metadata and publishes it to observers.
     private func handleTimerTick() {
+        let operationToken = PerformanceDiagnostics.begin()
+        PerformanceDiagnostics.increment("window_tracker.tick")
         refreshAccessibilityPermissionIfNeeded()
         let isAccessibilityAuthorized = hasAccessibilityPermission
 
@@ -54,8 +56,10 @@ final class WindowTracker {
         }
 
         let enumeratedWindows = (isAccessibilityAuthorized && isCollectingAllWindows) ? axEnumerateAllWindows() : []
+        PerformanceDiagnostics.increment("window_tracker.enumerated_count", by: enumeratedWindows.count)
         let snapshot = Snapshot(timestamp: Date(), activeFrame: activeWindowFrame, allWindows: enumeratedWindows)
         NotificationCenter.default.post(name: Self.didUpdate, object: snapshot)
+        PerformanceDiagnostics.end(operationToken, operation: "window_tracker.tick_work")
     }
 
     /// Periodically re-checks accessibility permission so we can downgrade gracefully if revoked.

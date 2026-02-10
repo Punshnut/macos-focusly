@@ -85,12 +85,20 @@ final class ApplicationMaskShapeCache {
     }
 
     /// Returns cached supplementary regions for a process when the anchor frame still matches.
-    func cachedSupplementaryMasks(forPID pid: pid_t, matching frame: NSRect) -> [ActiveWindowSnapshot.MaskRegion]? {
+    func cachedSupplementaryMasks(
+        forPID pid: pid_t,
+        matching frame: NSRect,
+        maximumAge: TimeInterval? = nil
+    ) -> [ActiveWindowSnapshot.MaskRegion]? {
         pruneExpiredEntries()
         pruneExpiredProcessDescriptors()
         for key in cacheKeys(for: pid) {
             guard let bucket = entries[key], !bucket.isEmpty else { continue }
             if let match = bestMatch(in: bucket, for: frame) {
+                if let maximumAge,
+                   Date().timeIntervalSince(match.timestamp) > maximumAge {
+                    continue
+                }
                 return match.regions
             }
         }

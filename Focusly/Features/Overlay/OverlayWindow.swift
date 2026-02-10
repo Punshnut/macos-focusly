@@ -73,8 +73,6 @@ final class OverlayWindow: NSPanel {
     private let blurMaskLayer = OverlayMaskLayer()
     private var currentStyle: FocusOverlayStyle?
     private var currentMaskRegions: [MaskRegion] = []
-    private var staticTintExclusions: [NSRect] = []
-    private var staticBlurExclusions: [NSRect] = []
     private(set) var displayID: DisplayID
     private weak var boundScreen: NSScreen?
     private var isMenuBarExclusionEnabled = true
@@ -84,12 +82,12 @@ final class OverlayWindow: NSPanel {
     @available(macOS 12.0, *)
     private static let defaultFrameRateRange = CAFrameRateRange(minimum: 60, maximum: 240, preferred: 120)
     // Keep a slight overlap with the menu bar backdrop to prevent a visible seam.
-    private let menuBarMaskInsets = NSEdgeInsets(top: 0.15, left: 0.9, bottom: 0.28, right: 0.9)
+    private let menuBarFrameOverlapPoints: CGFloat = 1
     private enum AnimationTuning {
-        static let minFade: TimeInterval = 0.06
-        static let maxFade: TimeInterval = 0.14
-        static let minMaskFade: TimeInterval = 0.035
-        static let maxMaskFade: TimeInterval = 0.075
+        static let minFade: TimeInterval = 0.04
+        static let maxFade: TimeInterval = 0.1
+        static let minMaskFade: TimeInterval = 0.02
+        static let maxMaskFade: TimeInterval = 0.05
 
         static func clamp(_ duration: TimeInterval) -> TimeInterval {
             guard duration > 0 else { return 0 }
@@ -97,12 +95,42 @@ final class OverlayWindow: NSPanel {
         }
 
         static func maskFadeDuration(styleDuration: TimeInterval?, maskRegionCount: Int) -> TimeInterval {
+            if maskRegionCount >= 6 {
+                return 0
+            }
             let styleDuration = clamp(styleDuration ?? 0.14)
             var resolved = min(max(styleDuration * 0.45, minMaskFade), maxMaskFade)
             if maskRegionCount >= 8 {
                 resolved *= 0.78
             }
             return min(max(resolved, minMaskFade), maxMaskFade)
+        }
+    }
+    private enum MaskComplexityLimits {
+        static let interactiveRegionCap = resolvedRegionCap(
+            key: "Focusly.MaskInteractiveRegionCap",
+            defaultValue: 5,
+            minValue: 3,
+            maxValue: 10
+        )
+        static let steadyStateRegionCap = resolvedRegionCap(
+            key: "Focusly.MaskSteadyRegionCap",
+            defaultValue: 10,
+            minValue: 5,
+            maxValue: 20
+        )
+
+        private static func resolvedRegionCap(
+            key: String,
+            defaultValue: Int,
+            minValue: Int,
+            maxValue: Int
+        ) -> Int {
+            let configured = UserDefaults.standard.integer(forKey: key)
+            if configured <= 0 {
+                return defaultValue
+            }
+            return min(max(configured, minValue), maxValue)
         }
     }
 
@@ -170,12 +198,7 @@ final class OverlayWindow: NSPanel {
     func setMenuBarExclusionEnabled(_ isEnabled: Bool) {
         guard isMenuBarExclusionEnabled != isEnabled else { return }
         isMenuBarExclusionEnabled = isEnabled
-        if let targetScreen = boundScreen ?? screen {
-            recalculateStaticExclusions(for: targetScreen)
-        } else {
-            staticTintExclusions = []
-            staticBlurExclusions = []
-        }
+        updateToScreenFrame()
         refreshMaskLayers()
     }
 
@@ -288,8 +311,14 @@ final class OverlayWindow: NSPanel {
             }
             return lhs.rect.height < rhs.rect.height
         }
+        let isInteractiveUpdate = !animated
+        let capped = cappedMaskRegions(
+            from: ordered,
+            in: bounds,
+            isInteractiveUpdate: isInteractiveUpdate
+        )
 
-        guard !ordered.isEmpty else {
+        guard !capped.isEmpty else {
             if currentMaskRegions.isEmpty {
                 refreshMaskLayers()
                 return
@@ -299,8 +328,8 @@ final class OverlayWindow: NSPanel {
             return
         }
 
-        if currentMaskRegions.count == ordered.count {
-            let matches = zip(currentMaskRegions, ordered).allSatisfy { current, updated in
+        if currentMaskRegions.count == capped.count {
+            let matches = zip(currentMaskRegions, capped).allSatisfy { current, updated in
                 current.rect.isApproximatelyEqual(to: updated.rect, tolerance: tolerance) &&
                 abs(current.cornerRadius - updated.cornerRadius) <= tolerance
             }
@@ -309,14 +338,56 @@ final class OverlayWindow: NSPanel {
             }
         }
 
-        currentMaskRegions = ordered
+        currentMaskRegions = capped
         refreshMaskLayers(animated: animated)
+    }
+
+    /// Enforces a hard cap on mask complexity, prioritizing the largest regions first.
+    private func cappedMaskRegions(
+        from regions: [MaskRegion],
+        in bounds: NSRect,
+        isInteractiveUpdate: Bool
+    ) -> [MaskRegion] {
+        guard !regions.isEmpty else { return regions }
+        let limit = isInteractiveUpdate ? MaskComplexityLimits.interactiveRegionCap : MaskComplexityLimits.steadyStateRegionCap
+        guard regions.count > limit else { return regions }
+
+        let prioritized = regions.sorted { lhs, rhs in
+            let lhsArea = lhs.rect.width * lhs.rect.height
+            let rhsArea = rhs.rect.width * rhs.rect.height
+            if lhsArea != rhsArea {
+                return lhsArea > rhsArea
+            }
+            if lhs.rect.origin.y != rhs.rect.origin.y {
+                return lhs.rect.origin.y < rhs.rect.origin.y
+            }
+            return lhs.rect.origin.x < rhs.rect.origin.x
+        }
+
+        let clamped = Array(prioritized.prefix(limit)).sorted { lhs, rhs in
+            if lhs.rect.origin.y != rhs.rect.origin.y {
+                return lhs.rect.origin.y < rhs.rect.origin.y
+            }
+            if lhs.rect.origin.x != rhs.rect.origin.x {
+                return lhs.rect.origin.x < rhs.rect.origin.x
+            }
+            if lhs.rect.width != rhs.rect.width {
+                return lhs.rect.width < rhs.rect.width
+            }
+            return lhs.rect.height < rhs.rect.height
+        }
+
+        PerformanceDiagnostics.increment(
+            isInteractiveUpdate ? "mask.region_cap.interactive_applied" : "mask.region_cap.steady_applied"
+        )
+        PerformanceDiagnostics.increment("mask.region_cap.trimmed_count", by: max(0, regions.count - clamped.count))
+        return clamped
     }
 
     /// Resizes the window to match the bounds of the current target screen.
     func updateToScreenFrame() {
         guard let targetScreen = boundScreen ?? screen else { return }
-        setFrame(targetScreen.frame, display: true)
+        setFrame(resolvedFrame(for: targetScreen), display: true)
     }
 
     /// Changes the screen the overlay is attached to and resizes accordingly.
@@ -410,14 +481,12 @@ final class OverlayWindow: NSPanel {
             blurView.prepareForReuse()
         }
         contentView?.layer?.removeAllAnimations()
-        if let targetScreen = boundScreen ?? screen {
-            recalculateStaticExclusions(for: targetScreen)
-        }
         refreshMaskLayers()
     }
 
     /// Fades the window in when the overlay is presented on screen.
     func animatePresentation(duration: TimeInterval, animated: Bool) {
+        PerformanceDiagnostics.increment("animation.overlay.present_scheduled")
         let clampedDuration = AnimationTuning.clamp(max(0, duration))
         guard animated, clampedDuration > 0 else {
             alphaValue = 1
@@ -435,6 +504,7 @@ final class OverlayWindow: NSPanel {
 
     /// Hides the overlay, optionally animating the fade-out.
     func hide(animated: Bool) {
+        PerformanceDiagnostics.increment("animation.overlay.hide_scheduled")
         let duration = AnimationTuning.clamp(currentStyle?.animationDuration ?? 0.22)
         let teardown = { [weak self] in
             guard let self else { return }
@@ -458,6 +528,7 @@ final class OverlayWindow: NSPanel {
 
     /// Applies the supplied overlay style, optionally animating opacity and colors.
     func apply(style: FocusOverlayStyle, animated: Bool) {
+        PerformanceDiagnostics.increment("animation.overlay.style_apply")
         currentStyle = style
         let duration = AnimationTuning.clamp(style.animationDuration)
         let targetOpacity = CGFloat(max(0, min(style.opacity, 1)))
@@ -512,65 +583,48 @@ final class OverlayWindow: NSPanel {
     /// Keeps static exclusions in sync whenever the window's frame changes.
     override func setFrame(_ frameRect: NSRect, display flag: Bool) {
         super.setFrame(frameRect, display: flag)
-        if let targetScreen = boundScreen ?? screen {
-            recalculateStaticExclusions(for: targetScreen)
-        } else {
-            staticTintExclusions = []
-            staticBlurExclusions = []
-        }
         refreshMaskLayers()
     }
 
-    /// Calculates static exclusions such as the menu bar so they stay transparent.
-    private func recalculateStaticExclusions(for screen: NSScreen) {
-        guard let contentView else {
-            staticTintExclusions = []
-            staticBlurExclusions = []
-            return
-        }
+    /// Resolves the window frame depending on whether menu-bar exclusion is active.
+    private func resolvedFrame(for screen: NSScreen) -> NSRect {
+        let screenFrame = screen.frame
         guard isMenuBarExclusionEnabled else {
-            staticTintExclusions = []
-            staticBlurExclusions = []
-            return
+            return screenFrame
         }
 
-        guard let menuBarRectInScreen = MenuBarBackdropWindow.menuBarFrame(for: screen) else {
-            staticTintExclusions = []
-            staticBlurExclusions = []
-            return
+        let visibleFrame = screen.visibleFrame
+        let menuBarHeight = max(0, screenFrame.maxY - visibleFrame.maxY)
+        guard menuBarHeight > 0 else {
+            return screenFrame
         }
 
-        let menuBarRectInWindow = convertFromScreen(menuBarRectInScreen)
-        let rectInContent = contentView.convert(menuBarRectInWindow, from: nil)
-
-        let backingRect = contentView.convertToBacking(rectInContent).integral
-        let alignedRect = contentView.convertFromBacking(backingRect)
-
-        let insetX = menuBarMaskInsets.left + menuBarMaskInsets.right
-        let insetY = menuBarMaskInsets.top + menuBarMaskInsets.bottom
-        var trimmed = alignedRect
-        trimmed.origin.x += menuBarMaskInsets.left
-        trimmed.origin.y += menuBarMaskInsets.bottom
-        trimmed.size.width = max(0, trimmed.size.width - insetX)
-        trimmed.size.height = max(0, trimmed.size.height - insetY)
-
-        staticTintExclusions = [trimmed]
-        staticBlurExclusions = [trimmed]
+        let overlap = menuBarFrameOverlapPoints / max(screen.backingScaleFactor, 1)
+        return NSRect(
+            x: screenFrame.minX,
+            y: screenFrame.minY,
+            width: screenFrame.width,
+            height: min(screenFrame.height, visibleFrame.height + overlap)
+        )
     }
 
     /// Updates CALayer masks to reflect the latest static and dynamic carve-outs.
     private func refreshMaskLayers(animated: Bool = false) {
-        guard let contentView else { return }
+        let operationToken = PerformanceDiagnostics.begin()
+        guard let contentView else {
+            PerformanceDiagnostics.end(operationToken, operation: "layer.refresh_masks")
+            return
+        }
         guard areFiltersActive else {
             resetMaskLayers(preserveActiveRegions: true)
+            PerformanceDiagnostics.end(operationToken, operation: "layer.refresh_masks")
             return
         }
 
         let bounds = contentView.bounds
-        let hasDynamicMask = !currentMaskRegions.isEmpty
-        let hasStaticMask = !staticTintExclusions.isEmpty || !staticBlurExclusions.isEmpty
-        guard hasDynamicMask || hasStaticMask else {
+        guard !currentMaskRegions.isEmpty else {
             resetMaskLayers()
+            PerformanceDiagnostics.end(operationToken, operation: "layer.refresh_masks")
             return
         }
 
@@ -581,13 +635,13 @@ final class OverlayWindow: NSPanel {
         tintMaskLayer.configure(
             bounds: bounds,
             scale: scale,
-            staticRects: staticTintExclusions,
+            staticRects: [],
             dynamicRegions: currentMaskRegions
         )
         blurMaskLayer.configure(
             bounds: bounds,
             scale: scale,
-            staticRects: staticBlurExclusions,
+            staticRects: [],
             dynamicRegions: currentMaskRegions
         )
 
@@ -599,15 +653,20 @@ final class OverlayWindow: NSPanel {
         }
 
         CATransaction.commit()
+        PerformanceDiagnostics.increment("layer.refresh_masks.region_count", by: currentMaskRegions.count)
+        PerformanceDiagnostics.end(operationToken, operation: "layer.refresh_masks")
 
         guard animated else { return }
+        let totalMaskRegionCount = currentMaskRegions.count
+        let fadeDuration = AnimationTuning.maskFadeDuration(
+            styleDuration: currentStyle?.animationDuration,
+            maskRegionCount: totalMaskRegionCount
+        )
+        guard fadeDuration > 0 else { return }
         let fade = CABasicAnimation(keyPath: "opacity")
         fade.fromValue = 0
         fade.toValue = 1
-        fade.duration = AnimationTuning.maskFadeDuration(
-            styleDuration: currentStyle?.animationDuration,
-            maskRegionCount: currentMaskRegions.count + staticTintExclusions.count + staticBlurExclusions.count
-        )
+        fade.duration = fadeDuration
         fade.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
         tintMaskLayer.add(fade, forKey: "maskFade")
         blurMaskLayer.add(fade, forKey: "maskFade")
@@ -635,8 +694,6 @@ final class OverlayWindow: NSPanel {
     private func prepareForDormancy() {
         setFiltersEnabled(false, animated: false)
         resetMaskLayers()
-        staticTintExclusions = []
-        staticBlurExclusions = []
     }
 
     /// Determines whether a given rect should be ignored because it covers most of the overlay.
@@ -664,7 +721,7 @@ private extension OverlayWindow {
     }
 }
 
-/// Mask layer that uses a fast vector path when carve-outs are disjoint and falls back to bitmap rasterization when regions overlap.
+/// Mask layer that uses an even-odd vector path to keep updates GPU-friendly.
 private final class OverlayMaskLayer: CALayer {
     private enum RenderingMode {
         case none
@@ -712,19 +769,6 @@ private final class OverlayMaskLayer: CALayer {
         return layer
     }()
 
-    private let bitmapMaskLayer: CALayer = {
-        let layer = CALayer()
-        layer.anchorPoint = .zero
-        layer.drawsAsynchronously = true
-        layer.actions = [
-            "contents": NSNull(),
-            "bounds": NSNull(),
-            "position": NSNull()
-        ]
-        layer.contentsGravity = .resize
-        return layer
-    }()
-
     private var renderingMode: RenderingMode = .none
     private static let diagnosticsTracker = DiagnosticsTracker()
 
@@ -750,9 +794,7 @@ private final class OverlayMaskLayer: CALayer {
         ]
         sublayers?.forEach { $0.removeFromSuperlayer() }
         addSublayer(vectorMaskLayer)
-        addSublayer(bitmapMaskLayer)
         vectorMaskLayer.isHidden = true
-        bitmapMaskLayer.isHidden = true
     }
 
     @available(*, unavailable)
@@ -767,8 +809,10 @@ private final class OverlayMaskLayer: CALayer {
         staticRects: [CGRect],
         dynamicRegions: [OverlayWindow.MaskRegion]
     ) {
+        let operationToken = PerformanceDiagnostics.begin()
         guard bounds.width > 0, bounds.height > 0 else {
             reset()
+            PerformanceDiagnostics.end(operationToken, operation: "layer.mask_configure")
             return
         }
 
@@ -777,8 +821,6 @@ private final class OverlayMaskLayer: CALayer {
         contentsScale = resolvedScale
         vectorMaskLayer.frame = bounds
         vectorMaskLayer.contentsScale = resolvedScale
-        bitmapMaskLayer.frame = bounds
-        bitmapMaskLayer.contentsScale = resolvedScale
 
         let tolerance = max(1.0 / resolvedScale, 0.1)
         var holeRegions: [HoleRegion] = []
@@ -805,20 +847,17 @@ private final class OverlayMaskLayer: CALayer {
 
         guard !holeRegions.isEmpty else {
             reset()
+            PerformanceDiagnostics.end(operationToken, operation: "layer.mask_configure")
             return
         }
 
-        if holesOverlap(holeRegions, tolerance: tolerance, scale: resolvedScale) {
-            applyBitmapMask(bounds: bounds, scale: resolvedScale, holes: holeRegions)
-        } else {
-            applyVectorMask(bounds: bounds, scale: resolvedScale, holes: holeRegions)
-        }
+        applyVectorMask(bounds: bounds, scale: resolvedScale, holes: holeRegions)
+        PerformanceDiagnostics.increment("layer.mask_configure.hole_count", by: holeRegions.count)
+        PerformanceDiagnostics.end(operationToken, operation: "layer.mask_configure")
     }
 
     /// Releases active masks so the overlay can revert to a solid fill.
     func reset() {
-        bitmapMaskLayer.contents = nil
-        bitmapMaskLayer.isHidden = true
         vectorMaskLayer.path = nil
         vectorMaskLayer.isHidden = true
         frame = .zero
@@ -854,31 +893,6 @@ private final class OverlayMaskLayer: CALayer {
         }
     }
 
-    /// Determines whether any existing holes intersect enough to warrant bitmap masking.
-    private func holesOverlap(_ holes: [HoleRegion], tolerance: CGFloat, scale: CGFloat) -> Bool {
-        guard holes.count > 1 else { return false }
-        let pixelScale = max(scale, 1)
-        let minPixelOverlap: CGFloat = 96
-        let minimumArea = max(minPixelOverlap / (pixelScale * pixelScale), tolerance * tolerance * 6)
-        for index in 0..<(holes.count - 1) {
-            let first = holes[index].rect
-            for comparisonIndex in (index + 1)..<holes.count {
-                let second = holes[comparisonIndex].rect
-                let intersection = first.intersection(second)
-                guard !intersection.isNull else { continue }
-                let overlapArea = intersection.width * intersection.height
-                guard overlapArea > minimumArea else { continue }
-                let firstArea = max(first.width * first.height, .ulpOfOne)
-                let secondArea = max(second.width * second.height, .ulpOfOne)
-                let overlapRatio = overlapArea / min(firstArea, secondArea)
-                if overlapRatio >= 0.5 {
-                    return true
-                }
-            }
-        }
-        return false
-    }
-
     /// Uses a vector path to punch transparent holes when carve-outs do not overlap.
     private func applyVectorMask(bounds: CGRect, scale: CGFloat, holes: [HoleRegion]) {
         guard let path = makeVectorMaskPath(bounds: bounds, scale: scale, holes: holes) else {
@@ -888,25 +902,9 @@ private final class OverlayMaskLayer: CALayer {
 
         vectorMaskLayer.path = path
         vectorMaskLayer.isHidden = false
-        bitmapMaskLayer.contents = nil
-        bitmapMaskLayer.isHidden = true
         renderingMode = .vector
         Self.diagnosticsTracker.recordVectorFrame()
-    }
-
-    /// Falls back to a bitmap mask when regions intersect and vector subtraction would bleed.
-    private func applyBitmapMask(bounds: CGRect, scale: CGFloat, holes: [HoleRegion]) {
-        guard let image = makeBitmapMask(bounds: bounds, scale: scale, holes: holes) else {
-            reset()
-            return
-        }
-
-        bitmapMaskLayer.contents = image
-        bitmapMaskLayer.isHidden = false
-        vectorMaskLayer.path = nil
-        vectorMaskLayer.isHidden = true
-        renderingMode = .bitmap
-        Self.diagnosticsTracker.recordBitmapFrame()
+        PerformanceDiagnostics.increment("layer.mask_render.vector")
     }
 
     /// Builds the even-odd vector path representing all static and dynamic carve-outs.
@@ -934,57 +932,6 @@ private final class OverlayMaskLayer: CALayer {
         }
 
         return path
-    }
-
-    /// Rasterizes a mask image with transparent cutouts for each carve-out region.
-    private func makeBitmapMask(bounds: CGRect, scale: CGFloat, holes: [HoleRegion]) -> CGImage? {
-        let pixelWidth = Int(ceil(bounds.width * scale))
-        let pixelHeight = Int(ceil(bounds.height * scale))
-        guard pixelWidth > 0, pixelHeight > 0 else { return nil }
-
-        let colorSpace = CGColorSpaceCreateDeviceRGB()
-        guard let context = CGContext(
-            data: nil,
-            width: pixelWidth,
-            height: pixelHeight,
-            bitsPerComponent: 8,
-            bytesPerRow: 0,
-            space: colorSpace,
-            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
-        ) else {
-            return nil
-        }
-
-        context.setAllowsAntialiasing(true)
-        context.setShouldAntialias(true)
-        context.interpolationQuality = .none
-
-        context.setFillColor(red: 1, green: 1, blue: 1, alpha: 1)
-        context.fill(CGRect(x: 0, y: 0, width: CGFloat(pixelWidth), height: CGFloat(pixelHeight)))
-
-        context.scaleBy(x: scale, y: scale)
-        context.setBlendMode(.clear)
-
-        for hole in holes {
-            let rect = alignRectToPixelGrid(hole.rect, scale: scale, align: hole.alignToPixelGrid)
-            guard rect.width > 0, rect.height > 0 else { continue }
-            let radius = min(max(hole.cornerRadius, 0), min(rect.width, rect.height) / 2)
-            if radius > 0 {
-                let path = CGPath(
-                    roundedRect: rect,
-                    cornerWidth: radius,
-                    cornerHeight: radius,
-                    transform: nil
-                )
-                context.addPath(path)
-            } else {
-                context.addRect(rect)
-            }
-            context.fillPath()
-        }
-
-        context.setBlendMode(.normal)
-        return context.makeImage()
     }
 
     /// Snaps carve-out rects to the backing pixel grid so masks remain crisp on HiDPI displays.

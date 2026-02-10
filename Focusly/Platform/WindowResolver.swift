@@ -8,7 +8,19 @@ private let menuKeywordSet: Set<String> = ["menu", "popover", "context"]
 private let menuOwnerFragmentSet: Set<String> = ["rectangle"]
 private let stageManagerReplicaCoverageThreshold: CGFloat = 0.62
 private let stageManagerReplicaPadding: CGFloat = 12
+private let supplementaryMaskRescanInterval: TimeInterval = 1.2
+private let supplementaryMaskScanStateLifetime: TimeInterval = 12
 private let maskResolverLogger = Logger(subsystem: "com.focusly.app", category: "MaskResolver")
+
+private struct SupplementaryMaskScanState {
+    let lastScanDate: Date
+    let frontWindowNumber: Int
+    let includeApplicationWindows: Bool
+    let surfaceSignal: Int
+}
+
+@MainActor
+private var supplementaryMaskScanStateByProcessID: [pid_t: SupplementaryMaskScanState] = [:]
 /// Cardinal direction describing which screen edge a peripheral element hugs.
 enum PeripheralEdge: Equatable {
     case leading
@@ -222,9 +234,12 @@ func resolveRecentWindowSnapshots(
 ) -> [ActiveWindowSnapshot] {
     guard limit > 0 else { return [] }
     let options: CGWindowListOption = [.optionOnScreenOnly, .excludeDesktopElements]
+    let windowListFetchToken = PerformanceDiagnostics.begin()
     guard let completeWindowList = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]], !completeWindowList.isEmpty else {
+        PerformanceDiagnostics.end(windowListFetchToken, operation: "window_list.fetch_recent")
         return []
     }
+    PerformanceDiagnostics.end(windowListFetchToken, operation: "window_list.fetch_recent")
 
     var snapshots: [ActiveWindowSnapshot] = []
     var visitedWindowNumbers: Set<Int> = []
@@ -303,6 +318,7 @@ func resolveRecentWindowSnapshots(
         }
     }
 
+    PerformanceDiagnostics.increment("window_list.recent_snapshot_count", by: snapshots.count)
     return snapshots
 }
 
@@ -323,10 +339,12 @@ private func cgFrontWindow(
     includeApplicationWindows: Bool = true
 ) -> CGFrontWindowSnapshot? {
     let options: CGWindowListOption = [.optionOnScreenOnly, .excludeDesktopElements]
-
+    let windowListFetchToken = PerformanceDiagnostics.begin()
     guard let completeWindowList = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]], !completeWindowList.isEmpty else {
+        PerformanceDiagnostics.end(windowListFetchToken, operation: "window_list.fetch_front")
         return nil
     }
+    PerformanceDiagnostics.end(windowListFetchToken, operation: "window_list.fetch_front")
 
     var cornerSnapshotCache: [pid_t: [AXWindowCornerSnapshot]] = [:]
     var bundleIdentifierCache: [pid_t: String?] = [:]
@@ -353,9 +371,9 @@ private func cgFrontWindow(
            bundleIdentifierCache: &bundleIdentifierCache,
            cornerSnapshotCache: &cornerSnapshotCache
        ) {
-        let supplementaryRegions = collectSupplementaryMasks(
+        let supplementaryRegions = resolveSupplementaryMasksForFrontWindow(
+            frontWindow: preferredFrontWindow,
             in: completeWindowList,
-            primaryPID: preferredFrontWindow.ownerPID,
             excludingNumbers: windowNumbers.union([preferredFrontWindow.windowNumber]),
             includeApplicationWindows: includeApplicationWindows,
             cornerSnapshotCache: &cornerSnapshotCache,
@@ -395,9 +413,9 @@ private func cgFrontWindow(
         return nil
     }
 
-    let supplementaryRegions = collectSupplementaryMasks(
+    let supplementaryRegions = resolveSupplementaryMasksForFrontWindow(
+        frontWindow: resolvedFrontWindow,
         in: completeWindowList,
-        primaryPID: resolvedFrontWindow.ownerPID,
         excludingNumbers: windowNumbers.union([resolvedFrontWindow.windowNumber]),
         includeApplicationWindows: includeApplicationWindows,
         cornerSnapshotCache: &cornerSnapshotCache,
@@ -417,6 +435,151 @@ private func cgFrontWindow(
         cornerRadius: resolvedCornerRadius,
         supplementaryMasks: supplementaryRegions
     )
+}
+
+/// Reuses fresh per-app supplementary masks for a short window to avoid rescanning the full
+/// CoreGraphics list on every poll when the focused window hasn't changed meaningfully.
+@MainActor
+private func resolveSupplementaryMasksForFrontWindow(
+    frontWindow: CGFrontWindowSnapshot,
+    in windowDictionaries: [[String: Any]],
+    excludingNumbers: Set<Int>,
+    includeApplicationWindows: Bool,
+    cornerSnapshotCache: inout [pid_t: [AXWindowCornerSnapshot]],
+    bundleIdentifierCache: inout [pid_t: String?]
+) -> [ActiveWindowSnapshot.MaskRegion] {
+    let operationToken = PerformanceDiagnostics.begin()
+    let now = Date()
+    pruneSupplementaryMaskScanState(referenceDate: now)
+    let surfaceSignal = supplementarySurfaceSignal(
+        in: windowDictionaries,
+        primaryPID: frontWindow.ownerPID,
+        excludingNumbers: excludingNumbers
+    )
+    let rescanInterval = includeApplicationWindows ? supplementaryMaskRescanInterval : (supplementaryMaskRescanInterval * 0.5)
+    let shouldRescan = shouldRescanSupplementaryMasks(
+        forPID: frontWindow.ownerPID,
+        frontWindowNumber: frontWindow.windowNumber,
+        includeApplicationWindows: includeApplicationWindows,
+        surfaceSignal: surfaceSignal,
+        referenceDate: now,
+        rescanInterval: rescanInterval
+    )
+
+    if !shouldRescan,
+       let cachedMasks = ApplicationMaskShapeCache.shared.cachedSupplementaryMasks(
+        forPID: frontWindow.ownerPID,
+        matching: frontWindow.frame,
+        maximumAge: supplementaryMaskScanStateLifetime
+       ) {
+        PerformanceDiagnostics.recordCache(key: "supplementary_masks", hit: true)
+        PerformanceDiagnostics.increment("supplementary_masks.cached_count", by: cachedMasks.count)
+        PerformanceDiagnostics.end(operationToken, operation: "supplementary_masks.resolve")
+        return cachedMasks
+    }
+    PerformanceDiagnostics.recordCache(key: "supplementary_masks", hit: false)
+
+    let resolvedMasks = collectSupplementaryMasks(
+        in: windowDictionaries,
+        primaryPID: frontWindow.ownerPID,
+        excludingNumbers: excludingNumbers,
+        includeApplicationWindows: includeApplicationWindows,
+        cornerSnapshotCache: &cornerSnapshotCache,
+        bundleIdentifierCache: &bundleIdentifierCache
+    )
+    supplementaryMaskScanStateByProcessID[frontWindow.ownerPID] = SupplementaryMaskScanState(
+        lastScanDate: now,
+        frontWindowNumber: frontWindow.windowNumber,
+        includeApplicationWindows: includeApplicationWindows,
+        surfaceSignal: surfaceSignal
+    )
+    PerformanceDiagnostics.increment("supplementary_masks.scanned_count", by: resolvedMasks.count)
+    PerformanceDiagnostics.end(operationToken, operation: "supplementary_masks.resolve")
+    return resolvedMasks
+}
+
+@MainActor
+private func shouldRescanSupplementaryMasks(
+    forPID pid: pid_t,
+    frontWindowNumber: Int,
+    includeApplicationWindows: Bool,
+    surfaceSignal: Int,
+    referenceDate: Date,
+    rescanInterval: TimeInterval
+) -> Bool {
+    guard let state = supplementaryMaskScanStateByProcessID[pid] else {
+        PerformanceDiagnostics.increment("supplementary_masks.rescan_reason.no_state")
+        return true
+    }
+    if state.frontWindowNumber != frontWindowNumber {
+        PerformanceDiagnostics.increment("supplementary_masks.rescan_reason.front_window_changed")
+        return true
+    }
+    if state.includeApplicationWindows != includeApplicationWindows {
+        PerformanceDiagnostics.increment("supplementary_masks.rescan_reason.mode_changed")
+        return true
+    }
+    if state.surfaceSignal != surfaceSignal {
+        PerformanceDiagnostics.increment("supplementary_masks.rescan_reason.surface_signal_changed")
+        return true
+    }
+    if referenceDate.timeIntervalSince(state.lastScanDate) >= rescanInterval {
+        PerformanceDiagnostics.increment("supplementary_masks.rescan_reason.interval_elapsed")
+        return true
+    }
+    return false
+}
+
+@MainActor
+private func pruneSupplementaryMaskScanState(referenceDate: Date) {
+    supplementaryMaskScanStateByProcessID = supplementaryMaskScanStateByProcessID.filter {
+        referenceDate.timeIntervalSince($0.value.lastScanDate) <= supplementaryMaskScanStateLifetime
+    }
+}
+
+/// Computes a cheap fingerprint of likely supplementary surfaces so we can avoid expensive
+/// reclassification passes when the top-of-stack window metadata is unchanged.
+private func supplementarySurfaceSignal(
+    in windowDictionaries: [[String: Any]],
+    primaryPID: pid_t,
+    excludingNumbers: Set<Int>
+) -> Int {
+    var hasher = Hasher()
+    var sampledCount = 0
+    let sampleLimit = 28
+
+    for window in windowDictionaries {
+        guard sampledCount < sampleLimit else { break }
+        guard let windowNumber = window[kCGWindowNumber as String] as? Int else { continue }
+        if excludingNumbers.contains(windowNumber) { continue }
+        guard let layerIndex = window[kCGWindowLayer as String] as? Int else { continue }
+        if layerIndex > popUpMenuWindowLevel + 6 { continue }
+
+        let ownerPID: pid_t = {
+            if let pidValue = window[kCGWindowOwnerPID as String] as? Int { return pid_t(pidValue) }
+            if let pidValue = window[kCGWindowOwnerPID as String] as? pid_t { return pidValue }
+            return 0
+        }()
+
+        let ownerName = (window[kCGWindowOwnerName as String] as? String) ?? ""
+        let ownerIsSystemSurface = ownerName == "SystemUIServer" || ownerName == "Dock"
+        let relevant = ownerPID == primaryPID || ownerIsSystemSurface || layerIndex >= floatingAccessoryWindowLevel
+        if !relevant { continue }
+
+        hasher.combine(windowNumber)
+        hasher.combine(Int(ownerPID))
+        hasher.combine(layerIndex)
+        hasher.combine(ownerIsSystemSurface)
+        if let alphaValue = window[kCGWindowAlpha as String] as? Double {
+            hasher.combine(Int((alphaValue * 100).rounded()))
+        } else {
+            hasher.combine(-1)
+        }
+        sampledCount += 1
+    }
+
+    hasher.combine(sampledCount)
+    return hasher.finalize()
 }
 
 /// Walks window dictionaries looking for the topmost candidate the overlay should carve out.
@@ -525,6 +688,7 @@ private func collectSupplementaryMasks(
     cornerSnapshotCache: inout [pid_t: [AXWindowCornerSnapshot]],
     bundleIdentifierCache: inout [pid_t: String?]
 ) -> [ActiveWindowSnapshot.MaskRegion] {
+    let operationToken = PerformanceDiagnostics.begin()
     var maskRegions: [ActiveWindowSnapshot.MaskRegion] = []
     var visitedWindowNumbers: Set<Int> = []
     let stageShelfRegions = stageManagerShelfRegions(in: windowDictionaries, excludingWindowNumbers: excludingNumbers)
@@ -698,7 +862,7 @@ private func collectSupplementaryMasks(
         visitedWindowNumbers.insert(number)
     }
 
-    return maskRegions.sorted { lhs, rhs in
+    let sortedRegions = maskRegions.sorted { lhs, rhs in
         let lhsOrder = maskPurposeOrder(lhs.purpose)
         let rhsOrder = maskPurposeOrder(rhs.purpose)
         if lhsOrder != rhsOrder {
@@ -715,6 +879,9 @@ private func collectSupplementaryMasks(
         }
         return lhs.frame.height < rhs.frame.height
     }
+    PerformanceDiagnostics.increment("supplementary_masks.output_count", by: sortedRegions.count)
+    PerformanceDiagnostics.end(operationToken, operation: "supplementary_masks.collect")
+    return sortedRegions
 }
 
 /// Tracks Stage Manager shelf rectangles so replica windows can be ignored.
@@ -894,9 +1061,12 @@ private func resolveSupplementaryMasks(
     includeApplicationWindows: Bool
 ) -> [ActiveWindowSnapshot.MaskRegion] {
     let windowListOptions: CGWindowListOption = [.optionOnScreenOnly, .excludeDesktopElements]
+    let windowListFetchToken = PerformanceDiagnostics.begin()
     guard let completeWindowList = CGWindowListCopyWindowInfo(windowListOptions, kCGNullWindowID) as? [[String: Any]], !completeWindowList.isEmpty else {
+        PerformanceDiagnostics.end(windowListFetchToken, operation: "window_list.fetch_supplementary")
         return []
     }
+    PerformanceDiagnostics.end(windowListFetchToken, operation: "window_list.fetch_supplementary")
     var cornerSnapshotCache: [pid_t: [AXWindowCornerSnapshot]] = [:]
     var bundleIdentifierCache: [pid_t: String?] = [:]
     return collectSupplementaryMasks(
@@ -1078,9 +1248,12 @@ func resolvePeripheralInterfaceRegions(
     excluding windowNumbers: Set<Int> = []
 ) -> [PeripheralInterfaceRegion] {
     let options: CGWindowListOption = [.optionOnScreenOnly, .excludeDesktopElements]
+    let windowListFetchToken = PerformanceDiagnostics.begin()
     guard let windowDictionaries = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]], !windowDictionaries.isEmpty else {
+        PerformanceDiagnostics.end(windowListFetchToken, operation: "window_list.fetch_peripherals")
         return []
     }
+    PerformanceDiagnostics.end(windowListFetchToken, operation: "window_list.fetch_peripherals")
 
     let dockConfiguration = systemDockConfiguration()
     var dockRegions: [DisplayID: CGRect] = [:]
@@ -1157,7 +1330,7 @@ func resolvePeripheralInterfaceRegions(
         resolvedRegions.append(syntheticDock)
     }
 
-    return resolvedRegions.sorted { lhs, rhs in
+    let sorted = resolvedRegions.sorted { lhs, rhs in
         if lhs.displayID != rhs.displayID {
             return lhs.displayID < rhs.displayID
         }
@@ -1166,6 +1339,8 @@ func resolvePeripheralInterfaceRegions(
         }
         return lhs.frame.origin.y < rhs.frame.origin.y
     }
+    PerformanceDiagnostics.increment("peripherals.resolved_count", by: sorted.count)
+    return sorted
 }
 
 /// Menu surfaces ship with a subtle rounding; we keep it conservative to avoid bleeding into content.

@@ -322,6 +322,9 @@ final class OverlayController {
     private var lastImmediateSnapshotRefresh = Date.distantPast
     private let immediateSnapshotRefreshCooldown: TimeInterval = 1.0 / 90.0
     private var resolvedImmediateSnapshotCooldown: TimeInterval = 1.0 / 90.0
+    private var pendingImmediateSnapshotRefresh = false
+    private var lastDisplayLinkHealthSnapshotRefresh = Date.distantPast
+    private let displayLinkHealthSnapshotInterval: TimeInterval = OverlayController.resolveDisplayLinkHealthSnapshotInterval()
     private var quiescentDeadline = Date.distantPast
     private var isInQuiescentMode = false
     private let pollingTimerToleranceFraction: Double = 0.45
@@ -370,6 +373,16 @@ final class OverlayController {
         self.maximumPredictionLeadTime = isThirdGenerationAppleSilicon ? (1.0 / 16.0) : (1.0 / 18.0)
     }
 
+    private static func resolveDisplayLinkHealthSnapshotInterval() -> TimeInterval {
+        let defaults = UserDefaults.standard
+        let defaultInterval: TimeInterval = 0.2
+        let configured = defaults.double(forKey: "Focusly.DisplayLinkHealthSnapshotInterval")
+        if configured <= 0 {
+            return defaultInterval
+        }
+        return min(max(configured, 0.08), 0.5)
+    }
+
     /// Indicates whether any display currently prefers application-wide carving.
     var prefersApplicationWideMasking: Bool {
         shouldIncludeApplicationWindows()
@@ -412,6 +425,8 @@ final class OverlayController {
         lastSnapshotIdentity = nil
         backgroundSnapshotEntries.removeAll()
         lastBackgroundSnapshotRefresh = .distantPast
+        pendingImmediateSnapshotRefresh = false
+        lastDisplayLinkHealthSnapshotRefresh = .distantPast
         maskRegionBuildCacheByDisplayID.removeAll()
         simplifiedMaskModeUntil = .distantPast
         updateDisplayLinkPreferredDisplay()
@@ -1459,10 +1474,13 @@ final class OverlayController {
         in window: OverlayWindow,
         displayID: DisplayID?
     ) -> [OverlayWindow.MaskRegion]? {
+        let operationToken = PerformanceDiagnostics.begin()
         guard let contentView = window.contentView else {
+            PerformanceDiagnostics.end(operationToken, operation: "mask.build_regions")
             return nil
         }
         guard !maskRequests.isEmpty else {
+            PerformanceDiagnostics.end(operationToken, operation: "mask.build_regions")
             return nil
         }
 
@@ -1478,8 +1496,11 @@ final class OverlayController {
            abs(cached.backingScale - backingScale) <= 0.001,
            cached.windowFrame.isApproximatelyEqual(to: windowFrame, tolerance: 0.25),
            cached.contentBounds.isApproximatelyEqual(to: contentBounds, tolerance: 0.25) {
+            PerformanceDiagnostics.recordCache(key: "mask_region_build", hit: true)
+            PerformanceDiagnostics.end(operationToken, operation: "mask.build_regions")
             return cached.regions
         }
+        PerformanceDiagnostics.recordCache(key: "mask_region_build", hit: false)
 
         var maskRegions: [OverlayWindow.MaskRegion] = []
         maskRegions.reserveCapacity(maskRequests.count)
@@ -1540,7 +1561,10 @@ final class OverlayController {
             )
         }
 
-        guard !maskRegions.isEmpty else { return nil }
+        guard !maskRegions.isEmpty else {
+            PerformanceDiagnostics.end(operationToken, operation: "mask.build_regions")
+            return nil
+        }
         if let displayID {
             maskRegionBuildCacheByDisplayID[displayID] = MaskRegionBuildCacheEntry(
                 fingerprint: fingerprint,
@@ -1551,6 +1575,8 @@ final class OverlayController {
                 timestamp: Date()
             )
         }
+        PerformanceDiagnostics.increment("mask.build_regions.output_count", by: maskRegions.count)
+        PerformanceDiagnostics.end(operationToken, operation: "mask.build_regions")
         return maskRegions
     }
 
@@ -1715,20 +1741,28 @@ final class OverlayController {
     /// Resolves the active window snapshot and updates overlays when it changes.
     @discardableResult
     private func refreshActiveWindowSnapshot() -> Bool {
+        let operationToken = PerformanceDiagnostics.begin()
+        PerformanceDiagnostics.increment("scheduler.snapshot_poll_tick")
         refreshBackgroundWindowCache()
         let snapshot = activeWindowSnapshotResolver(activeOverlayWindowNumbers(), isApplicationWideSnapshotEnabled)
         let previousSnapshot = cachedActiveSnapshot
 
         switch (previousSnapshot, snapshot) {
         case (nil, nil):
+            PerformanceDiagnostics.end(operationToken, operation: "snapshot.refresh_full")
             return false
         case let (previous?, current?):
-            guard previous != current else { return false }
+            guard previous != current else {
+                PerformanceDiagnostics.end(operationToken, operation: "snapshot.refresh_full")
+                return false
+            }
         default:
             break
         }
 
+        PerformanceDiagnostics.increment("event.focus_change")
         applyOverlayMask(with: snapshot)
+        PerformanceDiagnostics.end(operationToken, operation: "snapshot.refresh_full")
         return true
     }
 
@@ -1805,6 +1839,12 @@ final class OverlayController {
 
     /// Timer callback that re-checks the focused window position.
     @objc private func handlePollingTimer(_ timer: Timer) {
+        if isDisplayLinkRunning {
+            PerformanceDiagnostics.increment("scheduler.poll_timer.skipped_due_to_display_link")
+            evaluateInteractionDeadline()
+            return
+        }
+        PerformanceDiagnostics.increment("scheduler.poll_timer.fire")
         let didChange = refreshActiveWindowSnapshot()
         if didChange {
             exitQuiescentModeIfNeeded()
@@ -1917,10 +1957,16 @@ final class OverlayController {
                 guard let self else { return }
                 self.capturePointerDisplayHint(from: event)
                 switch state {
-                case .began, .dragged:
+                case .began:
+                    PerformanceDiagnostics.increment("event.drag.begin")
+                    self.enterInteractionBoost(minimumDuration: self.interactionBoostDuration)
+                    self.requestImmediateSnapshotRefreshIfNeeded()
+                case .dragged:
+                    PerformanceDiagnostics.increment("event.drag.move")
                     self.enterInteractionBoost(minimumDuration: self.interactionBoostDuration)
                     self.requestImmediateSnapshotRefreshIfNeeded()
                 case .ended:
+                    PerformanceDiagnostics.increment("event.drag.end")
                     self.enterInteractionBoost(minimumDuration: self.interactionCooldownDuration)
                     self.requestImmediateSnapshotRefreshIfNeeded()
                 }
@@ -2111,6 +2157,7 @@ final class OverlayController {
     /// Temporarily enters the high-frequency tracking mode when macOS animates the frontmost app.
     private func handleWorkspaceAnimationEvent(activatedApplication: NSRunningApplication? = nil) {
         guard isMonitoringActive else { return }
+        PerformanceDiagnostics.increment("event.workspace_animation")
         enterInteractionBoost(minimumDuration: animationBoostDuration)
         requestImmediateSnapshotRefreshIfNeeded()
         prewarmPredictionsForImpendingAnimation()
@@ -2154,6 +2201,11 @@ final class OverlayController {
 
     /// Forces a snapshot refresh outside the normal polling cadence so masks can collapse faster.
     private func requestImmediateSnapshotRefreshIfNeeded() {
+        if isDisplayLinkRunning {
+            pendingImmediateSnapshotRefresh = true
+            PerformanceDiagnostics.increment("scheduler.immediate_refresh.deferred_to_display_link")
+            return
+        }
         let now = Date()
         guard now.timeIntervalSince(lastImmediateSnapshotRefresh) >= resolvedImmediateSnapshotCooldown else {
             return
@@ -2637,11 +2689,15 @@ final class OverlayController {
         guard isDisplayLinkRunning else { return }
         supplementalSnapshotDisplayLink.stop()
         isDisplayLinkRunning = false
+        pendingImmediateSnapshotRefresh = false
+        lastDisplayLinkHealthSnapshotRefresh = .distantPast
     }
 
     /// Runs on the supplemental display link to keep mask geometry in sync during active interactions.
     private func handleDisplayLinkTick(timing: DisplayLinkFrameTiming) {
         guard isMonitoringActive else { return }
+        let operationToken = PerformanceDiagnostics.begin()
+        PerformanceDiagnostics.increment("scheduler.display_link.tick")
         let normalizedInterval = normalizedRefreshInterval(timing.refreshPeriod)
         lastDisplayLinkRefreshInterval = normalizedInterval
         updateFastFrameSamplingInterval(for: normalizedInterval)
@@ -2657,7 +2713,32 @@ final class OverlayController {
                 _ = refreshActiveWindowSnapshot()
             }
         }
+        performDisplayLinkManagedSnapshotRefreshIfNeeded()
         evaluateInteractionDeadline()
+        PerformanceDiagnostics.end(operationToken, operation: "scheduler.display_link_work")
+    }
+
+    /// Uses the display link as the single high-frequency refresh driver while active.
+    private func performDisplayLinkManagedSnapshotRefreshIfNeeded() {
+        let now = Date()
+        if pendingImmediateSnapshotRefresh {
+            guard now.timeIntervalSince(lastImmediateSnapshotRefresh) >= resolvedImmediateSnapshotCooldown else {
+                return
+            }
+            pendingImmediateSnapshotRefresh = false
+            lastImmediateSnapshotRefresh = now
+            lastDisplayLinkHealthSnapshotRefresh = now
+            PerformanceDiagnostics.increment("scheduler.immediate_refresh.executed_on_display_link")
+            _ = refreshActiveWindowSnapshot()
+            return
+        }
+
+        guard now.timeIntervalSince(lastDisplayLinkHealthSnapshotRefresh) >= displayLinkHealthSnapshotInterval else {
+            return
+        }
+        lastDisplayLinkHealthSnapshotRefresh = now
+        PerformanceDiagnostics.increment("scheduler.health_refresh.on_display_link")
+        _ = refreshActiveWindowSnapshot()
     }
 
     private enum FrameRefreshResult {
@@ -2849,14 +2930,17 @@ final class OverlayController {
     /// Attempts a lightweight position refresh using the CoreGraphics frame list to avoid
     /// reconstructing supplementary mask metadata on every display refresh.
     private func refreshActiveWindowFrameFast() -> FrameRefreshResult {
+        let operationToken = PerformanceDiagnostics.begin()
         let exclusionNumbers = activeOverlayWindowNumbers()
         guard let cgFrame = resolveActiveWindowFrameUsingCoreGraphics(excluding: exclusionNumbers) else {
+            PerformanceDiagnostics.end(operationToken, operation: "snapshot.refresh_fast")
             return .needsFallback
         }
 
         guard var cachedSnapshot = cachedActiveSnapshot else {
             motionPredictor.record(frame: cgFrame)
             applyOverlayMasksFromCache()
+            PerformanceDiagnostics.end(operationToken, operation: "snapshot.refresh_fast")
             return .needsFallback
         }
 
@@ -2864,6 +2948,7 @@ final class OverlayController {
         if cachedSnapshot.frame.isApproximatelyEqual(to: cgFrame, tolerance: tolerance) {
             motionPredictor.record(frame: cgFrame)
             applyOverlayMasksFromCache()
+            PerformanceDiagnostics.end(operationToken, operation: "snapshot.refresh_fast")
             return .noChange
         }
 
@@ -2881,6 +2966,8 @@ final class OverlayController {
         cacheActiveSnapshot(cachedSnapshot)
         rebindActiveSnapshotDisplays(for: cachedSnapshot)
         applyOverlayMasksFromCache()
+        PerformanceDiagnostics.increment("snapshot.refresh_fast.updated")
+        PerformanceDiagnostics.end(operationToken, operation: "snapshot.refresh_fast")
         return .updated
     }
 }

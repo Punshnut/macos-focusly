@@ -23,8 +23,8 @@ final class MenuBarBackdropWindow: NSPanel {
     @available(macOS 12.0, *)
     private static let defaultFrameRateRange = CAFrameRateRange(minimum: 60, maximum: 240, preferred: 120)
     private enum AnimationTuning {
-        static let minFade: TimeInterval = 0.06
-        static let maxFade: TimeInterval = 0.14
+        static let minFade: TimeInterval = 0.04
+        static let maxFade: TimeInterval = 0.1
 
         static func clamp(_ duration: TimeInterval) -> TimeInterval {
             guard duration > 0 else { return 0 }
@@ -72,6 +72,7 @@ final class MenuBarBackdropWindow: NSPanel {
 
     /// Fades the window in when the backdrop becomes visible.
     func animatePresentation(duration: TimeInterval, animated: Bool) {
+        PerformanceDiagnostics.increment("animation.menu_bar.present_scheduled")
         let clampedDuration = AnimationTuning.clamp(max(0, duration))
         guard animated, clampedDuration > 0 else {
             alphaValue = 1
@@ -89,6 +90,7 @@ final class MenuBarBackdropWindow: NSPanel {
 
     /// Hides the backdrop, optionally animating the fade-out.
     func hide(animated: Bool) {
+        PerformanceDiagnostics.increment("animation.menu_bar.hide_scheduled")
         let duration = AnimationTuning.clamp(currentStyle?.animationDuration ?? 0.22)
         let teardown = { [weak self] in
             guard let self else { return }
@@ -162,6 +164,7 @@ final class MenuBarBackdropWindow: NSPanel {
 
     /// Applies the supplied overlay style to the backdrop.
     func apply(style: FocusOverlayStyle, animated: Bool) {
+        PerformanceDiagnostics.increment("animation.menu_bar.style_apply")
         currentStyle = style
 
         tintView.layer?.backgroundColor = style.tint.makeColor().cgColor
