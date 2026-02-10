@@ -202,6 +202,8 @@ final class FocuslyAppCoordinator: NSObject {
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 self.overlayService.refreshDisplays(animated: true)
+                self.overlayCoordinator.notifyRiskyTransition()
+                self.overlayCoordinator.requestUpdate(reason: .screenConfigurationChanged)
                 self.synchronizePreferencesDisplays()
             }
         }
@@ -210,6 +212,8 @@ final class FocuslyAppCoordinator: NSObject {
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 self.overlayService.refreshDisplays(animated: true)
+                self.overlayCoordinator.notifyRiskyTransition()
+                self.overlayCoordinator.requestUpdate(reason: .spaceChanged)
             }
         }
     }
@@ -630,6 +634,7 @@ final class FocuslyAppCoordinator: NSObject {
             }
             Task { @MainActor [weak self] in
                 self?.updateLastNonSelfPID(with: app)
+                self?.overlayCoordinator.requestUpdate(reason: .activeApplicationChanged)
             }
         }
     }

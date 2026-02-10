@@ -1,10 +1,16 @@
 import AppKit
 import QuartzCore
 import CoreImage
+import os.log
 
 /// Full-screen, click-through panel that renders Focusly's blur and tint overlay above a display.
 @MainActor
 final class OverlayWindow: NSPanel {
+    enum EffectQualityMode {
+        case full
+        case safeDimOnly
+    }
+
     private enum BlurBackend {
         case visualEffect(OverlayBlurView)
         case backdrop(BackdropHostView)
@@ -39,8 +45,31 @@ final class OverlayWindow: NSPanel {
 
     /// Represents a transparent region that should be carved out of the overlay.
     struct MaskRegion: Equatable {
+        enum TitlebarStyle: Int, Sendable {
+            case unknown
+            case unified
+            case separated
+        }
+
         let rect: NSRect
         let cornerRadius: CGFloat
+        let windowID: Int?
+        let titlebarStyle: TitlebarStyle
+        let ownerPID: pid_t?
+
+        init(
+            rect: NSRect,
+            cornerRadius: CGFloat,
+            windowID: Int? = nil,
+            titlebarStyle: TitlebarStyle = .unknown,
+            ownerPID: pid_t? = nil
+        ) {
+            self.rect = rect
+            self.cornerRadius = cornerRadius
+            self.windowID = windowID
+            self.titlebarStyle = titlebarStyle
+            self.ownerPID = ownerPID
+        }
     }
 
     /// Summarizes how often mask rendering falls back to CPU-bound bitmap mode.
@@ -71,8 +100,16 @@ final class OverlayWindow: NSPanel {
 
     private let tintMaskLayer = OverlayMaskLayer()
     private let blurMaskLayer = OverlayMaskLayer()
+    private let maskPipelineLogger = Logger(subsystem: "com.focusly.app", category: "OverlayMaskPipeline")
     private var currentStyle: FocusOverlayStyle?
     private var currentMaskRegions: [MaskRegion] = []
+    private var previousMaskBounds: CGRect = .zero
+    private var previousMaskScale: CGFloat = 0
+    private var fullMaskRebuildCount: UInt64 = 0
+    private var incrementalMaskUpdateCount: UInt64 = 0
+    private var nextMaskPipelineLogDate: Date = .distantPast
+    private var effectQualityMode: EffectQualityMode = .full
+    private var isEmergencyHidden = false
     private(set) var displayID: DisplayID
     private weak var boundScreen: NSScreen?
     private var isMenuBarExclusionEnabled = true
@@ -84,10 +121,10 @@ final class OverlayWindow: NSPanel {
     // Keep a slight overlap with the menu bar backdrop to prevent a visible seam.
     private let menuBarFrameOverlapPoints: CGFloat = 1
     private enum AnimationTuning {
-        static let minFade: TimeInterval = 0.04
-        static let maxFade: TimeInterval = 0.1
-        static let minMaskFade: TimeInterval = 0.02
-        static let maxMaskFade: TimeInterval = 0.05
+        static let minFade: TimeInterval = 0.08
+        static let maxFade: TimeInterval = 0.14
+        static let minMaskFade: TimeInterval = 0.08
+        static let maxMaskFade: TimeInterval = 0.14
 
         static func clamp(_ duration: TimeInterval) -> TimeInterval {
             guard duration > 0 else { return 0 }
@@ -206,18 +243,13 @@ final class OverlayWindow: NSPanel {
     func setFiltersEnabled(_ enabled: Bool, animated: Bool = false) {
         guard areFiltersActive != enabled else { return }
         areFiltersActive = enabled
+        cancelActiveOverlayAnimations()
 
         let targetOpacity = CGFloat(max(0, min(currentStyle?.opacity ?? 1, 1)))
         let duration = animated ? AnimationTuning.clamp(currentStyle?.animationDuration ?? 0.22) : 0
 
         if enabled {
-            switch blurBackend {
-            case .visualEffect(let blurView):
-                blurView.setBlurEnabled(true)
-            case .backdrop(let host):
-                host.setEnabled(true)
-            }
-            tintView.isHidden = false
+            applyEffectQualityMode(targetOpacity: targetOpacity)
             refreshMaskLayers()
 
             guard duration > 0 else {
@@ -295,7 +327,13 @@ final class OverlayWindow: NSPanel {
             guard !clipped.isNull else { return nil }
             if shouldIgnoreMask(rect: clipped, in: bounds) { return nil }
             let limitedRadius = min(max(0, region.cornerRadius), min(clipped.width, clipped.height) / 2)
-            return MaskRegion(rect: clipped, cornerRadius: limitedRadius)
+            return MaskRegion(
+                rect: clipped,
+                cornerRadius: limitedRadius,
+                windowID: region.windowID,
+                titlebarStyle: region.titlebarStyle,
+                ownerPID: region.ownerPID
+            )
         }
 
         // Keep a deterministic ordering so tolerance-based equality checks remain stable.
@@ -417,18 +455,23 @@ final class OverlayWindow: NSPanel {
 
     /// Configures window-level properties so the overlay behaves as a non-interactive panel.
     private func configureWindow() {
+        // macOS does not expose a stable global level "below active app window but above all other windows".
+        // Best practical approximation is a high non-activating overlay plus precise active-window punch-outs.
         level = .screenSaver
         backgroundColor = .clear
         isOpaque = false
         hasShadow = false
+        becomesKeyOnlyIfNeeded = false
         allowsConcurrentViewDrawing = true
         ignoresMouseEvents = true
         animationBehavior = .none
+        isExcludedFromWindowsMenu = true
         collectionBehavior = [
             .canJoinAllSpaces,
             .stationary,
             .ignoresCycle,
-            .fullScreenAuxiliary
+            .fullScreenAuxiliary,
+            .fullScreenDisallowsTiling
         ]
     }
 
@@ -530,6 +573,7 @@ final class OverlayWindow: NSPanel {
     func apply(style: FocusOverlayStyle, animated: Bool) {
         PerformanceDiagnostics.increment("animation.overlay.style_apply")
         currentStyle = style
+        cancelActiveOverlayAnimations()
         let duration = AnimationTuning.clamp(style.animationDuration)
         let targetOpacity = CGFloat(max(0, min(style.opacity, 1)))
         let targetColor = style.tint.makeColor()
@@ -538,8 +582,7 @@ final class OverlayWindow: NSPanel {
             if self.alphaValue != 1 {
                 self.alphaValue = 1
             }
-            self.blurBackend.view.alphaValue = targetOpacity
-            self.tintView.alphaValue = targetOpacity
+            self.applyEffectQualityMode(targetOpacity: targetOpacity)
             self.tintView.layer?.backgroundColor = targetColor.cgColor
         }
 
@@ -628,10 +671,21 @@ final class OverlayWindow: NSPanel {
             return
         }
 
+        cancelActiveOverlayAnimations()
         CATransaction.begin()
         CATransaction.setDisableActions(true)
 
         let scale = backingScaleFactor
+        let requiresFullRebuild =
+            !previousMaskBounds.equalTo(bounds) ||
+            abs(previousMaskScale - scale) > 0.001
+        if requiresFullRebuild {
+            fullMaskRebuildCount &+= 1
+        } else {
+            incrementalMaskUpdateCount &+= 1
+        }
+        previousMaskBounds = bounds
+        previousMaskScale = scale
         tintMaskLayer.configure(
             bounds: bounds,
             scale: scale,
@@ -653,10 +707,12 @@ final class OverlayWindow: NSPanel {
         }
 
         CATransaction.commit()
+        maybeLogMaskPipelineRefreshStats()
         PerformanceDiagnostics.increment("layer.refresh_masks.region_count", by: currentMaskRegions.count)
         PerformanceDiagnostics.end(operationToken, operation: "layer.refresh_masks")
 
         guard animated else { return }
+        cancelActiveOverlayAnimations()
         let totalMaskRegionCount = currentMaskRegions.count
         let fadeDuration = AnimationTuning.maskFadeDuration(
             styleDuration: currentStyle?.animationDuration,
@@ -685,6 +741,8 @@ final class OverlayWindow: NSPanel {
         tintMaskLayer.reset()
         blurMaskLayer.reset()
         CATransaction.commit()
+        previousMaskBounds = .zero
+        previousMaskScale = 0
         if !preserveActiveRegions {
             currentMaskRegions = []
         }
@@ -709,6 +767,77 @@ final class OverlayWindow: NSPanel {
     private func maskTolerance(for view: NSView) -> CGFloat {
         let scale = view.window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 1
         return max(1.0 / max(scale, 1), 0.25)
+    }
+
+    private func maybeLogMaskPipelineRefreshStats(referenceDate: Date = Date()) {
+        if nextMaskPipelineLogDate == .distantPast {
+            nextMaskPipelineLogDate = referenceDate.addingTimeInterval(4)
+            return
+        }
+        guard referenceDate >= nextMaskPipelineLogDate else { return }
+        maskPipelineLogger.log(
+            "overlay_mask_refresh fullRebuilds=\(self.fullMaskRebuildCount, privacy: .public) incrementalPathUpdates=\(self.incrementalMaskUpdateCount, privacy: .public)"
+        )
+        nextMaskPipelineLogDate = referenceDate.addingTimeInterval(4)
+    }
+
+    func setEffectQualityMode(_ mode: EffectQualityMode) {
+        guard effectQualityMode != mode else { return }
+        effectQualityMode = mode
+        let targetOpacity = CGFloat(max(0, min(currentStyle?.opacity ?? 1, 1)))
+        applyEffectQualityMode(targetOpacity: targetOpacity)
+    }
+
+    func setEmergencyHidden(_ hidden: Bool) {
+        guard isEmergencyHidden != hidden else { return }
+        isEmergencyHidden = hidden
+        if hidden {
+            orderOut(nil)
+            return
+        }
+        orderFrontRegardless()
+        refreshMaskLayers()
+    }
+
+    private func applyEffectQualityMode(targetOpacity: CGFloat) {
+        switch effectQualityMode {
+        case .full:
+            switch blurBackend {
+            case .visualEffect(let blurView):
+                blurView.setBlurEnabled(true)
+            case .backdrop(let host):
+                host.setEnabled(true)
+            }
+            blurBackend.view.isHidden = false
+            blurBackend.view.alphaValue = targetOpacity
+            tintView.alphaValue = targetOpacity
+            tintView.isHidden = false
+        case .safeDimOnly:
+            switch blurBackend {
+            case .visualEffect(let blurView):
+                blurView.setBlurEnabled(false)
+            case .backdrop(let host):
+                host.setEnabled(false)
+            }
+            blurBackend.view.alphaValue = 0
+            blurBackend.view.isHidden = true
+            tintView.alphaValue = min(targetOpacity, 0.42)
+            tintView.isHidden = false
+        }
+    }
+
+    private func cancelActiveOverlayAnimations() {
+        animatiorReset(view: blurBackend.view)
+        animatiorReset(view: tintView)
+        tintView.layer?.removeAllAnimations()
+        blurBackend.layer?.removeAllAnimations()
+        tintMaskLayer.removeAllAnimations()
+        blurMaskLayer.removeAllAnimations()
+        contentView?.layer?.removeAllAnimations()
+    }
+
+    private func animatiorReset(view: NSView) {
+        view.animator().alphaValue = view.alphaValue
     }
 }
 
@@ -753,6 +882,32 @@ private final class OverlayMaskLayer: CALayer {
         var rect: CGRect
         var cornerRadius: CGFloat
         var alignToPixelGrid: Bool
+        var windowID: Int?
+        var titlebarStyle: OverlayWindow.MaskRegion.TitlebarStyle
+        var ownerPID: pid_t?
+    }
+
+    private struct WindowShapeCacheKey: Hashable {
+        let windowID: Int
+        let frameSignature: Int
+        let cornerRadiusSignature: Int
+        let titlebarStyle: Int
+        let scaleSignature: Int
+    }
+
+    private struct WindowShapeCacheEntry {
+        let path: CGPath
+        let timestamp: Date
+    }
+
+    private struct MaskPipelineStats {
+        var rebuildCount: UInt64 = 0
+        var fastPathCount: UInt64 = 0
+        var slowPathCount: UInt64 = 0
+        var shapeCacheHits: UInt64 = 0
+        var shapeCacheMisses: UInt64 = 0
+        var totalRebuildTime: TimeInterval = 0
+        var nextLogDate: Date = .distantPast
     }
 
     private let vectorMaskLayer: CAShapeLayer = {
@@ -771,6 +926,12 @@ private final class OverlayMaskLayer: CALayer {
 
     private var renderingMode: RenderingMode = .none
     private static let diagnosticsTracker = DiagnosticsTracker()
+    private let logger = Logger(subsystem: "com.focusly.app", category: "OverlayMaskLayer")
+    private var windowShapeCache: [WindowShapeCacheKey: WindowShapeCacheEntry] = [:]
+    private let windowShapeCacheLifetime: TimeInterval = 12
+    private let maximumWindowShapeCacheEntries = 320
+    private var lastGeometryFingerprint: Int?
+    private var stats = MaskPipelineStats()
 
     override init() {
         super.init()
@@ -810,6 +971,7 @@ private final class OverlayMaskLayer: CALayer {
         dynamicRegions: [OverlayWindow.MaskRegion]
     ) {
         let operationToken = PerformanceDiagnostics.begin()
+        let rebuildStarted = Date()
         guard bounds.width > 0, bounds.height > 0 else {
             reset()
             PerformanceDiagnostics.end(operationToken, operation: "layer.mask_configure")
@@ -828,7 +990,14 @@ private final class OverlayMaskLayer: CALayer {
 
         for rect in staticRects where rect.width > 0 && rect.height > 0 {
             appendHole(
-                HoleRegion(rect: rect, cornerRadius: 0, alignToPixelGrid: false),
+                HoleRegion(
+                    rect: rect,
+                    cornerRadius: 0,
+                    alignToPixelGrid: false,
+                    windowID: nil,
+                    titlebarStyle: .unknown,
+                    ownerPID: nil
+                ),
                 to: &holeRegions,
                 tolerance: tolerance
             )
@@ -839,7 +1008,14 @@ private final class OverlayMaskLayer: CALayer {
             guard rect.width > 0, rect.height > 0 else { continue }
             let radius = min(max(region.cornerRadius, 0), min(rect.width, rect.height) / 2)
             appendHole(
-                HoleRegion(rect: rect, cornerRadius: radius, alignToPixelGrid: true),
+                HoleRegion(
+                    rect: rect,
+                    cornerRadius: radius,
+                    alignToPixelGrid: true,
+                    windowID: region.windowID,
+                    titlebarStyle: region.titlebarStyle,
+                    ownerPID: region.ownerPID
+                ),
                 to: &holeRegions,
                 tolerance: tolerance
             )
@@ -851,7 +1027,31 @@ private final class OverlayMaskLayer: CALayer {
             return
         }
 
-        applyVectorMask(bounds: bounds, scale: resolvedScale, holes: holeRegions)
+        let geometryFingerprint = geometryFingerprint(bounds: bounds, scale: resolvedScale, holes: holeRegions)
+        if let last = lastGeometryFingerprint, last == geometryFingerprint {
+            PerformanceDiagnostics.recordCache(key: "mask_pipeline_geometry", hit: true)
+            stats.fastPathCount &+= 1
+            stats.rebuildCount &+= 1
+            stats.totalRebuildTime += Date().timeIntervalSince(rebuildStarted)
+            maybeLogPipelineStats()
+            PerformanceDiagnostics.end(operationToken, operation: "layer.mask_configure")
+            return
+        }
+        PerformanceDiagnostics.recordCache(key: "mask_pipeline_geometry", hit: false)
+        lastGeometryFingerprint = geometryFingerprint
+
+        let overlapCount = overlapPairCount(in: holeRegions)
+        let useFastPath = overlapCount <= 1
+        if useFastPath {
+            applyVectorMaskFastPath(bounds: bounds, scale: resolvedScale, holes: holeRegions)
+            stats.fastPathCount &+= 1
+        } else {
+            applyVectorMaskSlowPath(bounds: bounds, scale: resolvedScale, holes: holeRegions)
+            stats.slowPathCount &+= 1
+        }
+        stats.rebuildCount &+= 1
+        stats.totalRebuildTime += Date().timeIntervalSince(rebuildStarted)
+        maybeLogPipelineStats()
         PerformanceDiagnostics.increment("layer.mask_configure.hole_count", by: holeRegions.count)
         PerformanceDiagnostics.end(operationToken, operation: "layer.mask_configure")
     }
@@ -862,6 +1062,7 @@ private final class OverlayMaskLayer: CALayer {
         vectorMaskLayer.isHidden = true
         frame = .zero
         renderingMode = .none
+        lastGeometryFingerprint = nil
     }
 
     /// Merges a candidate carve-out with existing holes, de-duplicating overlapping regions.
@@ -888,14 +1089,16 @@ private final class OverlayMaskLayer: CALayer {
         }) {
             holes[index].cornerRadius = max(holes[index].cornerRadius, candidate.cornerRadius)
             holes[index].alignToPixelGrid = holes[index].alignToPixelGrid && candidate.alignToPixelGrid
+            holes[index].windowID = holes[index].windowID ?? candidate.windowID
+            holes[index].ownerPID = holes[index].ownerPID ?? candidate.ownerPID
         } else {
             holes.append(candidate)
         }
     }
 
-    /// Uses a vector path to punch transparent holes when carve-outs do not overlap.
-    private func applyVectorMask(bounds: CGRect, scale: CGFloat, holes: [HoleRegion]) {
-        guard let path = makeVectorMaskPath(bounds: bounds, scale: scale, holes: holes) else {
+    /// Uses cached per-window shape paths and keeps holes separate when overlap pressure is low.
+    private func applyVectorMaskFastPath(bounds: CGRect, scale: CGFloat, holes: [HoleRegion]) {
+        guard let path = makeVectorMaskPathFastPath(bounds: bounds, scale: scale, holes: holes) else {
             reset()
             return
         }
@@ -907,8 +1110,24 @@ private final class OverlayMaskLayer: CALayer {
         PerformanceDiagnostics.increment("layer.mask_render.vector")
     }
 
+    /// Uses a conservative slow path that compacts overlap-heavy regions before rendering.
+    private func applyVectorMaskSlowPath(bounds: CGRect, scale: CGFloat, holes: [HoleRegion]) {
+        let compacted = compactHolesForSlowPath(holes, scale: scale)
+        guard let path = makeVectorMaskPathFastPath(bounds: bounds, scale: scale, holes: compacted) else {
+            reset()
+            return
+        }
+
+        vectorMaskLayer.path = path
+        vectorMaskLayer.isHidden = false
+        renderingMode = .vector
+        Self.diagnosticsTracker.recordVectorFrame()
+        PerformanceDiagnostics.increment("layer.mask_render.vector")
+        PerformanceDiagnostics.increment("layer.mask_pipeline.slow_path")
+    }
+
     /// Builds the even-odd vector path representing all static and dynamic carve-outs.
-    private func makeVectorMaskPath(bounds: CGRect, scale: CGFloat, holes: [HoleRegion]) -> CGPath? {
+    private func makeVectorMaskPathFastPath(bounds: CGRect, scale: CGFloat, holes: [HoleRegion]) -> CGPath? {
         guard bounds.width > 0, bounds.height > 0 else { return nil }
         let path = CGMutablePath()
         path.addRect(bounds)
@@ -916,22 +1135,155 @@ private final class OverlayMaskLayer: CALayer {
         for hole in holes {
             let rect = alignRectToPixelGrid(hole.rect, scale: scale, align: hole.alignToPixelGrid)
             guard rect.width > 0, rect.height > 0 else { continue }
-            let radius = min(max(hole.cornerRadius, 0), min(rect.width, rect.height) / 2)
-            if radius > 0 {
-                path.addPath(
-                    CGPath(
-                        roundedRect: rect,
-                        cornerWidth: radius,
-                        cornerHeight: radius,
-                        transform: nil
-                    )
-                )
-            } else {
-                path.addRect(rect)
-            }
+            path.addPath(cachedWindowShapePath(for: hole, alignedRect: rect, scale: scale))
         }
 
         return path
+    }
+
+    /// Reuses per-window hole shape geometry when frame/radius/scale are unchanged.
+    private func cachedWindowShapePath(for hole: HoleRegion, alignedRect: CGRect, scale: CGFloat) -> CGPath {
+        pruneWindowShapeCacheIfNeeded()
+        let resolvedWindowID = hole.windowID ?? syntheticWindowIdentifier(for: hole, scale: scale)
+        let key = WindowShapeCacheKey(
+            windowID: resolvedWindowID,
+            frameSignature: rectSignature(alignedRect, scale: 1000),
+            cornerRadiusSignature: quantized(hole.cornerRadius, scale: 1000),
+            titlebarStyle: hole.titlebarStyle.rawValue,
+            scaleSignature: quantized(scale, scale: 1000)
+        )
+        if let cached = windowShapeCache[key] {
+            stats.shapeCacheHits &+= 1
+            PerformanceDiagnostics.recordCache(key: "window_shape_cache", hit: true)
+            return cached.path
+        }
+
+        stats.shapeCacheMisses &+= 1
+        PerformanceDiagnostics.recordCache(key: "window_shape_cache", hit: false)
+        let radius = min(max(hole.cornerRadius, 0), min(alignedRect.width, alignedRect.height) / 2)
+        let createdPath: CGPath
+        if radius > 0 {
+            createdPath = CGPath(
+                roundedRect: alignedRect,
+                cornerWidth: radius,
+                cornerHeight: radius,
+                transform: nil
+            )
+        } else {
+            createdPath = CGPath(rect: alignedRect, transform: nil)
+        }
+        windowShapeCache[key] = WindowShapeCacheEntry(path: createdPath, timestamp: Date())
+        if windowShapeCache.count > maximumWindowShapeCacheEntries {
+            let sorted = windowShapeCache.sorted { $0.value.timestamp > $1.value.timestamp }
+            windowShapeCache = Dictionary(
+                uniqueKeysWithValues: sorted.prefix(maximumWindowShapeCacheEntries).map { ($0.key, $0.value) }
+            )
+        }
+        return createdPath
+    }
+
+    private func compactHolesForSlowPath(_ holes: [HoleRegion], scale: CGFloat) -> [HoleRegion] {
+        guard holes.count > 1 else { return holes }
+        var compacted: [HoleRegion] = []
+        compacted.reserveCapacity(holes.count)
+        for hole in holes {
+            let rect = alignRectToPixelGrid(hole.rect, scale: scale, align: hole.alignToPixelGrid)
+            guard rect.width > 0, rect.height > 0 else { continue }
+            if let containerIndex = compacted.firstIndex(where: { $0.rect.contains(rect) }) {
+                if hole.cornerRadius > compacted[containerIndex].cornerRadius {
+                    compacted[containerIndex].cornerRadius = hole.cornerRadius
+                }
+                continue
+            }
+            compacted.removeAll { rect.contains($0.rect) }
+            var updatedHole = hole
+            updatedHole.rect = rect
+            compacted.append(updatedHole)
+        }
+        return compacted
+    }
+
+    private func overlapPairCount(in holes: [HoleRegion]) -> Int {
+        guard holes.count > 1 else { return 0 }
+        var overlapCount = 0
+        for leftIndex in 0..<(holes.count - 1) {
+            for rightIndex in (leftIndex + 1)..<holes.count {
+                if holes[leftIndex].rect.intersects(holes[rightIndex].rect) {
+                    overlapCount += 1
+                    if overlapCount > 4 {
+                        return overlapCount
+                    }
+                }
+            }
+        }
+        return overlapCount
+    }
+
+    private func geometryFingerprint(bounds: CGRect, scale: CGFloat, holes: [HoleRegion]) -> Int {
+        var hasher = Hasher()
+        hasher.combine(rectSignature(bounds, scale: 1000))
+        hasher.combine(quantized(scale, scale: 1000))
+        hasher.combine(holes.count)
+        for hole in holes {
+            hasher.combine(hole.windowID ?? syntheticWindowIdentifier(for: hole, scale: scale))
+            hasher.combine(rectSignature(hole.rect, scale: 1000))
+            hasher.combine(quantized(hole.cornerRadius, scale: 1000))
+            hasher.combine(hole.titlebarStyle.rawValue)
+        }
+        return hasher.finalize()
+    }
+
+    private func syntheticWindowIdentifier(for hole: HoleRegion, scale: CGFloat) -> Int {
+        var hasher = Hasher()
+        hasher.combine(rectSignature(hole.rect, scale: 1000))
+        hasher.combine(quantized(hole.cornerRadius, scale: 1000))
+        hasher.combine(quantized(scale, scale: 1000))
+        hasher.combine(hole.titlebarStyle.rawValue)
+        hasher.combine(hole.ownerPID ?? 0)
+        return hasher.finalize()
+    }
+
+    private func rectSignature(_ rect: CGRect, scale: CGFloat) -> Int {
+        var hasher = Hasher()
+        hasher.combine(quantized(rect.origin.x, scale: scale))
+        hasher.combine(quantized(rect.origin.y, scale: scale))
+        hasher.combine(quantized(rect.size.width, scale: scale))
+        hasher.combine(quantized(rect.size.height, scale: scale))
+        return hasher.finalize()
+    }
+
+    private func quantized(_ value: CGFloat, scale: CGFloat) -> Int {
+        Int((value * scale).rounded())
+    }
+
+    private func pruneWindowShapeCacheIfNeeded(referenceDate: Date = Date()) {
+        let cutoff = referenceDate.addingTimeInterval(-windowShapeCacheLifetime)
+        windowShapeCache = windowShapeCache.filter { $0.value.timestamp >= cutoff }
+    }
+
+    private func maybeLogPipelineStats(referenceDate: Date = Date()) {
+        if stats.nextLogDate == .distantPast {
+            stats.nextLogDate = referenceDate.addingTimeInterval(4)
+            return
+        }
+        guard referenceDate >= stats.nextLogDate else { return }
+        let totalShapeLookups = stats.shapeCacheHits + stats.shapeCacheMisses
+        let hitRate: Double
+        if totalShapeLookups == 0 {
+            hitRate = 0
+        } else {
+            hitRate = (Double(stats.shapeCacheHits) / Double(totalShapeLookups)) * 100
+        }
+        let averageRebuildMS: Double
+        if stats.rebuildCount == 0 {
+            averageRebuildMS = 0
+        } else {
+            averageRebuildMS = (stats.totalRebuildTime / Double(stats.rebuildCount)) * 1000
+        }
+        logger.log(
+            "mask_pipeline stats cacheHitRate=\(hitRate, format: .fixed(precision: 2), privacy: .public)% avgRebuildMs=\(averageRebuildMS, format: .fixed(precision: 3), privacy: .public) fastPath=\(self.stats.fastPathCount, privacy: .public) slowPath=\(self.stats.slowPathCount, privacy: .public)"
+        )
+        stats.nextLogDate = referenceDate.addingTimeInterval(4)
     }
 
     /// Snaps carve-out rects to the backing pixel grid so masks remain crisp on HiDPI displays.

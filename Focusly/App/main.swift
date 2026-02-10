@@ -12,6 +12,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private let accessibilityWindowTracker = WindowTracker()
     private var windowTrackerObserver: NSObjectProtocol?
     private var debugTrackingWindow: NSWindow?
+    private var debugHUDWindow: NSWindow?
+    private var debugHUDLabel: NSTextField?
+    private var debugHUDObserver: NSObjectProtocol?
     /// Performs initial setup, prompts for accessibility, and starts the coordinator.
     @MainActor
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -29,6 +32,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         if shouldDisplayDebugWindow {
             displayDebugWindow()
         }
+        if shouldDisplayDebugHUD {
+            displayDebugHUD()
+        }
 
         let localizationService = LocalizationService.shared
 
@@ -44,6 +50,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         appCoordinator?.stop()
         dismissDebugWindow()
+        dismissDebugHUD()
     }
 
     /// Keeps the menu bar app running after closing auxiliary windows.
@@ -71,6 +78,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var shouldDisplayDebugWindow: Bool {
         ProcessInfo.processInfo.environment["FOCUSLY_DEBUG_WINDOW"] == "1" ||
         UserDefaults.standard.bool(forKey: "FocuslyDebugWindow")
+    }
+
+    private var shouldDisplayDebugHUD: Bool {
+        ProcessInfo.processInfo.environment["FOCUSLY_DEBUG_HUD"] == "1" ||
+        UserDefaults.standard.bool(forKey: "FocuslyDebugHUD")
     }
 
     /// Builds and presents the debug overlay window used during development.
@@ -135,6 +147,68 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         debugTrackingWindow = nil
     }
 
+    @MainActor
+    private func displayDebugHUD() {
+        guard debugHUDWindow == nil else { return }
+        let window = NSWindow(
+            contentRect: NSRect(x: 40, y: 40, width: 420, height: 120),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.level = .statusBar
+        window.isOpaque = false
+        window.backgroundColor = NSColor.windowBackgroundColor.withAlphaComponent(0.85)
+        window.title = "Focusly Debug HUD"
+        window.isReleasedWhenClosed = false
+        window.delegate = self
+
+        let label = NSTextField(labelWithString: "Waiting for overlay metrics…")
+        label.frame = NSRect(x: 16, y: 16, width: 388, height: 88)
+        label.font = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
+        label.lineBreakMode = .byWordWrapping
+        label.maximumNumberOfLines = 5
+        window.contentView?.addSubview(label)
+
+        debugHUDLabel = label
+        debugHUDWindow = window
+        window.orderFrontRegardless()
+
+        debugHUDObserver = NotificationCenter.default.addObserver(
+            forName: OverlayController.debugHUDDidUpdate,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard let self else { return }
+            let mode = notification.userInfo?["mode"] as? String ?? "unknown"
+            let lastUpdate = notification.userInfo?["lastUpdateISO8601"] as? String ?? "n/a"
+            let cacheHitRate = notification.userInfo?["cacheHitRate"] as? Double ?? 0
+            let eventRate = notification.userInfo?["eventRate"] as? Double ?? 0
+            let reason = notification.userInfo?["lastFallbackReason"] as? String ?? "none"
+            DispatchQueue.main.async { [weak self] in
+                self?.debugHUDLabel?.stringValue =
+                """
+                mode: \(mode)
+                lastUpdate: \(lastUpdate)
+                cacheHitRate: \(String(format: "%.2f", cacheHitRate))%
+                eventRate: \(String(format: "%.2f", eventRate))/s
+                lastFallbackReason: \(reason)
+                """
+            }
+        }
+    }
+
+    @MainActor
+    private func dismissDebugHUD() {
+        if let debugHUDObserver {
+            NotificationCenter.default.removeObserver(debugHUDObserver)
+            self.debugHUDObserver = nil
+        }
+        debugHUDWindow?.orderOut(nil)
+        debugHUDWindow = nil
+        debugHUDLabel = nil
+    }
+
     /// Updates the debug window title with the latest focused window geometry.
     @MainActor
     private func renderDebugSnapshot(_ snapshot: WindowTracker.Snapshot) {
@@ -149,11 +223,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     /// Clears debug resources if the debug window is manually closed.
     @MainActor
     func windowWillClose(_ notification: Notification) {
-        guard
-            let closedDebugWindow = notification.object as? NSWindow,
-            closedDebugWindow === debugTrackingWindow
-        else { return }
-        dismissDebugWindow()
+        guard let closedWindow = notification.object as? NSWindow else { return }
+        if closedWindow === debugTrackingWindow {
+            dismissDebugWindow()
+        }
+        if closedWindow === debugHUDWindow {
+            dismissDebugHUD()
+        }
     }
 
     // MARK: - Menu
