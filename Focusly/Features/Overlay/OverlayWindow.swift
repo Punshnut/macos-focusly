@@ -101,12 +101,14 @@ final class OverlayWindow: NSPanel {
     private let tintMaskLayer = OverlayMaskLayer()
     private let blurMaskLayer = OverlayMaskLayer()
     private let maskPipelineLogger = Logger(subsystem: "com.focusly.app", category: "OverlayMaskPipeline")
+    private let geometryLogger = Logger(subsystem: "com.focusly.app", category: "OverlayGeometry")
     private var currentStyle: FocusOverlayStyle?
     private var currentMaskRegions: [MaskRegion] = []
     private var previousMaskBounds: CGRect = .zero
     private var previousMaskScale: CGFloat = 0
     private var fullMaskRebuildCount: UInt64 = 0
     private var incrementalMaskUpdateCount: UInt64 = 0
+    private var translationOnlyMaskUpdateCount: UInt64 = 0
     private var nextMaskPipelineLogDate: Date = .distantPast
     private var effectQualityMode: EffectQualityMode = .full
     private var isEmergencyHidden = false
@@ -115,11 +117,16 @@ final class OverlayWindow: NSPanel {
     private var isMenuBarExclusionEnabled = true
     /// Tracks whether blur/tint filters should currently be visible.
     private var areFiltersActive = true
+    private var pendingMaskTranslationDelta: CGVector?
     private var lastAppliedRefreshProfile: DisplayRefreshProfile?
     @available(macOS 12.0, *)
     private static let defaultFrameRateRange = CAFrameRateRange(minimum: 60, maximum: 240, preferred: 120)
-    // Keep a slight overlap with the menu bar backdrop to prevent a visible seam.
-    private let menuBarFrameOverlapPoints: CGFloat = 1
+    private static let showsMenuBarDebugOverlay: Bool = {
+        UserDefaults.standard.bool(forKey: "Focusly.DebugMenuBarGeometryOverlay")
+    }()
+    private let debugScreenFrameLayer = CAShapeLayer()
+    private let debugVisibleFrameLayer = CAShapeLayer()
+    private let debugMaskRegionLayer = CAShapeLayer()
     private enum AnimationTuning {
         static let minFade: TimeInterval = 0.08
         static let maxFade: TimeInterval = 0.14
@@ -376,8 +383,34 @@ final class OverlayWindow: NSPanel {
             }
         }
 
+        let priorRegions = currentMaskRegions
+        pendingMaskTranslationDelta = translationDelta(from: priorRegions, to: capped, tolerance: tolerance)
         currentMaskRegions = capped
         refreshMaskLayers(animated: animated)
+    }
+
+    /// Detects drag-only updates where all mask holes moved by the same delta without shape changes.
+    private func translationDelta(from previous: [MaskRegion], to next: [MaskRegion], tolerance: CGFloat) -> CGVector? {
+        guard !previous.isEmpty, previous.count == next.count else { return nil }
+        var resolvedDelta: CGVector?
+        for (left, right) in zip(previous, next) {
+            guard left.windowID == right.windowID else { return nil }
+            guard left.ownerPID == right.ownerPID else { return nil }
+            guard left.titlebarStyle == right.titlebarStyle else { return nil }
+            guard abs(left.rect.width - right.rect.width) <= tolerance else { return nil }
+            guard abs(left.rect.height - right.rect.height) <= tolerance else { return nil }
+            guard abs(left.cornerRadius - right.cornerRadius) <= tolerance else { return nil }
+            let dx = right.rect.origin.x - left.rect.origin.x
+            let dy = right.rect.origin.y - left.rect.origin.y
+            if let existing = resolvedDelta {
+                guard abs(existing.dx - dx) <= tolerance, abs(existing.dy - dy) <= tolerance else { return nil }
+            } else {
+                resolvedDelta = CGVector(dx: dx, dy: dy)
+            }
+        }
+        guard let resolvedDelta else { return nil }
+        guard abs(resolvedDelta.dx) > tolerance || abs(resolvedDelta.dy) > tolerance else { return nil }
+        return resolvedDelta
     }
 
     /// Enforces a hard cap on mask complexity, prioritizing the largest regions first.
@@ -425,7 +458,10 @@ final class OverlayWindow: NSPanel {
     /// Resizes the window to match the bounds of the current target screen.
     func updateToScreenFrame() {
         guard let targetScreen = boundScreen ?? screen else { return }
-        setFrame(resolvedFrame(for: targetScreen), display: true)
+        let targetFrame = resolvedFrame(for: targetScreen)
+        setFrame(targetFrame, display: true)
+        logResolvedGeometry(screen: targetScreen, targetFrame: targetFrame)
+        refreshDebugGeometryOverlay()
     }
 
     /// Changes the screen the overlay is attached to and resizes accordingly.
@@ -504,6 +540,27 @@ final class OverlayWindow: NSPanel {
             tintView.topAnchor.constraint(equalTo: contentView.topAnchor),
             tintView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor)
         ])
+
+        configureDebugGeometryOverlayIfNeeded()
+    }
+
+    private func configureDebugGeometryOverlayIfNeeded() {
+        guard Self.showsMenuBarDebugOverlay, let rootLayer = contentView?.layer else { return }
+        let layers: [(CAShapeLayer, NSColor)] = [
+            (debugScreenFrameLayer, .systemRed),
+            (debugVisibleFrameLayer, .systemYellow),
+            (debugMaskRegionLayer, .systemGreen)
+        ]
+        for (layer, color) in layers {
+            layer.fillColor = NSColor.clear.cgColor
+            layer.strokeColor = color.cgColor
+            layer.lineWidth = 1
+            layer.zPosition = 10_000
+            layer.actions = ["path": NSNull(), "position": NSNull(), "bounds": NSNull()]
+            if layer.superlayer == nil {
+                rootLayer.addSublayer(layer)
+            }
+        }
     }
 
     /// Resolves a display identifier from an `NSScreen` so the overlay can be restored later.
@@ -631,23 +688,50 @@ final class OverlayWindow: NSPanel {
 
     /// Resolves the window frame depending on whether menu-bar exclusion is active.
     private func resolvedFrame(for screen: NSScreen) -> NSRect {
-        let screenFrame = screen.frame
-        guard isMenuBarExclusionEnabled else {
-            return screenFrame
-        }
+        Self.resolvedMainOverlayFrame(
+            screenFrame: screen.frame,
+            visibleFrame: screen.visibleFrame,
+            menuBarExcluded: isMenuBarExclusionEnabled,
+            backingScale: screen.backingScaleFactor
+        )
+    }
 
-        let visibleFrame = screen.visibleFrame
+    /// Explicit menu-bar policy:
+    /// - excluded: keep full-screen coverage except for the top menu-bar band
+    /// - included: target full frame
+    static func resolvedMainOverlayFrame(
+        screenFrame: NSRect,
+        visibleFrame: NSRect,
+        menuBarExcluded: Bool,
+        backingScale: CGFloat
+    ) -> NSRect {
+        guard menuBarExcluded else {
+            let scale = max(backingScale, 1)
+            return OverlayCoordinateConverter.alignRectToBackingGrid(screenFrame, scale: scale)
+        }
         let menuBarHeight = max(0, screenFrame.maxY - visibleFrame.maxY)
         guard menuBarHeight > 0 else {
-            return screenFrame
+            let scale = max(backingScale, 1)
+            return OverlayCoordinateConverter.alignRectToBackingGrid(screenFrame, scale: scale)
         }
-
-        let overlap = menuBarFrameOverlapPoints / max(screen.backingScaleFactor, 1)
-        return NSRect(
+        let scale = max(backingScale, 1)
+        // Keep a slight overlap with the menu-bar backdrop to avoid a seam.
+        let overlap = 1.0 / scale
+        let resolved = NSRect(
             x: screenFrame.minX,
             y: screenFrame.minY,
             width: screenFrame.width,
-            height: min(screenFrame.height, visibleFrame.height + overlap)
+            height: min(screenFrame.height, max(0, screenFrame.height - menuBarHeight + overlap))
+        )
+        return OverlayCoordinateConverter.alignRectToBackingGrid(resolved, scale: scale)
+    }
+
+    private func logResolvedGeometry(screen: NSScreen, targetFrame: NSRect) {
+        let screenFrame = screen.frame
+        let visibleFrame = screen.visibleFrame
+        let menuBarHeight = max(0, screenFrame.maxY - visibleFrame.maxY)
+        geometryLogger.debug(
+            "overlay_frame_policy display=\(self.displayID, privacy: .public) menuBarExcluded=\(self.isMenuBarExclusionEnabled, privacy: .public) menuBarHeight=\(menuBarHeight, format: .fixed(precision: 2), privacy: .public) screenOrigin=(\(screenFrame.minX, format: .fixed(precision: 2), privacy: .public),\(screenFrame.minY, format: .fixed(precision: 2), privacy: .public)) visibleOrigin=(\(visibleFrame.minX, format: .fixed(precision: 2), privacy: .public),\(visibleFrame.minY, format: .fixed(precision: 2), privacy: .public)) overlayOrigin=(\(targetFrame.minX, format: .fixed(precision: 2), privacy: .public),\(targetFrame.minY, format: .fixed(precision: 2), privacy: .public))"
         )
     }
 
@@ -679,6 +763,25 @@ final class OverlayWindow: NSPanel {
         let requiresFullRebuild =
             !previousMaskBounds.equalTo(bounds) ||
             abs(previousMaskScale - scale) > 0.001
+        let canUseTranslationFastPath = !requiresFullRebuild &&
+            tintView.layer?.mask === tintMaskLayer &&
+            blurBackend.layer?.mask === blurMaskLayer &&
+            pendingMaskTranslationDelta != nil
+        if canUseTranslationFastPath, let translation = pendingMaskTranslationDelta {
+            if tintMaskLayer.applyTranslation(translation, scale: scale),
+               blurMaskLayer.applyTranslation(translation, scale: scale) {
+                translationOnlyMaskUpdateCount &+= 1
+                pendingMaskTranslationDelta = nil
+                CATransaction.commit()
+                maybeLogMaskPipelineRefreshStats()
+                PerformanceDiagnostics.increment("layer.refresh_masks.translation_only")
+                PerformanceDiagnostics.increment("layer.refresh_masks.region_count", by: currentMaskRegions.count)
+                refreshDebugGeometryOverlay()
+                PerformanceDiagnostics.end(operationToken, operation: "layer.refresh_masks")
+                return
+            }
+        }
+        pendingMaskTranslationDelta = nil
         if requiresFullRebuild {
             fullMaskRebuildCount &+= 1
         } else {
@@ -709,6 +812,7 @@ final class OverlayWindow: NSPanel {
         CATransaction.commit()
         maybeLogMaskPipelineRefreshStats()
         PerformanceDiagnostics.increment("layer.refresh_masks.region_count", by: currentMaskRegions.count)
+        refreshDebugGeometryOverlay()
         PerformanceDiagnostics.end(operationToken, operation: "layer.refresh_masks")
 
         guard animated else { return }
@@ -746,6 +850,8 @@ final class OverlayWindow: NSPanel {
         if !preserveActiveRegions {
             currentMaskRegions = []
         }
+        pendingMaskTranslationDelta = nil
+        refreshDebugGeometryOverlay()
     }
 
     /// Releases blur/mask state so the overlay can sit idle with negligible resource usage.
@@ -776,9 +882,43 @@ final class OverlayWindow: NSPanel {
         }
         guard referenceDate >= nextMaskPipelineLogDate else { return }
         maskPipelineLogger.log(
-            "overlay_mask_refresh fullRebuilds=\(self.fullMaskRebuildCount, privacy: .public) incrementalPathUpdates=\(self.incrementalMaskUpdateCount, privacy: .public)"
+            "overlay_mask_refresh fullRebuilds=\(self.fullMaskRebuildCount, privacy: .public) incrementalPathUpdates=\(self.incrementalMaskUpdateCount, privacy: .public) translationOnlyUpdates=\(self.translationOnlyMaskUpdateCount, privacy: .public)"
         )
         nextMaskPipelineLogDate = referenceDate.addingTimeInterval(4)
+    }
+
+    private func refreshDebugGeometryOverlay() {
+        guard Self.showsMenuBarDebugOverlay else { return }
+        guard let contentView, let targetScreen = boundScreen ?? screen else { return }
+
+        let overlayFrame = frame
+        let contentBounds = contentView.bounds
+        let scale = max(backingScaleFactor, 1)
+
+        let screenRect = OverlayCoordinateConverter.globalRectToOverlayContent(
+            targetScreen.frame,
+            overlayFrame: overlayFrame,
+            contentBounds: contentBounds,
+            backingScale: scale
+        ) ?? .zero
+        let visibleRect = OverlayCoordinateConverter.globalRectToOverlayContent(
+            targetScreen.visibleFrame,
+            overlayFrame: overlayFrame,
+            contentBounds: contentBounds,
+            backingScale: scale
+        ) ?? .zero
+
+        debugScreenFrameLayer.frame = contentBounds
+        debugVisibleFrameLayer.frame = contentBounds
+        debugMaskRegionLayer.frame = contentBounds
+        debugScreenFrameLayer.path = CGPath(rect: screenRect, transform: nil)
+        debugVisibleFrameLayer.path = CGPath(rect: visibleRect, transform: nil)
+
+        let combinedMasks = CGMutablePath()
+        for region in currentMaskRegions {
+            combinedMasks.addRect(region.rect)
+        }
+        debugMaskRegionLayer.path = combinedMasks
     }
 
     func setEffectQualityMode(_ mode: EffectQualityMode) {
@@ -931,6 +1071,10 @@ private final class OverlayMaskLayer: CALayer {
     private let windowShapeCacheLifetime: TimeInterval = 12
     private let maximumWindowShapeCacheEntries = 320
     private var lastGeometryFingerprint: Int?
+    private var accumulatedTranslation: CGVector = .zero
+    private var translationBaseBounds: CGRect = .zero
+    private var translationBaseScale: CGFloat = 1
+    private var translationBaseHoles: [HoleRegion] = []
     private var stats = MaskPipelineStats()
 
     override init() {
@@ -983,6 +1127,10 @@ private final class OverlayMaskLayer: CALayer {
         contentsScale = resolvedScale
         vectorMaskLayer.frame = bounds
         vectorMaskLayer.contentsScale = resolvedScale
+        if accumulatedTranslation.dx != 0 || accumulatedTranslation.dy != 0 {
+            accumulatedTranslation = .zero
+            vectorMaskLayer.setAffineTransform(.identity)
+        }
 
         let tolerance = max(1.0 / resolvedScale, 0.1)
         var holeRegions: [HoleRegion] = []
@@ -1044,9 +1192,16 @@ private final class OverlayMaskLayer: CALayer {
         let useFastPath = overlapCount <= 1
         if useFastPath {
             applyVectorMaskFastPath(bounds: bounds, scale: resolvedScale, holes: holeRegions)
+            translationBaseBounds = bounds
+            translationBaseScale = resolvedScale
+            translationBaseHoles = holeRegions
             stats.fastPathCount &+= 1
         } else {
-            applyVectorMaskSlowPath(bounds: bounds, scale: resolvedScale, holes: holeRegions)
+            let compacted = compactHolesForSlowPath(holeRegions, scale: resolvedScale)
+            applyVectorMaskSlowPath(bounds: bounds, scale: resolvedScale, holes: compacted)
+            translationBaseBounds = bounds
+            translationBaseScale = resolvedScale
+            translationBaseHoles = compacted
             stats.slowPathCount &+= 1
         }
         stats.rebuildCount &+= 1
@@ -1060,9 +1215,43 @@ private final class OverlayMaskLayer: CALayer {
     func reset() {
         vectorMaskLayer.path = nil
         vectorMaskLayer.isHidden = true
+        vectorMaskLayer.setAffineTransform(.identity)
         frame = .zero
         renderingMode = .none
         lastGeometryFingerprint = nil
+        accumulatedTranslation = .zero
+        translationBaseBounds = .zero
+        translationBaseScale = 1
+        translationBaseHoles = []
+    }
+
+    /// Reuses existing geometry by rebuilding only translated holes while keeping full-screen coverage fixed.
+    func applyTranslation(_ delta: CGVector, scale: CGFloat) -> Bool {
+        guard renderingMode == .vector else { return false }
+        guard vectorMaskLayer.path != nil else { return false }
+        guard !translationBaseHoles.isEmpty else { return false }
+        guard translationBaseBounds.width > 0, translationBaseBounds.height > 0 else { return false }
+        let resolvedScale = max(scale, 1)
+        let quantizedDX = (delta.dx * resolvedScale).rounded() / resolvedScale
+        let quantizedDY = (delta.dy * resolvedScale).rounded() / resolvedScale
+        guard quantizedDX != 0 || quantizedDY != 0 else { return false }
+        accumulatedTranslation.dx += quantizedDX
+        accumulatedTranslation.dy += quantizedDY
+        let translatedHoles = translationBaseHoles.map { hole in
+            var translated = hole
+            translated.rect = hole.rect.offsetBy(dx: accumulatedTranslation.dx, dy: accumulatedTranslation.dy)
+            return translated
+        }
+        guard let translatedPath = makeVectorMaskPathTranslated(
+            bounds: translationBaseBounds,
+            scale: translationBaseScale,
+            holes: translatedHoles
+        ) else { return false }
+        vectorMaskLayer.path = translatedPath
+        vectorMaskLayer.isHidden = false
+        stats.fastPathCount &+= 1
+        PerformanceDiagnostics.increment("layer.mask_render.translation_fast_path")
+        return true
     }
 
     /// Merges a candidate carve-out with existing holes, de-duplicating overlapping regions.
@@ -1112,8 +1301,7 @@ private final class OverlayMaskLayer: CALayer {
 
     /// Uses a conservative slow path that compacts overlap-heavy regions before rendering.
     private func applyVectorMaskSlowPath(bounds: CGRect, scale: CGFloat, holes: [HoleRegion]) {
-        let compacted = compactHolesForSlowPath(holes, scale: scale)
-        guard let path = makeVectorMaskPathFastPath(bounds: bounds, scale: scale, holes: compacted) else {
+        guard let path = makeVectorMaskPathFastPath(bounds: bounds, scale: scale, holes: holes) else {
             reset()
             return
         }
@@ -1138,6 +1326,31 @@ private final class OverlayMaskLayer: CALayer {
             path.addPath(cachedWindowShapePath(for: hole, alignedRect: rect, scale: scale))
         }
 
+        return path
+    }
+
+    /// Builds a translated path without shifting the full-screen outer coverage rect.
+    private func makeVectorMaskPathTranslated(bounds: CGRect, scale: CGFloat, holes: [HoleRegion]) -> CGPath? {
+        guard bounds.width > 0, bounds.height > 0 else { return nil }
+        let path = CGMutablePath()
+        path.addRect(bounds)
+        for hole in holes {
+            let alignedRect = alignRectToPixelGrid(hole.rect, scale: scale, align: hole.alignToPixelGrid)
+            guard alignedRect.width > 0, alignedRect.height > 0 else { continue }
+            let radius = min(max(hole.cornerRadius, 0), min(alignedRect.width, alignedRect.height) / 2)
+            if radius > 0 {
+                path.addPath(
+                    CGPath(
+                        roundedRect: alignedRect,
+                        cornerWidth: radius,
+                        cornerHeight: radius,
+                        transform: nil
+                    )
+                )
+            } else {
+                path.addRect(alignedRect)
+            }
+        }
         return path
     }
 

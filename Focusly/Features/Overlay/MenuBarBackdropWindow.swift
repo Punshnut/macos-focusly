@@ -1,9 +1,11 @@
 import AppKit
 import QuartzCore
+import os.log
 
 /// Thin overlay that sits behind the system menu bar to provide blur and tint while keeping status items sharp.
 @MainActor
 final class MenuBarBackdropWindow: NSPanel {
+    private let geometryLogger = Logger(subsystem: "com.focusly.app", category: "MenuBarGeometry")
     private let blurView = OverlayBlurView()
     private let tintView: NSView = {
         let view = NSView()
@@ -203,6 +205,10 @@ final class MenuBarBackdropWindow: NSPanel {
             return
         }
         setFrame(frame, display: true)
+        let menuBarHeight = max(0, screen.frame.maxY - screen.visibleFrame.maxY)
+        geometryLogger.debug(
+            "menu_bar_backdrop display=\(self.displayID, privacy: .public) menuBarHeight=\(menuBarHeight, format: .fixed(precision: 2), privacy: .public) frameOrigin=(\(frame.minX, format: .fixed(precision: 2), privacy: .public),\(frame.minY, format: .fixed(precision: 2), privacy: .public))"
+        )
     }
 
     /// Returns the cached CoreGraphics display identifier used to map back to a screen.
@@ -252,14 +258,23 @@ final class MenuBarBackdropWindow: NSPanel {
     }
 
     static func menuBarFrame(for screen: NSScreen) -> NSRect? {
-        let screenFrame = screen.frame
-        let visibleFrame = screen.visibleFrame
+        menuBarFrame(
+            screenFrame: screen.frame,
+            visibleFrame: screen.visibleFrame,
+            backingScale: screen.backingScaleFactor
+        )
+    }
+
+    static func menuBarFrame(
+        screenFrame: NSRect,
+        visibleFrame: NSRect,
+        backingScale: CGFloat
+    ) -> NSRect? {
         let rawHeight = max(0, screenFrame.maxY - visibleFrame.maxY)
         guard rawHeight > 0 else { return nil }
-
-        let scale = max(screen.backingScaleFactor, 1)
-        // Overlap slightly into the content region so blur/tint meet the main overlay without a seam.
-        let overlap = 1.0 / scale
+        let scale = max(backingScale, 1)
+        // Slightly overlap into content so menu-bar and main overlay blur meet seamlessly.
+        let overlap = 2.0 / scale
 
         let topEdge = screenFrame.maxY
         let bottomEdge = max(screenFrame.origin.y, (screenFrame.maxY - rawHeight) - overlap)
@@ -283,12 +298,13 @@ final class MenuBarBackdropWindow: NSPanel {
             height: max(0, alignedMaxY - alignedMinY)
         )
 
-        let trimAmount = min(rect.height * 0.22, 1.0 / scale)
+        let trimAmount = min(rect.height * 0.35, 1.5 / scale)
         if trimAmount > 0 {
             rect.origin.y += trimAmount
             rect.size.height = max(0, rect.size.height - trimAmount)
         }
 
+        guard rect.width > 0, rect.height > 0 else { return nil }
         return rect
     }
 

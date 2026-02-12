@@ -26,6 +26,34 @@ final class OverlayController {
         case repeatedFlicker
         case riskyTransition
     }
+
+    /// Fallback trigger policy table (reason -> threshold -> action -> cooldown):
+    /// - `updateDurationBudgetExceeded`: update duration > watchdog threshold (0.18s), require 2 strikes within 1.2s.
+    ///   Action: fast -> safeDimOnly. Cooldown: 0.55s stable window before recovery.
+    /// - `updateRateExceeded`: update rate > watchdog threshold (24Hz), require 2 strikes within 1.2s.
+    ///   Action: fast -> safeDimOnly. Cooldown: 0.55s stable window before recovery.
+    /// - `repeatedFlicker`: > 18 mask mutations/sec while not actively interacting.
+    ///   Action: fast -> safeDimOnly. Cooldown: 0.8s stable window before recovery.
+    /// - `riskyTransition`: compositor transition/sleep-wake/display swap.
+    ///   Action: temporary emergency off, then safeDimOnly. Cooldown: emergency 0.22-0.35s.
+    private struct FallbackPolicy {
+        let watchdogStrikeWindow: TimeInterval = 1.2
+        let watchdogStrikesToEscalate = 2
+        let severeWatchdogMultiplier: Double = 1.8
+        let minimumSafeModeDwell: TimeInterval = 0.45
+        let minimumEmergencyModeDwell: TimeInterval = 0.2
+        let safeRecoveryDelay: TimeInterval = 0.55
+        let defaultEmergencyDuration: TimeInterval = 0.22
+        let riskyTransitionEmergencyDuration: TimeInterval = 0.3
+        let stabilityWindowForRecovery: TimeInterval = 0.8
+        let repeatedFlickerThreshold = 18
+
+        // Cadence floors keep fallback responsive:
+        // - Drag/resize remains >= 30Hz (<= 1/30s interval)
+        // - Absolute worst idle cadence remains >= 10Hz (<= 0.1s interval)
+        let minimumInteractiveRate: Double = 30
+        let minimumAbsoluteRate: Double = 10
+    }
     /// Groups the idle and interaction intervals used when polling the focused window.
     private struct PollingCadence {
         let idleInterval: TimeInterval
@@ -119,6 +147,7 @@ final class OverlayController {
 
     private struct MaskRegionBuildCacheEntry {
         let fingerprint: Int
+        let requests: [MaskRequest]
         let windowFrame: NSRect
         let contentBounds: NSRect
         let backingScale: CGFloat
@@ -131,6 +160,8 @@ final class OverlayController {
         let windowFrame: NSRect
         let contentBounds: NSRect
         let backingScale: CGFloat
+        let visibleFrame: NSRect
+        let menuBarFrame: NSRect
         let menuBarHeight: CGFloat
         let safeAreaInsets: NSEdgeInsets
         let timestamp: Date
@@ -469,14 +500,19 @@ final class OverlayController {
     private let maxWindowShapeCacheEntries = 640
     private var maskPipelineMetrics = MaskPipelineMetrics()
     private var simplifiedMaskModeUntil = Date.distantPast
+    private let fallbackPolicy = FallbackPolicy()
     private var fallbackMode: OverlayFallbackMode = .fast
+    private var fallbackModeEnteredAt = Date.distantPast
     private var lastFallbackReason: FallbackReason = .none
+    private var lastFallbackTriggerAt = Date.distantPast
+    private var watchdogStrikesByKind: [UpdateCoordinator.WatchdogEvent.Kind: Int] = [:]
+    private var lastWatchdogTimestampByKind: [UpdateCoordinator.WatchdogEvent.Kind: Date] = [:]
     private var fallbackRecoveryTask: Task<Void, Never>?
-    private var recentUpdateTimestampsForHUD: [Date] = []
-    private var lastUpdateDateForHUD: Date?
+    private let runtimeDiagnostics = OverlayRuntimeDiagnostics()
     private var recentFlickerTimestamps: [Date] = []
     private var lastMaskFingerprintByDisplayID: [DisplayID: Int] = [:]
     private var aggressiveFastPathEnabled = UserDefaults.standard.bool(forKey: "Focusly.AggressiveFastPath")
+    private var diagnosticProtocolTask: Task<Void, Never>?
 
     init(
         activeWindowSnapshotResolver: @escaping (Set<Int>, Bool) -> ActiveWindowSnapshot? = { windowNumbers, includeApplicationWindows in
@@ -536,12 +572,15 @@ final class OverlayController {
         if cachedActiveSnapshot == nil {
             requestUpdate(reason: .manualRefresh)
         }
+        runDiagnosticProtocolIfEnabled()
     }
 
     /// Stops monitoring and clears active overlay carve-outs.
     func stop() {
         guard isMonitoringActive else { return }
         isMonitoringActive = false
+        diagnosticProtocolTask?.cancel()
+        diagnosticProtocolTask = nil
         fallbackRecoveryTask?.cancel()
         fallbackRecoveryTask = nil
         stopPolling()
@@ -577,6 +616,63 @@ final class OverlayController {
         perScreenOverlayManager.reconcileActiveDisplays([])
     }
 
+    private func runDiagnosticProtocolIfEnabled() {
+        #if DEBUG
+        let defaults = UserDefaults.standard
+        guard defaults.bool(forKey: "Focusly.RunOverlayDiagnosticProtocol") else { return }
+        defaults.set(false, forKey: "Focusly.RunOverlayDiagnosticProtocol")
+        diagnosticProtocolTask?.cancel()
+        diagnosticProtocolTask = Task { [weak self] in
+            await self?.runDiagnosticProtocol()
+        }
+        #endif
+    }
+
+    #if DEBUG
+    private func runDiagnosticProtocol() async {
+        guard isMonitoringActive else { return }
+
+        // Stage 1: Cmd-Tab like app switches for 5 seconds.
+        let cmdTabEnd = Date().addingTimeInterval(5)
+        while Date() < cmdTabEnd {
+            requestUpdate(reason: .activeApplicationChanged)
+            requestUpdate(reason: .workspaceAnimation)
+            try? await Task.sleep(nanoseconds: 70_000_000)
+        }
+
+        // Stage 2: Drag/resize style bursts for 5 seconds.
+        let dragEnd = Date().addingTimeInterval(5)
+        requestUpdate(reason: .windowInteractionBegan)
+        while Date() < dragEnd {
+            requestUpdate(reason: .windowInteractionChanged)
+            try? await Task.sleep(nanoseconds: 20_000_000)
+        }
+        requestUpdate(reason: .windowInteractionEnded)
+
+        // Stage 3: Cross-monitor and screen transition hints.
+        requestUpdate(reason: .activeWindowChanged)
+        requestUpdate(reason: .screenConfigurationChanged)
+        requestUpdate(reason: .spaceChanged)
+        try? await Task.sleep(nanoseconds: 400_000_000)
+
+        // Stage 4: Toggle menu-bar inclusion/exclusion quickly.
+        let windows = Array(overlayWindowsByDisplayID.values)
+        if !windows.isEmpty {
+            for window in windows {
+                window.setMenuBarExclusionEnabled(false)
+            }
+            requestUpdate(reason: .manualRefresh)
+            try? await Task.sleep(nanoseconds: 300_000_000)
+            for window in windows {
+                window.setMenuBarExclusionEnabled(true)
+            }
+            requestUpdate(reason: .manualRefresh)
+        }
+
+        runtimeDiagnostics.maybeEmitSummary()
+    }
+    #endif
+
     /// Toggles whether overlay windows forward mouse events to windows underneath.
     func setClickThrough(_ enabled: Bool) {
         isClickThroughEnabled = enabled
@@ -605,13 +701,15 @@ final class OverlayController {
     /// Queues a coalesced overlay update request.
     func requestUpdate(reason: UpdateCoordinator.Reason) {
         guard isMonitoringActive else { return }
+        runtimeDiagnostics.recordEventReceived(reason: reason)
         updateCoordinator.requestUpdate(reason: reason)
+        runtimeDiagnostics.maybeEmitSummary()
     }
 
     /// Requests a short emergency-off window during risky compositor transitions.
     func notifyRiskyTransition() {
         guard isMonitoringActive else { return }
-        enterEmergencyOff(reason: .riskyTransition, duration: 0.25)
+        enterEmergencyOff(reason: .riskyTransition, duration: fallbackPolicy.riskyTransitionEmergencyDuration)
     }
 
     /// Seeds the controller with an initial snapshot so overlays can immediately carve it out.
@@ -679,7 +777,7 @@ final class OverlayController {
         overlayWindowsByDisplayID = updatedOverlayWindows
         perScreenOverlayManager.reconcileActiveDisplays(Set(updatedOverlayWindows.keys))
         applyFallbackModeToOverlays()
-        enterEmergencyOff(reason: .riskyTransition, duration: 0.28)
+        enterEmergencyOff(reason: .riskyTransition, duration: fallbackPolicy.riskyTransitionEmergencyDuration)
 
         let removedDisplayIDs = Set(previousOverlayWindows.keys).subtracting(updatedOverlayWindows.keys)
         for displayID in removedDisplayIDs {
@@ -1436,7 +1534,7 @@ final class OverlayController {
         evaluateMaskRenderingDiagnosticsIfNeeded()
 
         if !activeDisplaysMissingMask.isEmpty, fallbackMode == .fast {
-            enterEmergencyOff(reason: .riskyTransition, duration: 0.18)
+            enterEmergencyOff(reason: .riskyTransition, duration: fallbackPolicy.defaultEmergencyDuration)
         }
 
         if !didApplyMask,
@@ -1594,6 +1692,7 @@ final class OverlayController {
         displayID: DisplayID,
         preserving frozenMask: [OverlayWindow.MaskRegion]?
     ) -> Bool {
+        let buildStartedAt = Date()
         guard let requests = supplementaryMaskRequestsForActiveSnapshot(
             intersecting: window.frame,
             excluding: nil,
@@ -1604,8 +1703,12 @@ final class OverlayController {
         guard let supplementaryRegions = buildMaskRegions(from: requests, in: window, displayID: displayID) else {
             return false
         }
+        let buildDuration = Date().timeIntervalSince(buildStartedAt)
         let merged = mergedMaskRegions(frozenMask, supplementaryRegions)
+        let layerApplyStartedAt = Date()
         window.applyMask(regions: merged, animated: shouldAnimateMaskTransition(for: displayID))
+        let layerApplyDuration = Date().timeIntervalSince(layerApplyStartedAt)
+        runtimeDiagnostics.recordMaskTimings(buildDuration: buildDuration, layerApplyDuration: layerApplyDuration)
         frozenMaskRegionsByDisplayID[displayID] = merged
         return true
     }
@@ -1618,13 +1721,18 @@ final class OverlayController {
         identity: WindowIdentity? = nil,
         animated: Bool
     ) -> Bool {
+        let buildStartedAt = Date()
         guard let maskRegions = buildMaskRegions(from: maskRequests, in: window, displayID: displayID) else {
             return false
         }
+        let buildDuration = Date().timeIntervalSince(buildStartedAt)
         if let displayID {
             recordMaskMutation(displayID: displayID, regions: maskRegions)
         }
+        let layerApplyStartedAt = Date()
         window.applyMask(regions: maskRegions, animated: animated)
+        let layerApplyDuration = Date().timeIntervalSince(layerApplyStartedAt)
+        runtimeDiagnostics.recordMaskTimings(buildDuration: buildDuration, layerApplyDuration: layerApplyDuration)
         if let displayID {
             frozenMaskRegionsByDisplayID[displayID] = maskRegions
         }
@@ -1710,6 +1818,34 @@ final class OverlayController {
             PerformanceDiagnostics.end(operationToken, operation: "mask.build_regions")
             return cached.regions
         }
+        if let displayID,
+           let cached = maskRegionBuildCacheByDisplayID[displayID],
+           Self.translationCacheInputIsCompatible(
+            cachedWindowFrame: cached.windowFrame,
+            currentWindowFrame: windowFrame,
+            cachedContentBounds: cached.contentBounds,
+            currentContentBounds: contentBounds,
+            cachedBackingScale: cached.backingScale,
+            currentBackingScale: backingScale,
+            tolerance: 0.25
+           ),
+           let delta = uniformTranslationDelta(from: cached.requests, to: maskRequests, tolerance: 0.25) {
+            let translated = translatedMaskRegions(cached.regions, delta: delta, scale: backingScale)
+            if !translated.isEmpty {
+                PerformanceDiagnostics.recordCache(key: "mask_region_build", hit: true)
+                maskRegionBuildCacheByDisplayID[displayID] = MaskRegionBuildCacheEntry(
+                    fingerprint: fingerprint,
+                    requests: maskRequests,
+                    windowFrame: windowFrame,
+                    contentBounds: contentBounds,
+                    backingScale: backingScale,
+                    regions: translated,
+                    timestamp: Date()
+                )
+                PerformanceDiagnostics.end(operationToken, operation: "mask.build_regions")
+                return translated
+            }
+        }
         PerformanceDiagnostics.recordCache(key: "mask_region_build", hit: false)
 
         var maskRegions: [OverlayWindow.MaskRegion] = []
@@ -1749,6 +1885,7 @@ final class OverlayController {
         if let displayID {
             maskRegionBuildCacheByDisplayID[displayID] = MaskRegionBuildCacheEntry(
                 fingerprint: fingerprint,
+                requests: maskRequests,
                 windowFrame: windowFrame,
                 contentBounds: contentBounds,
                 backingScale: backingScale,
@@ -1901,6 +2038,65 @@ final class OverlayController {
         )
     }
 
+    /// Returns a uniform translation delta when request topology is unchanged.
+    private func uniformTranslationDelta(
+        from previous: [MaskRequest],
+        to current: [MaskRequest],
+        tolerance: CGFloat
+    ) -> CGVector? {
+        guard !previous.isEmpty, previous.count == current.count else { return nil }
+        var resolvedDelta: CGVector?
+        for (left, right) in zip(previous, current) {
+            guard left.windowID == right.windowID else { return nil }
+            guard left.ownerPID == right.ownerPID else { return nil }
+            guard left.titlebarStyle == right.titlebarStyle else { return nil }
+            guard left.purpose == right.purpose else { return nil }
+            guard left.peripheralKind == right.peripheralKind else { return nil }
+            guard left.isSynthesizedPeripheral == right.isSynthesizedPeripheral else { return nil }
+            guard abs(left.cornerRadius - right.cornerRadius) <= tolerance else { return nil }
+            guard abs(left.rect.width - right.rect.width) <= tolerance else { return nil }
+            guard abs(left.rect.height - right.rect.height) <= tolerance else { return nil }
+
+            let dx = right.rect.origin.x - left.rect.origin.x
+            let dy = right.rect.origin.y - left.rect.origin.y
+            if let delta = resolvedDelta {
+                guard abs(delta.dx - dx) <= tolerance, abs(delta.dy - dy) <= tolerance else { return nil }
+            } else {
+                resolvedDelta = CGVector(dx: dx, dy: dy)
+            }
+        }
+        guard let resolvedDelta else { return nil }
+        if abs(resolvedDelta.dx) <= tolerance, abs(resolvedDelta.dy) <= tolerance {
+            return nil
+        }
+        return resolvedDelta
+    }
+
+    private func translatedMaskRegions(
+        _ regions: [OverlayWindow.MaskRegion],
+        delta: CGVector,
+        scale: CGFloat
+    ) -> [OverlayWindow.MaskRegion] {
+        guard !regions.isEmpty else { return [] }
+        return regions.compactMap { region in
+            let translatedRect = NSRect(
+                x: region.rect.origin.x + delta.dx,
+                y: region.rect.origin.y + delta.dy,
+                width: region.rect.width,
+                height: region.rect.height
+            )
+            let alignedRect = OverlayCoordinateConverter.alignRectToBackingGrid(translatedRect, scale: scale)
+            guard alignedRect.width > 0, alignedRect.height > 0 else { return nil }
+            return OverlayWindow.MaskRegion(
+                rect: alignedRect,
+                cornerRadius: region.cornerRadius,
+                windowID: region.windowID,
+                titlebarStyle: region.titlebarStyle,
+                ownerPID: region.ownerPID
+            )
+        }
+    }
+
     private func maskRequestFingerprint(_ requests: [MaskRequest], in windowFrame: NSRect) -> Int {
         var hasher = Hasher()
         hasher.combine(requests.count)
@@ -1995,9 +2191,26 @@ final class OverlayController {
         let contentBounds = contentView.bounds
         let backingScale = window.backingScaleFactor
         let screen = window.screen
+        let visibleFrame: NSRect
+        if let screen {
+            visibleFrame = screen.visibleFrame
+        } else {
+            visibleFrame = windowFrame
+        }
+        let menuBarFrame: NSRect
+        if let screen,
+           let rect = MenuBarBackdropWindow.menuBarFrame(
+               screenFrame: screen.frame,
+               visibleFrame: visibleFrame,
+               backingScale: backingScale
+           ) {
+            menuBarFrame = rect
+        } else {
+            menuBarFrame = .zero
+        }
         let menuBarHeight: CGFloat
         if let screen {
-            menuBarHeight = max(0, screen.frame.maxY - screen.visibleFrame.maxY)
+            menuBarHeight = max(0, screen.frame.maxY - visibleFrame.maxY)
         } else {
             menuBarHeight = 0
         }
@@ -2011,6 +2224,8 @@ final class OverlayController {
            cached.windowFrame.isApproximatelyEqual(to: windowFrame, tolerance: 0.25),
            cached.contentBounds.isApproximatelyEqual(to: contentBounds, tolerance: 0.25),
            abs(cached.backingScale - backingScale) <= 0.001,
+           cached.visibleFrame.isApproximatelyEqual(to: visibleFrame, tolerance: 0.25),
+           cached.menuBarFrame.isApproximatelyEqual(to: menuBarFrame, tolerance: 0.25),
            abs(cached.menuBarHeight - menuBarHeight) <= 0.5,
            abs(cached.safeAreaInsets.top - safeAreaInsets.top) <= 0.5,
            abs(cached.safeAreaInsets.left - safeAreaInsets.left) <= 0.5,
@@ -2028,6 +2243,8 @@ final class OverlayController {
             windowFrame: windowFrame,
             contentBounds: contentBounds,
             backingScale: backingScale,
+            visibleFrame: visibleFrame,
+            menuBarFrame: menuBarFrame,
             menuBarHeight: menuBarHeight,
             safeAreaInsets: safeAreaInsets,
             timestamp: Date()
@@ -2042,6 +2259,8 @@ final class OverlayController {
         hasher.combine(rectSignature(transform.windowFrame, scale: 1000))
         hasher.combine(rectSignature(transform.contentBounds, scale: 1000))
         hasher.combine(quantized(transform.backingScale, scale: 1000))
+        hasher.combine(rectSignature(transform.visibleFrame, scale: 1000))
+        hasher.combine(rectSignature(transform.menuBarFrame, scale: 1000))
         hasher.combine(quantized(transform.menuBarHeight, scale: 1000))
         hasher.combine(quantized(transform.safeAreaInsets.top, scale: 1000))
         hasher.combine(quantized(transform.safeAreaInsets.left, scale: 1000))
@@ -2065,6 +2284,20 @@ final class OverlayController {
             width: width / scale,
             height: height / scale
         )
+    }
+
+    nonisolated static func translationCacheInputIsCompatible(
+        cachedWindowFrame: NSRect,
+        currentWindowFrame: NSRect,
+        cachedContentBounds: NSRect,
+        currentContentBounds: NSRect,
+        cachedBackingScale: CGFloat,
+        currentBackingScale: CGFloat,
+        tolerance: CGFloat
+    ) -> Bool {
+        abs(cachedBackingScale - currentBackingScale) <= 0.001 &&
+        cachedWindowFrame.isApproximatelyEqual(to: currentWindowFrame, tolerance: tolerance) &&
+        cachedContentBounds.isApproximatelyEqual(to: currentContentBounds, tolerance: tolerance)
     }
 
     private func appHeuristic(for request: MaskRequest) -> AppHeuristicEntry? {
@@ -2271,7 +2504,8 @@ final class OverlayController {
             return
         }
 
-        recordUpdateForHUD()
+        let updateStartedAt = Date()
+        runtimeDiagnostics.recordUpdateStarted(work, at: updateStartedAt)
         let didChange = refreshActiveWindowSnapshot(generation: work.generation)
         if didChange {
             exitQuiescentModeIfNeeded()
@@ -2280,50 +2514,127 @@ final class OverlayController {
             evaluateQuiescentModeIfNeeded()
         }
         evaluateInteractionDeadline()
+        let completedAt = Date()
+        runtimeDiagnostics.recordUpdateFinished(
+            duration: completedAt.timeIntervalSince(updateStartedAt),
+            at: completedAt
+        )
+        publishDebugHUDSnapshot(referenceDate: completedAt)
+        runtimeDiagnostics.maybeEmitSummary(reference: completedAt)
     }
 
     /// Applies the current tracking profile to scheduler timing knobs.
     private func syncUpdateCoordinatorConfiguration() {
         var config = updateCoordinator.configuration
-        config.debounceInterval = max(0.01, min(currentPollingCadence.idleInterval, 0.2))
-        config.interactionDebounceInterval = max(1.0 / 45.0, min(currentPollingCadence.interactionInterval, 1.0 / 18.0))
+        let minimumInteractiveInterval = 1.0 / fallbackPolicy.minimumInteractiveRate
+        let minimumAbsoluteInterval = 1.0 / fallbackPolicy.minimumAbsoluteRate
+        let baseIdleInterval = max(1.0 / 60.0, min(currentPollingCadence.idleInterval, 0.05))
+        let baseInteractionInterval = max(1.0 / 60.0, min(currentPollingCadence.interactionInterval, minimumInteractiveInterval))
+
+        switch fallbackMode {
+        case .fast:
+            config.throttleInterval = min(baseIdleInterval, minimumAbsoluteInterval)
+            config.interactionThrottleInterval = min(baseInteractionInterval, minimumInteractiveInterval)
+        case .safe:
+            // Safe mode degrades visual complexity only; keep cadence responsive.
+            config.throttleInterval = min(max(baseIdleInterval, 1.0 / 15.0), minimumAbsoluteInterval)
+            config.interactionThrottleInterval = min(max(baseInteractionInterval, 1.0 / 30.0), minimumInteractiveInterval)
+        case .emergencyOff:
+            // Emergency mode is short-lived; cadence floor still must not drop below absolute minimum.
+            config.throttleInterval = minimumAbsoluteInterval
+            config.interactionThrottleInterval = minimumInteractiveInterval
+        }
+        config.trailingUpdateDelay = 0.1
         updateCoordinator.configuration = config
     }
 
     /// Emits watchdog logs and exposes a hook for future fallback mode escalation.
     private func handleUpdateCoordinatorWatchdogEvent(_ event: UpdateCoordinator.WatchdogEvent) {
+        let strikes = registerWatchdogStrike(event)
+        let reason: FallbackReason
         switch event.kind {
         case .updateDurationExceeded:
+            reason = .updateDurationBudgetExceeded
             updateSchedulerLogger.warning(
-                "watchdog update-duration threshold exceeded value=\(event.measuredValue, format: .fixed(precision: 4), privacy: .public)s threshold=\(event.threshold, format: .fixed(precision: 4), privacy: .public)s"
+                "watchdog update-duration threshold exceeded value=\(event.measuredValue, format: .fixed(precision: 4), privacy: .public)s threshold=\(event.threshold, format: .fixed(precision: 4), privacy: .public)s strikes=\(strikes, privacy: .public)"
             )
-            transitionToSafeMode(reason: .updateDurationBudgetExceeded)
         case .updateRateExceeded:
+            reason = .updateRateExceeded
             updateSchedulerLogger.warning(
-                "watchdog update-rate threshold exceeded value=\(event.measuredValue, format: .fixed(precision: 2), privacy: .public)Hz threshold=\(event.threshold, format: .fixed(precision: 2), privacy: .public)Hz"
+                "watchdog update-rate threshold exceeded value=\(event.measuredValue, format: .fixed(precision: 2), privacy: .public)Hz threshold=\(event.threshold, format: .fixed(precision: 2), privacy: .public)Hz strikes=\(strikes, privacy: .public)"
             )
-            transitionToSafeMode(reason: .updateRateExceeded)
         }
         PerformanceDiagnostics.increment("scheduler.watchdog.triggered")
+        let safeCooldown = fallbackPolicy.safeRecoveryDelay
+        logFallbackTrigger(
+            reason: reason,
+            measuredValue: event.measuredValue,
+            thresholdValue: event.threshold,
+            cooldown: safeCooldown
+        )
+        if strikes >= fallbackPolicy.watchdogStrikesToEscalate {
+            transitionToSafeMode(reason: reason, cooldown: safeCooldown)
+            if fallbackMode == .safe, isSevereWatchdogEvent(event),
+               Date().timeIntervalSince(fallbackModeEnteredAt) >= fallbackPolicy.minimumSafeModeDwell {
+                enterEmergencyOff(reason: reason, duration: fallbackPolicy.defaultEmergencyDuration)
+            }
+        }
         publishDebugHUDSnapshot()
     }
 
-    private func transitionToSafeMode(reason: FallbackReason) {
+    private func transitionToSafeMode(reason: FallbackReason, cooldown: TimeInterval? = nil) {
         setFallbackMode(.safe, reason: reason)
+        scheduleFastModeRecovery(after: cooldown ?? fallbackPolicy.safeRecoveryDelay)
+    }
+
+    private func registerWatchdogStrike(_ event: UpdateCoordinator.WatchdogEvent) -> Int {
+        let now = Date()
+        if let previous = lastWatchdogTimestampByKind[event.kind],
+           now.timeIntervalSince(previous) > fallbackPolicy.watchdogStrikeWindow {
+            watchdogStrikesByKind[event.kind] = 0
+        }
+        lastWatchdogTimestampByKind[event.kind] = now
+        let updated = (watchdogStrikesByKind[event.kind] ?? 0) + 1
+        watchdogStrikesByKind[event.kind] = updated
+        return updated
+    }
+
+    private func resetWatchdogStrikes() {
+        watchdogStrikesByKind.removeAll()
+        lastWatchdogTimestampByKind.removeAll()
+    }
+
+    private func isSevereWatchdogEvent(_ event: UpdateCoordinator.WatchdogEvent) -> Bool {
+        event.measuredValue >= (event.threshold * fallbackPolicy.severeWatchdogMultiplier)
+    }
+
+    private func logFallbackTrigger(
+        reason: FallbackReason,
+        measuredValue: Double?,
+        thresholdValue: Double?,
+        cooldown: TimeInterval
+    ) {
+        let measured = measuredValue ?? -1
+        let threshold = thresholdValue ?? -1
+        fallbackLogger.warning(
+            "fallback_trigger reason=\(reason.rawValue, privacy: .public) measured=\(measured, format: .fixed(precision: 4), privacy: .public) threshold=\(threshold, format: .fixed(precision: 4), privacy: .public) cooldown_s=\(cooldown, format: .fixed(precision: 3), privacy: .public)"
+        )
     }
 
     private func enterEmergencyOff(reason: FallbackReason, duration: TimeInterval = 0.35) {
+        let clampedDuration = max(duration, fallbackPolicy.minimumEmergencyModeDwell)
+        logFallbackTrigger(reason: reason, measuredValue: nil, thresholdValue: nil, cooldown: clampedDuration)
         setFallbackMode(.emergencyOff, reason: reason)
         fallbackRecoveryTask?.cancel()
         fallbackRecoveryTask = Task { [weak self] in
             guard let self else { return }
-            let sleepDuration = UInt64(max(duration, 0.1) * 1_000_000_000)
+            let sleepDuration = UInt64(clampedDuration * 1_000_000_000)
             try? await Task.sleep(nanoseconds: sleepDuration)
             await MainActor.run {
                 guard self.isMonitoringActive else { return }
                 self.setFallbackMode(.safe, reason: reason)
                 self.requestUpdate(reason: .manualRefresh)
-                self.scheduleFastModeRecovery(after: 1.2)
+                self.scheduleFastModeRecovery(after: self.fallbackPolicy.safeRecoveryDelay)
             }
         }
     }
@@ -2337,7 +2648,7 @@ final class OverlayController {
             await MainActor.run {
                 guard self.isMonitoringActive else { return }
                 guard self.fallbackMode == .safe else { return }
-                if self.recentFlickerTimestamps.isEmpty {
+                if self.isStableForFallbackRecovery() {
                     self.setFallbackMode(.fast, reason: .none)
                 }
             }
@@ -2345,21 +2656,47 @@ final class OverlayController {
     }
 
     private func setFallbackMode(_ mode: OverlayFallbackMode, reason: FallbackReason) {
+        let now = Date()
+        if mode == .fast,
+           fallbackMode == .safe,
+           now.timeIntervalSince(fallbackModeEnteredAt) < fallbackPolicy.minimumSafeModeDwell {
+            return
+        }
+        if mode == .fast,
+           fallbackMode == .emergencyOff,
+           now.timeIntervalSince(fallbackModeEnteredAt) < fallbackPolicy.minimumEmergencyModeDwell {
+            return
+        }
         guard fallbackMode != mode || lastFallbackReason != reason else { return }
         fallbackMode = mode
+        fallbackModeEnteredAt = now
         if reason != .none {
             lastFallbackReason = reason
+            lastFallbackTriggerAt = now
         } else if mode == .fast {
             lastFallbackReason = .none
+            resetWatchdogStrikes()
         }
         applyFallbackModeToOverlays()
+        syncUpdateCoordinatorConfiguration()
+        runtimeDiagnostics.updateFallbackState(mode: mode.rawValue, reason: lastFallbackReason.rawValue)
         fallbackLogger.log("fallback_mode mode=\(mode.rawValue, privacy: .public) reason=\(self.lastFallbackReason.rawValue, privacy: .public)")
         publishDebugHUDSnapshot()
+        runtimeDiagnostics.maybeEmitSummary()
+    }
+
+    private func isStableForFallbackRecovery(referenceDate: Date = Date()) -> Bool {
+        if !recentFlickerTimestamps.isEmpty { return false }
+        guard lastFallbackTriggerAt != .distantPast else { return true }
+        return referenceDate.timeIntervalSince(lastFallbackTriggerAt) >= fallbackPolicy.stabilityWindowForRecovery
     }
 
     private func applyFallbackModeToOverlays() {
         let shouldEmergencyHide = fallbackMode == .emergencyOff
-        let quality: OverlayWindow.EffectQualityMode = (fallbackMode == .safe) ? .safeDimOnly : .full
+        // Keep blur active in safe mode by default; dim-only is now an explicit opt-in.
+        let dimOnlyFallbackEnabled = UserDefaults.standard.bool(forKey: "Focusly.EnableDimOnlyFallback")
+        let quality: OverlayWindow.EffectQualityMode =
+            (fallbackMode == .safe && dimOnlyFallbackEnabled) ? .safeDimOnly : .full
         for window in overlayWindowsByDisplayID.values {
             window.setEffectQualityMode(quality)
             window.setEmergencyHidden(shouldEmergencyHide)
@@ -2375,9 +2712,15 @@ final class OverlayController {
         let now = Date()
         recentFlickerTimestamps.append(now)
         recentFlickerTimestamps.removeAll { now.timeIntervalSince($0) > 1.0 }
-        if recentFlickerTimestamps.count > 18 && interactionBoostExpiration == nil {
-            transitionToSafeMode(reason: .repeatedFlicker)
-            scheduleFastModeRecovery(after: 1.6)
+        if recentFlickerTimestamps.count > fallbackPolicy.repeatedFlickerThreshold && interactionBoostExpiration == nil {
+            let cooldown = 0.8
+            logFallbackTrigger(
+                reason: .repeatedFlicker,
+                measuredValue: Double(recentFlickerTimestamps.count),
+                thresholdValue: Double(fallbackPolicy.repeatedFlickerThreshold),
+                cooldown: cooldown
+            )
+            transitionToSafeMode(reason: .repeatedFlicker, cooldown: cooldown)
         }
     }
 
@@ -2395,30 +2738,38 @@ final class OverlayController {
         return hasher.finalize()
     }
 
-    private func recordUpdateForHUD() {
-        let now = Date()
-        lastUpdateDateForHUD = now
-        recentUpdateTimestampsForHUD.append(now)
-        recentUpdateTimestampsForHUD.removeAll { now.timeIntervalSince($0) > 1.0 }
-        publishDebugHUDSnapshot()
-    }
-
-    private func publishDebugHUDSnapshot() {
-        let now = Date()
-        let eventRate = Double(recentUpdateTimestampsForHUD.count)
+    private func publishDebugHUDSnapshot(referenceDate: Date = Date()) {
+        let snapshot = runtimeDiagnostics.hudSnapshot(reference: referenceDate)
         let totalShapeLookups = maskPipelineMetrics.windowShapeCacheHits + maskPipelineMetrics.windowShapeCacheMisses
         let shapeHitRate = totalShapeLookups == 0
             ? 0
             : (Double(maskPipelineMetrics.windowShapeCacheHits) / Double(totalShapeLookups)) * 100
+        let isoFormatter = ISO8601DateFormatter()
+        let lastEventBySourceISO8601 = runtimeDiagnostics.lastEventTimestampBySource.reduce(into: [String: String]()) { partial, entry in
+            partial[entry.key.rawValue] = isoFormatter.string(from: entry.value)
+        }
         NotificationCenter.default.post(
             name: Self.debugHUDDidUpdate,
             object: nil,
             userInfo: [
-                "mode": fallbackMode.rawValue,
-                "lastUpdateISO8601": ISO8601DateFormatter().string(from: lastUpdateDateForHUD ?? now),
+                "mode": snapshot.mode,
+                "lastUpdateISO8601": isoFormatter.string(from: runtimeDiagnostics.lastUpdateFinishedAt ?? referenceDate),
                 "cacheHitRate": shapeHitRate,
-                "eventRate": eventRate,
-                "lastFallbackReason": lastFallbackReason.rawValue
+                "eventRate": snapshot.eventsPerSecond,
+                "updatesPerSecond": snapshot.updatesPerSecond,
+                "averageUpdateDurationMs": snapshot.averageUpdateDuration * 1000,
+                "p95UpdateDurationMs": snapshot.p95UpdateDuration * 1000,
+                "averageEventToUpdateDelayMs": snapshot.averageEventToUpdateDelay * 1000,
+                "coalescedEventsPerUpdate": snapshot.averageCoalescedEventsPerUpdate,
+                "averageMaskBuildDurationMs": snapshot.averageMaskBuildDuration * 1000,
+                "p95MaskBuildDurationMs": snapshot.p95MaskBuildDuration * 1000,
+                "averageLayerApplyDurationMs": snapshot.averageLayerApplyDuration * 1000,
+                "p95LayerApplyDurationMs": snapshot.p95LayerApplyDuration * 1000,
+                "lastFallbackReason": snapshot.lastFallbackReason,
+                "diagnosis": snapshot.diagnosis?.rawValue ?? "n/a",
+                "lastUpdateRequestReason": runtimeDiagnostics.lastUpdateRequest?.reason ?? UpdateCoordinator.Reason.manualRefresh.rawValue,
+                "lastUpdateRequestISO8601": isoFormatter.string(from: runtimeDiagnostics.lastUpdateRequest?.timestamp ?? referenceDate),
+                "lastEventBySourceISO8601": lastEventBySourceISO8601
             ]
         )
     }
@@ -2528,7 +2879,7 @@ final class OverlayController {
     }
 
     /// Timer callback that re-checks the focused window position.
-    @objc private func handlePollingTimer(_ timer: Timer) {
+    private func handlePollingTimerFired() {
         PerformanceDiagnostics.increment("scheduler.poll_timer.fire")
         requestUpdate(reason: .manualRefresh)
     }
@@ -2819,7 +3170,7 @@ final class OverlayController {
     }
 
     private func handleWillSleep() {
-        enterEmergencyOff(reason: .riskyTransition, duration: 0.5)
+        enterEmergencyOff(reason: .riskyTransition, duration: fallbackPolicy.riskyTransitionEmergencyDuration + 0.08)
         sleepPreservationState = SleepPreservationState(
             activeSnapshot: cachedActiveSnapshot,
             cachedSnapshots: cachedSnapshotsByDisplayID,
@@ -2830,7 +3181,7 @@ final class OverlayController {
 
     private func handleDidWake() {
         restorePreservedSnapshotStateIfNeeded()
-        enterEmergencyOff(reason: .riskyTransition, duration: 0.4)
+        enterEmergencyOff(reason: .riskyTransition, duration: fallbackPolicy.riskyTransitionEmergencyDuration + 0.08)
         requestUpdate(reason: .manualRefresh)
     }
 
@@ -2838,7 +3189,7 @@ final class OverlayController {
     private func handleWorkspaceAnimationEvent(activatedApplication: NSRunningApplication? = nil) {
         guard isMonitoringActive else { return }
         PerformanceDiagnostics.increment("event.workspace_animation")
-        enterEmergencyOff(reason: .riskyTransition, duration: 0.22)
+        enterEmergencyOff(reason: .riskyTransition, duration: fallbackPolicy.defaultEmergencyDuration)
         enterInteractionBoost(minimumDuration: animationBoostDuration)
         requestUpdate(reason: .workspaceAnimation)
         prewarmPredictionsForImpendingAnimation()
@@ -3283,7 +3634,15 @@ final class OverlayController {
     private func schedulePollingTimer(with interval: TimeInterval) {
         guard interval > 0 else { return }
         snapshotPollingTimer?.invalidate()
-        snapshotPollingTimer = nil
+        let timer = Timer(timeInterval: interval, repeats: true) { [weak self] timer in
+            _ = timer
+            Task { @MainActor [weak self] in
+                self?.handlePollingTimerFired()
+            }
+        }
+        timer.tolerance = pollingTimerTolerance(for: interval)
+        RunLoop.main.add(timer, forMode: .common)
+        snapshotPollingTimer = timer
         currentPollingInterval = interval
     }
 

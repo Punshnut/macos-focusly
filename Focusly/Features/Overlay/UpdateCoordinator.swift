@@ -38,11 +38,15 @@ final class UpdateCoordinator {
     struct Work {
         let generation: Int
         let reasons: Set<Reason>
+        let coalescedEventCount: Int
+        let firstEventAt: Date
+        let requestedAt: Date
     }
 
     struct Configuration {
-        var debounceInterval: TimeInterval = 0.045
-        var interactionDebounceInterval: TimeInterval = 1.0 / 30.0
+        var throttleInterval: TimeInterval = 1.0 / 60.0
+        var interactionThrottleInterval: TimeInterval = 1.0 / 30.0
+        var trailingUpdateDelay: TimeInterval = 0.1
         var updateDurationWatchdogThreshold: TimeInterval = 0.18
         var updateRateWatchdogThreshold: Double = 24
     }
@@ -56,9 +60,16 @@ final class UpdateCoordinator {
 
     private var pendingReasons: Set<Reason> = []
     private var pendingEventCount = 0
-    private var scheduledDispatchTask: Task<Void, Never>?
+    private var pendingFirstEventAt: Date?
+    private var pendingLastRequestedAt: Date?
+    private var scheduledThrottleTask: Task<Void, Never>?
+    private var scheduledTrailingTask: Task<Void, Never>?
     private var runningUpdateTask: Task<Void, Never>?
     private var isInteractionActive = false
+    private var lastUpdateStartedAt: Date = .distantPast
+    private var throttleScheduleToken: Int = 0
+    private var trailingScheduleToken: Int = 0
+    private var trailingFallbackTimestamp: Date?
 
     private var totalEventsInBurst = 0
     private var totalUpdatesInBurst = 0
@@ -72,13 +83,17 @@ final class UpdateCoordinator {
 
     func requestUpdate(reason: Reason) {
         latestGeneration &+= 1
-        let generation = latestGeneration
+        let eventTimestamp = Date()
 
         pendingReasons.insert(reason)
         pendingEventCount += 1
+        if pendingFirstEventAt == nil {
+            pendingFirstEventAt = eventTimestamp
+        }
+        pendingLastRequestedAt = eventTimestamp
         totalEventsInBurst += 1
         if burstDeadline == .distantPast {
-            burstDeadline = Date().addingTimeInterval(1.5)
+            burstDeadline = eventTimestamp.addingTimeInterval(1.5)
         }
 
         switch reason {
@@ -90,44 +105,96 @@ final class UpdateCoordinator {
             break
         }
 
-        if state == .updating {
-            runningUpdateTask?.cancel()
-        }
-
-        scheduleDispatch(for: reason, generation: generation)
+        scheduleTrailingDispatch(lastEventAt: eventTimestamp)
+        triggerLeadingOrThrottledDispatch(referenceTime: eventTimestamp)
     }
 
     func isGenerationCurrent(_ generation: Int) -> Bool {
         generation == latestGeneration
     }
 
-    private func scheduleDispatch(for reason: Reason, generation: Int) {
-        scheduledDispatchTask?.cancel()
-        let delay = dispatchDelay(for: reason)
+    private func triggerLeadingOrThrottledDispatch(referenceTime: Date) {
+        let throttle = activeThrottleInterval()
+        let elapsed = referenceTime.timeIntervalSince(lastUpdateStartedAt)
+        if state != .updating, (lastUpdateStartedAt == .distantPast || elapsed >= throttle) {
+            scheduledThrottleTask?.cancel()
+            scheduledThrottleTask = nil
+            Task { [weak self] in
+                await self?.dispatchPendingUpdate()
+            }
+            return
+        }
+
+        let dueDate: Date
+        if lastUpdateStartedAt == .distantPast {
+            dueDate = referenceTime
+        } else {
+            dueDate = lastUpdateStartedAt.addingTimeInterval(throttle)
+        }
+        scheduleThrottleDispatch(at: dueDate)
+    }
+
+    private func activeThrottleInterval() -> TimeInterval {
+        let interval = isInteractionActive
+            ? configuration.interactionThrottleInterval
+            : configuration.throttleInterval
+        return max(1.0 / 120.0, interval)
+    }
+
+    private func scheduleThrottleDispatch(at dueDate: Date) {
+        throttleScheduleToken &+= 1
+        let token = throttleScheduleToken
+        scheduledThrottleTask?.cancel()
         state = .pending
-        scheduledDispatchTask = Task { [weak self] in
+        scheduledThrottleTask = Task { [weak self] in
             guard let self else { return }
+            let delay = max(0, dueDate.timeIntervalSinceNow)
             if delay > 0 {
                 let duration = UInt64(delay * 1_000_000_000)
                 try? await Task.sleep(nanoseconds: duration)
             }
-            await self.dispatchIfCurrent(generation: generation)
+            await self.dispatchThrottledIfCurrent(token: token)
         }
     }
 
-    private func dispatchDelay(for reason: Reason) -> TimeInterval {
-        switch reason {
-        case .windowInteractionEnded:
-            return 0
-        case .windowInteractionBegan, .windowInteractionChanged:
-            return configuration.interactionDebounceInterval
-        default:
-            return configuration.debounceInterval
+    private func dispatchThrottledIfCurrent(token: Int) async {
+        guard token == throttleScheduleToken else { return }
+        scheduledThrottleTask = nil
+        await dispatchPendingUpdate()
+    }
+
+    private func scheduleTrailingDispatch(lastEventAt: Date) {
+        trailingFallbackTimestamp = lastEventAt
+        trailingScheduleToken &+= 1
+        let token = trailingScheduleToken
+        scheduledTrailingTask?.cancel()
+        scheduledTrailingTask = Task { [weak self] in
+            guard let self else { return }
+            let delay = max(0.08, min(self.configuration.trailingUpdateDelay, 0.12))
+            let duration = UInt64(delay * 1_000_000_000)
+            try? await Task.sleep(nanoseconds: duration)
+            await self.dispatchTrailingIfCurrent(token: token)
         }
     }
 
-    private func dispatchIfCurrent(generation: Int) async {
-        guard generation == latestGeneration else { return }
+    private func dispatchTrailingIfCurrent(token: Int) async {
+        guard token == trailingScheduleToken else { return }
+        scheduledTrailingTask = nil
+        if pendingReasons.isEmpty {
+            latestGeneration &+= 1
+            pendingReasons.insert(.manualRefresh)
+            pendingEventCount = 1
+            let timestamp = trailingFallbackTimestamp ?? Date()
+            pendingFirstEventAt = timestamp
+            pendingLastRequestedAt = timestamp
+        }
+        await dispatchPendingUpdate()
+    }
+
+    private func dispatchPendingUpdate() async {
+        if state == .updating {
+            return
+        }
         guard !pendingReasons.isEmpty else {
             state = .idle
             return
@@ -135,13 +202,23 @@ final class UpdateCoordinator {
 
         let reasons = pendingReasons
         let coalescedEventCount = pendingEventCount
+        let firstEventAt = pendingFirstEventAt ?? Date()
+        let requestedAt = pendingLastRequestedAt ?? firstEventAt
         pendingReasons.removeAll()
         pendingEventCount = 0
-        scheduledDispatchTask = nil
+        pendingFirstEventAt = nil
+        pendingLastRequestedAt = nil
         state = .updating
+        lastUpdateStartedAt = Date()
 
-        let work = Work(generation: generation, reasons: reasons)
-        let startedAt = Date()
+        let work = Work(
+            generation: latestGeneration,
+            reasons: reasons,
+            coalescedEventCount: coalescedEventCount,
+            firstEventAt: firstEventAt,
+            requestedAt: requestedAt
+        )
+        let startedAt = lastUpdateStartedAt
         let task = Task { [weak self] in
             guard let self else { return }
             await self.performUpdate(work)
@@ -163,7 +240,7 @@ final class UpdateCoordinator {
             state = .idle
         } else {
             state = .pending
-            scheduleDispatch(for: .manualRefresh, generation: latestGeneration)
+            triggerLeadingOrThrottledDispatch(referenceTime: Date())
         }
     }
 
