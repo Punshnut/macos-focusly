@@ -28,6 +28,7 @@ final class MenuBarBackdropWindow: NSPanel {
         static let minFade: TimeInterval = 0.04
         static let maxFade: TimeInterval = 0.1
 
+        /// Clamps menu bar fade durations to a narrow, responsive range.
         static func clamp(_ duration: TimeInterval) -> TimeInterval {
             guard duration > 0 else { return 0 }
             return min(max(duration, minFade), maxFade)
@@ -216,6 +217,7 @@ final class MenuBarBackdropWindow: NSPanel {
         displayID
     }
 
+    /// Configures this panel to sit directly beneath status bar items.
     private func configureWindow() {
         let statusLevel = NSWindow.Level.statusBar
         level = NSWindow.Level(rawValue: statusLevel.rawValue - 1)
@@ -232,6 +234,7 @@ final class MenuBarBackdropWindow: NSPanel {
         ]
     }
 
+    /// Builds blur/tint subviews and pins them to the full content bounds.
     private func configureContent() {
         guard let contentView else { return }
         contentView.translatesAutoresizingMaskIntoConstraints = true
@@ -257,6 +260,7 @@ final class MenuBarBackdropWindow: NSPanel {
         ])
     }
 
+    /// Convenience helper that computes a menu bar frame from an `NSScreen`.
     static func menuBarFrame(for screen: NSScreen) -> NSRect? {
         menuBarFrame(
             screenFrame: screen.frame,
@@ -265,6 +269,7 @@ final class MenuBarBackdropWindow: NSPanel {
         )
     }
 
+    /// Derives the precise menu bar backdrop frame from screen and visible frame geometry.
     static func menuBarFrame(
         screenFrame: NSRect,
         visibleFrame: NSRect,
@@ -308,6 +313,7 @@ final class MenuBarBackdropWindow: NSPanel {
         return rect
     }
 
+    /// Resolves the stable display identifier for a given AppKit screen object.
     private static func resolveDisplayIdentifier(for screen: NSScreen) -> DisplayID {
         guard
             let number = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber
@@ -327,6 +333,7 @@ final class MenuBarBackdropWindow: NSPanel {
     }
 
     @available(macOS 12.0, *)
+    /// Applies preferred frame-rate hints to all menu bar backdrop layers.
     private func applyFrameRateRange(_ range: CAFrameRateRange) {
         contentView?.layer?.setValue(range, forKey: "preferredFrameRateRange")
         blurView.layer?.setValue(range, forKey: "preferredFrameRateRange")

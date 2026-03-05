@@ -477,16 +477,18 @@ final class StatusBarController: NSObject {
         quickMenu.title = localized("Quick Actions")
     }
 
-    /// Convenience accessor for localized strings scoped to status bar UI.
+    /// Localized string helper for status bar UI.
     private func localized(_ key: String) -> String {
         localization.localized(key, fallback: key)
     }
 
+    /// Checks for the Option-click gesture that toggles investigation logging.
     private func shouldTriggerInvestigationToggle(for event: NSEvent) -> Bool {
         guard event.type == .leftMouseUp else { return false }
         return event.modifierFlags.contains(.option)
     }
 
+    /// Toggles investigation logging and emits the result to the shared logger output.
     private func handleInvestigationToggleGesture() {
         let result = InvestigationLogger.shared.toggleLoggingFromStatusItem()
         announceInvestigationToggleResult(
@@ -496,6 +498,7 @@ final class StatusBarController: NSObject {
         )
     }
 
+    /// Writes a concise state-change summary for hidden investigation mode toggles.
     private func announceInvestigationToggleResult(enabled: Bool, location: URL, didChange: Bool) {
         let message: String
         if didChange {
@@ -713,6 +716,7 @@ final class StatusBarController: NSObject {
 private extension StatusBarController {
     static let inactiveStatusAlpha: CGFloat = 0.50
 
+    /// Computes the target icon alpha based on whether overlays are currently active.
     static func statusItemAlpha(isActive: Bool) -> CGFloat {
         isActive ? 1.0 : inactiveStatusAlpha
     }
@@ -760,7 +764,7 @@ enum StatusBarIconFactory {
     private static let canvasSize = NSSize(width: iconSize, height: iconSize)
     private static var cache: [CacheKey: NSImage] = [:]
 
-    /// Convenience overload that renders template icons for the status item.
+    /// Returns a template icon for status item rendering.
     static func icon(style: StatusBarIconStyle, isActive: Bool) -> NSImage {
         icon(style: style, isActive: isActive, tone: .light, template: true)
     }

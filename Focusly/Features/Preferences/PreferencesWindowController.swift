@@ -194,18 +194,21 @@ final class PreferencesWindowController: NSWindowController {
         )
     }
 
+    /// Applies the selected window chrome mode while preserving custom transparency settings.
     private func applyWindowAppearance(glassy: Bool) {
         guard let window else { return }
         window.isOpaque = false
         window.backgroundColor = .clear
     }
 
+    /// Tracks tab changes coming from SwiftUI and recalculates window sizing.
     private func handleTabSelectionChange(_ tab: PreferencesTab) {
         currentTab = tab
         let shouldAnimate = window?.isVisible ?? false
         updateWindowSize(for: viewModel.displaySettings.count, tab: tab, animated: shouldAnimate)
     }
 
+    /// Sets how resizing anchors relative to the current frame when tab content changes.
     func setResizeAnchor(_ anchor: ResizeAnchor) {
         resizeAnchor = anchor
     }
@@ -264,6 +267,7 @@ final class PreferencesWindowController: NSWindowController {
         )
     }
 
+    /// Adds extra vertical room on shorter displays to keep controls reachable.
     private static func heightAdjustment(for availableHeight: CGFloat) -> CGFloat {
         switch availableHeight {
         case ..<720:
@@ -275,6 +279,7 @@ final class PreferencesWindowController: NSWindowController {
         }
     }
 
+    /// Computes a constrained target frame that preserves the selected resize anchor.
     private func targetFrame(forContentSize contentSize: NSSize, window: NSWindow) -> NSRect? {
         let contentRect = NSRect(origin: .zero, size: contentSize)
         let targetFrameSize = window.frameRect(forContentRect: contentRect).size
@@ -293,6 +298,7 @@ final class PreferencesWindowController: NSWindowController {
         return NSRect(origin: constrainedOrigin, size: targetFrameSize)
     }
 
+    /// Clamps the proposed frame origin to the visible bounds of the active screen.
     private func constrain(origin: NSPoint, size: NSSize, window: NSWindow) -> NSPoint {
         guard let screenFrame = window.screen?.visibleFrame
                 ?? window.screen?.frame

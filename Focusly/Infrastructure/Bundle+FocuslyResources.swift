@@ -1,6 +1,6 @@
 import Foundation
 
-/// Provides a resilient way to locate the SwiftPM-generated resource bundle at runtime.
+/// Locates the SwiftPM resource bundle at runtime.
 extension Bundle {
     private final class FocuslyBundleFinder {}
 

@@ -86,6 +86,7 @@ final class HighFrequencyPointerSampler {
         }
     }
 
+    /// Handles event-tap callbacks, re-enables disabled taps, and forwards filtered samples.
     private func processEvent(type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
         switch type {
         case .tapDisabledByTimeout, .tapDisabledByUserInput:

@@ -3,6 +3,7 @@ import XCTest
 
 @MainActor
 final class ApplicationMaskingIgnoreListTests: XCTestCase {
+    /// Creates an isolated ignore-list store backed by a unique defaults suite.
     private func makeStore(
         builtInBundles: [String: ApplicationMaskingIgnoreList.Preference] = [:],
         builtInFragments: [String: ApplicationMaskingIgnoreList.Preference] = ["alcove": .excludeExceptSettingsWindow]

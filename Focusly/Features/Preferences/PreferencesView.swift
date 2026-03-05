@@ -38,21 +38,23 @@ enum PreferencesTab: Int, CaseIterable, Identifiable {
     }
 }
 
-/// Modernized preferences scene with tabbed navigation and frosted styling.
+/// Relay for tab-selection events between SwiftUI and the window controller.
 final class PreferencesTabRelay {
     var handler: ((PreferencesTab) -> Void)?
     var selectionRequestHandler: ((PreferencesTab) -> Void)?
 
+    /// Publishes user-driven tab changes to the hosting window controller.
     func notify(_ tab: PreferencesTab) {
         handler?(tab)
     }
 
+    /// Requests a programmatic tab switch from external coordinators.
     func requestSelection(_ tab: PreferencesTab) {
         selectionRequestHandler?(tab)
     }
 }
 
-/// Modernized preferences scene with tabbed navigation and frosted styling.
+/// Preferences window content with tabbed sections and frosted styling.
 struct PreferencesView: View {
     @ObservedObject private var viewModel: PreferencesViewModel
     @EnvironmentObject private var localization: LocalizationService
@@ -240,6 +242,7 @@ struct PreferencesView: View {
         .padding(.bottom, 10)
     }
 
+    /// Renders one tab button with matched-geometry selection styling.
     private func tabButton(for tab: PreferencesTab) -> some View {
         let title = localized(tab.localizationKey, fallback: tab.fallbackTitle)
         let isSelected = activeTab == tab
@@ -476,6 +479,7 @@ struct PreferencesView: View {
         )
     }
 
+    /// Renders one selectable row for an application exception entry.
     private func appExceptionRow(
         for exception: PreferencesViewModel.ApplicationException,
         isSelected: Bool
@@ -494,6 +498,7 @@ struct PreferencesView: View {
         .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
     }
 
+    /// Shared frosted row background used across app exception list content.
     private func glassListBackground(cornerRadius: CGFloat = 22, highlight: Bool = false) -> some View {
         RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
             .fill(.ultraThinMaterial)
@@ -572,6 +577,7 @@ struct PreferencesView: View {
             )
     }
 
+    /// Builds the leading portion of an app exception row (icon, name, bundle identifier).
     private func applicationRow(for exception: PreferencesViewModel.ApplicationException) -> some View {
         HStack(spacing: 10) {
             appIcon(for: exception)
@@ -599,6 +605,7 @@ struct PreferencesView: View {
         .padding(.vertical, 4)
     }
 
+    /// Renders an app icon with a fallback glyph for unresolved entries.
     private func appIcon(for exception: PreferencesViewModel.ApplicationException) -> some View {
         Group {
             if let icon = exception.icon {
@@ -622,6 +629,7 @@ struct PreferencesView: View {
         )
     }
 
+    /// Builds the masking-preference picker bound to one application exception.
     private func preferencePicker(for exception: PreferencesViewModel.ApplicationException) -> some View {
         Picker(
             localized("Preferences.Apps.Preference.Label", fallback: "Masking Behavior"),
@@ -661,6 +669,7 @@ struct PreferencesView: View {
         .shadow(color: Color.black.opacity(0.25), radius: 8, y: 4)
     }
 
+    /// Opens an app picker and imports the selected bundle into exception preferences.
     private func presentApplicationPicker() {
         let panel = NSOpenPanel()
         panel.canChooseDirectories = false
@@ -692,6 +701,7 @@ struct PreferencesView: View {
         }
     }
 
+    /// Removes currently selected app exceptions when removal is allowed.
     private func removeSelectedApplications() {
         let identifiers = Array(selectedApplicationIDs)
         guard viewModel.canRemoveApplications(withIDs: identifiers) else { return }
@@ -699,6 +709,7 @@ struct PreferencesView: View {
         selectedApplicationIDs.removeAll()
     }
 
+    /// Toggles row selection for bulk removal actions in the Apps tab.
     private func toggleSelection(for exception: PreferencesViewModel.ApplicationException) {
         if selectedApplicationIDs.contains(exception.id) {
             selectedApplicationIDs.remove(exception.id)
@@ -1015,6 +1026,7 @@ struct PreferencesView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
+    /// Builds the inspector panel for a selected display with all adjustable controls.
     private func monitorInspector(for display: PreferencesViewModel.DisplaySettings) -> some View {
         VStack(alignment: .leading, spacing: 16) {
             VStack(alignment: .leading, spacing: 4) {
@@ -1068,6 +1080,7 @@ struct PreferencesView: View {
         )
     }
 
+    /// Renders the display tint/opacity preview card shown in the inspector header.
     private func displayPreview(for display: PreferencesViewModel.DisplaySettings) -> some View {
         let settings = liveSettings(for: display.id)
         return RoundedRectangle(cornerRadius: 14, style: .continuous)
@@ -1094,6 +1107,7 @@ struct PreferencesView: View {
             .accessibilityLabel(Text(localized("Overlay preview")))
     }
 
+    /// Builds controls for selecting blur material and previewing the current choice.
     private func blurControls(for display: PreferencesViewModel.DisplaySettings) -> some View {
         let materialOptions = FocusOverlayMaterial.allCases
         let currentMaterial = liveSettings(for: display.id).blurMaterial
@@ -1142,6 +1156,7 @@ struct PreferencesView: View {
         }
     }
 
+    /// Builds controls for opacity, tint color, and color treatment.
     private func colorControls(for display: PreferencesViewModel.DisplaySettings) -> some View {
         let opacityBinding = Binding(
             get: { liveSettings(for: display.id).opacity },
@@ -1219,6 +1234,7 @@ struct PreferencesView: View {
         }
     }
 
+    /// Renders reset/sync actions for the currently selected display.
     private func actionControls(for display: PreferencesViewModel.DisplaySettings) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
@@ -1314,6 +1330,7 @@ struct PreferencesView: View {
         }
     }
 
+    /// Builds an external link row used in the About tab.
     @ViewBuilder
     private func aboutLinkRow(icon: String, titleKey: String, fallbackTitle: String, urlString: String) -> some View {
         if let url = URL(string: urlString) {
@@ -1364,6 +1381,7 @@ struct PreferencesView: View {
 
     // MARK: - Display Helpers
 
+    /// Returns live settings for a display, falling back to a safe default snapshot.
     private func liveSettings(for displayID: DisplayID) -> PreferencesViewModel.DisplaySettings {
         viewModel.displaySettings.first(where: { $0.id == displayID }) ?? viewModel.displaySettings.first ?? PreferencesViewModel.DisplaySettings(
             id: displayID,
@@ -1377,6 +1395,7 @@ struct PreferencesView: View {
         )
     }
 
+    /// Creates a binding that toggles whether a display is excluded from masking.
     private func exclusionBinding(for displayID: DisplayID) -> Binding<Bool> {
         Binding(
             get: { isDisplayExcluded(displayID) },
@@ -1384,6 +1403,7 @@ struct PreferencesView: View {
         )
     }
 
+    /// Reads the exclusion flag for a display from the live settings snapshot.
     private func isDisplayExcluded(_ displayID: DisplayID) -> Bool {
         liveSettings(for: displayID).isExcluded
     }
@@ -1395,6 +1415,7 @@ struct PreferencesView: View {
         return liveSettings(for: selectedDisplayID)
     }
 
+    /// Returns whether a display card should be rendered as selected in the selector list.
     private func isSelected(displayID: DisplayID) -> Bool {
         guard let activeID = selectedDisplay?.id ?? selectedDisplayID ?? viewModel.displaySettings.first?.id else { return false }
         return activeID == displayID
@@ -1470,11 +1491,13 @@ struct PreferencesView: View {
         )
     }
 
+    /// Formats opacity values as whole-number percentages for labels.
     private func opacityLabel(for value: Double) -> String {
         let clamped = max(0, min(1, value))
         return String(format: "%.0f%%", clamped * 100)
     }
 
+    /// Routes custom window-control dot actions to the hosting AppKit window.
     private func performWindowAction(for kind: WindowControlKind) {
         guard let window = hostingWindow else { return }
         switch kind {
@@ -1495,6 +1518,7 @@ struct PreferencesView: View {
         Color.white.opacity(viewModel.preferencesWindowGlassy ? 0.12 : 0.08)
     }
 
+    /// Applies transparent chrome settings to the hosting AppKit window.
     private func updateWindowChrome(for window: NSWindow?) {
         guard let window else { return }
         window.isOpaque = false
@@ -1521,19 +1545,23 @@ struct PreferencesView: View {
         }
     }
 
+    /// Localized string helper scoped to the preferences scene.
     private func localized(_ key: String, fallback: String? = nil) -> String {
         localization.localized(key, fallback: fallback ?? key)
     }
 
+    /// Returns the app display name used in About panel headings.
     private func appDisplayName() -> String {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String ?? "Focusly"
     }
 
+    /// Produces a human-readable version string for the About tab.
     private func versionSummary() -> String {
         let format = localized("Version %@", fallback: "Version %@")
         return String(format: format, FocuslyBuildInfo.marketingVersion)
     }
 
+    /// Returns the developer attribution string shown in About.
     private func developerSummary() -> String {
         FocuslyBuildInfo.developerSummary
     }
@@ -1616,6 +1644,7 @@ private struct StatusBarIconStyleMenuPreview: View {
         .accessibilityHidden(true)
     }
 
+    /// Draws static inactive/active icon previews for the status icon style picker.
     private func previewIcon(isActive: Bool) -> some View {
         Image(nsImage: StatusBarIconFactory.icon(style: style, isActive: isActive))
             .renderingMode(.template)
@@ -1733,6 +1762,7 @@ private struct DisplayCard: View {
 private struct FrostedBackgroundView: NSViewRepresentable {
     let material: NSVisualEffectView.Material
 
+    /// Creates the frosted NSVisualEffectView used as a SwiftUI background host.
     func makeNSView(context: Context) -> NSVisualEffectView {
         let view = NSVisualEffectView()
         view.material = material
@@ -1743,6 +1773,7 @@ private struct FrostedBackgroundView: NSViewRepresentable {
         return view
     }
 
+    /// Updates the backing visual effect material when SwiftUI state changes.
     func updateNSView(_ nsView: NSVisualEffectView, context: Context) {
         nsView.material = material
         nsView.state = .active
@@ -1824,6 +1855,7 @@ private struct WindowControlDot: View {
 private struct HostingWindowFinder: NSViewRepresentable {
     let onResolve: (NSWindow?) -> Void
 
+    /// Creates a tiny host view used to resolve the surrounding AppKit window.
     func makeNSView(context: Context) -> NSView {
         let view = NSView()
         DispatchQueue.main.async {
@@ -1832,6 +1864,7 @@ private struct HostingWindowFinder: NSViewRepresentable {
         return view
     }
 
+    /// Pushes window updates when the host view moves across window boundaries.
     func updateNSView(_ nsView: NSView, context: Context) {
         DispatchQueue.main.async {
             onResolve(nsView.window)
@@ -1884,6 +1917,7 @@ private struct ResponsiveDisplayLayout<Selector: View, Inspector: View>: View {
 
 private struct ResponsiveLayoutWidthPreferenceKey: PreferenceKey {
     static let defaultValue: CGFloat = 0
+    /// Preference-key reducer that always keeps the latest measured width.
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
         value = nextValue()
     }
@@ -1908,10 +1942,12 @@ private struct WindowDragSafeSlider: NSViewRepresentable {
         self.isContinuous = isContinuous
     }
 
+    /// Creates a coordinator that bridges NSSlider target/action callbacks.
     func makeCoordinator() -> Coordinator {
         Coordinator(parent: self)
     }
 
+    /// Creates the AppKit slider configured for drag-safe interaction in custom windows.
     func makeNSView(context: Context) -> DragSafeNSSlider {
         let slider = DragSafeNSSlider()
         slider.target = context.coordinator
@@ -1925,6 +1961,7 @@ private struct WindowDragSafeSlider: NSViewRepresentable {
         return slider
     }
 
+    /// Synchronizes AppKit slider state with SwiftUI bindings and limits.
     func updateNSView(_ nsView: DragSafeNSSlider, context: Context) {
         context.coordinator.parent = self
         if nsView.minValue != range.lowerBound {
@@ -1947,6 +1984,7 @@ private struct WindowDragSafeSlider: NSViewRepresentable {
             self.parent = parent
         }
 
+        /// Handles NSSlider value changes, including optional step quantization.
         @objc func valueChanged(_ sender: NSSlider) {
             var newValue = sender.doubleValue
             if let step = parent.step, step > 0 {
@@ -1973,6 +2011,7 @@ private final class DragSafeNSSlider: NSSlider {
 }
 
 private extension View {
+    /// Applies the reusable transparent scroll background style used by frosted lists.
     func glassListScrollBackground() -> some View {
         modifier(GlassListScrollBackgroundModifier())
     }
@@ -1980,6 +2019,7 @@ private extension View {
 }
 
 private struct GlassListScrollBackgroundModifier: ViewModifier {
+    /// Hides default scroll backgrounds to preserve custom frosted materials.
     func body(content: Content) -> some View {
         if #available(macOS 13, *) {
             content

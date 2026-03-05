@@ -207,6 +207,7 @@ final class OverlayController {
         var entries: [WindowIdentity: DisplaySnapshotCacheEntry] = [:]
         var lastIdentity: WindowIdentity?
 
+        /// Inserts or refreshes a snapshot entry and enforces per-display cache size limits.
         mutating func recordSnapshot(
             _ snapshot: ActiveWindowSnapshot,
             identity: WindowIdentity,
@@ -225,6 +226,7 @@ final class OverlayController {
             enforceLimit(limit)
         }
 
+        /// Stores mask regions for an existing cached identity and bumps its timestamp.
         mutating func updateMaskRegions(
             _ regions: [OverlayWindow.MaskRegion],
             for identity: WindowIdentity,
@@ -237,6 +239,7 @@ final class OverlayController {
             lastIdentity = identity
         }
 
+        /// Refreshes recency for a cached identity without changing payload.
         mutating func touch(identity: WindowIdentity, timestamp: Date) {
             guard var entry = entries[identity] else { return }
             entry.timestamp = timestamp
@@ -244,10 +247,12 @@ final class OverlayController {
             lastIdentity = identity
         }
 
+        /// Returns the cached entry for a specific window identity.
         func entry(for identity: WindowIdentity) -> DisplaySnapshotCacheEntry? {
             entries[identity]
         }
 
+        /// Removes a cached identity and recomputes the preferred identity when needed.
         mutating func removeEntry(for identity: WindowIdentity) {
             entries.removeValue(forKey: identity)
             if lastIdentity == identity {
@@ -255,6 +260,7 @@ final class OverlayController {
             }
         }
 
+        /// Drops expired entries and trims cache cardinality.
         mutating func prune(olderThan cutoff: Date, limit: Int) {
             entries = entries.filter { $0.value.timestamp >= cutoff }
             if let identity = lastIdentity, entries[identity] == nil {
@@ -263,6 +269,7 @@ final class OverlayController {
             enforceLimit(limit)
         }
 
+        /// Enforces a hard cap by keeping only the most-recent entries.
         mutating func enforceLimit(_ limit: Int) {
             guard entries.count > limit else { return }
             let sorted = entries.sorted { $0.value.timestamp > $1.value.timestamp }
@@ -272,6 +279,7 @@ final class OverlayController {
             }
         }
 
+        /// Returns the preferred cached entry, favoring the last active identity.
         func preferredEntry() -> (WindowIdentity, DisplaySnapshotCacheEntry)? {
             if let identity = lastIdentity, let entry = entries[identity] {
                 return (identity, entry)
@@ -279,6 +287,7 @@ final class OverlayController {
             return entries.max(by: { $0.value.timestamp < $1.value.timestamp })
         }
 
+        /// Returns the newest cached entry that already has mask regions and is not excluded.
         func mostRecentMaskEntry(excluding identity: WindowIdentity?) -> DisplaySnapshotCacheEntry? {
             return entries
                 .filter { $0.key != identity && !$0.value.maskRegions.isEmpty }
@@ -318,6 +327,7 @@ final class OverlayController {
             self.fallbackSignature = 0
         }
 
+        /// Generates a fallback frame signature used when window numbers are unavailable.
         private static func signature(for frame: NSRect) -> Int {
             let scale: CGFloat = 100
             let components = [
@@ -331,6 +341,7 @@ final class OverlayController {
             }
         }
 
+        /// Hashes identity fields so display caches can key by focused-window identity.
         func hash(into hasher: inout Hasher) {
             hasher.combine(ownerPID ?? 0)
             hasher.combine(windowNumber ?? 0)
@@ -354,6 +365,7 @@ final class OverlayController {
         private(set) var activeDisplayIDs: Set<DisplayID> = []
         private var ownershipByWindow: [WindowIdentity: Set<DisplayID>] = [:]
 
+        /// Intersects ownership state with current active displays and drops stale owners.
         mutating func reconcileActiveDisplays(_ displays: Set<DisplayID>) {
             activeDisplayIDs = displays
             ownershipByWindow = ownershipByWindow.compactMapValues { owners in
@@ -362,6 +374,7 @@ final class OverlayController {
             }
         }
 
+        /// Registers display ownership for a window identity and reports ownership handoffs.
         mutating func registerOwnership(for identity: WindowIdentity, displays: Set<DisplayID>) -> HandoffEvent? {
             let filtered = displays.intersection(activeDisplayIDs)
             let previous = ownershipByWindow[identity] ?? []
@@ -542,6 +555,7 @@ final class OverlayController {
         syncUpdateCoordinatorConfiguration()
     }
 
+    /// Resolves how often display-link health snapshots should force full refreshes.
     private static func resolveDisplayLinkHealthSnapshotInterval() -> TimeInterval {
         let defaults = UserDefaults.standard
         let defaultInterval: TimeInterval = 0.2
@@ -616,6 +630,7 @@ final class OverlayController {
         perScreenOverlayManager.reconcileActiveDisplays([])
     }
 
+    /// Runs a synthetic stress sequence in debug builds when explicitly requested via defaults.
     private func runDiagnosticProtocolIfEnabled() {
         #if DEBUG
         let defaults = UserDefaults.standard
@@ -629,6 +644,7 @@ final class OverlayController {
     }
 
     #if DEBUG
+    /// Exercises the update pipeline with rapid state transitions to surface flicker/perf regressions.
     private func runDiagnosticProtocol() async {
         guard isMonitoringActive else { return }
 
@@ -832,10 +848,12 @@ final class OverlayController {
         applyOverlayMasksFromCache()
     }
 
+    /// Returns effective masking mode for a display, falling back to global default.
     private func maskingMode(for displayID: DisplayID) -> ApplicationMaskingMode {
         maskingModeOverrides[displayID] ?? defaultApplicationMaskingMode
     }
 
+    /// Indicates whether any active display requires application-wide window masking.
     private func shouldIncludeApplicationWindows() -> Bool {
         if overlayWindowsByDisplayID.isEmpty {
             if defaultApplicationMaskingMode == .allApplicationWindows {
@@ -852,6 +870,7 @@ final class OverlayController {
         return false
     }
 
+    /// Recomputes and applies the app-wide snapshot strategy flag.
     private func updateApplicationWideSnapshotFlag() {
         let desiredState = shouldIncludeApplicationWindows()
         guard desiredState != isApplicationWideSnapshotEnabled else { return }
@@ -1218,6 +1237,7 @@ final class OverlayController {
         primePredictionForCurrentFrameIfNeeded()
     }
 
+    /// Removes cached state tied to displays that no longer exist.
     private func pruneCachesToActiveOverlays() {
         guard !overlayWindowsByDisplayID.isEmpty else { return }
         let activeIDs = Set(overlayWindowsByDisplayID.keys)
@@ -1234,6 +1254,7 @@ final class OverlayController {
         }
     }
 
+    /// Rebinds snapshot ownership to displays after a fast frame-only refresh.
     private func rebindActiveSnapshotDisplays(for snapshot: ActiveWindowSnapshot) {
         let resolvedDisplay = resolveDisplayIdentifier(for: snapshot.frame) ?? pointerDisplayIDHint
         if resolvedDisplay != activeDisplayID {
@@ -1245,6 +1266,7 @@ final class OverlayController {
         rebuildDisplayScopedSnapshotCache(for: snapshot, preferredDisplayID: resolvedDisplay ?? activeDisplayID)
     }
 
+    /// Restores pre-sleep snapshot/mask state after wake before forcing refresh.
     private func restorePreservedSnapshotStateIfNeeded() {
         guard let preserved = sleepPreservationState else { return }
         sleepPreservationState = nil
@@ -1261,6 +1283,7 @@ final class OverlayController {
         }
     }
 
+    /// Stores a snapshot for one display-scoped cache bucket.
     private func storeSnapshot(
         _ snapshot: ActiveWindowSnapshot,
         identity: WindowIdentity,
@@ -1272,6 +1295,7 @@ final class OverlayController {
         cachedSnapshotsByDisplayID[displayID] = cache
     }
 
+    /// Stores computed mask regions for a display-scoped cached snapshot entry.
     private func storeMaskRegions(
         _ regions: [OverlayWindow.MaskRegion],
         for displayID: DisplayID,
@@ -1283,12 +1307,14 @@ final class OverlayController {
         cachedSnapshotsByDisplayID[displayID] = cache
     }
 
+    /// Marks a display snapshot cache entry as recently used.
     private func touchCacheEntry(for displayID: DisplayID, identity: WindowIdentity, timestamp: Date = Date()) {
         guard var cache = cachedSnapshotsByDisplayID[displayID] else { return }
         cache.touch(identity: identity, timestamp: timestamp)
         cachedSnapshotsByDisplayID[displayID] = cache
     }
 
+    /// Removes one identity entry from a display cache and cleans up empty caches.
     private func removeCacheEntry(for displayID: DisplayID, identity: WindowIdentity) {
         guard var cache = cachedSnapshotsByDisplayID[displayID] else { return }
         cache.removeEntry(for: identity)
@@ -1299,6 +1325,7 @@ final class OverlayController {
         }
     }
 
+    /// Returns the preferred cached snapshot entry for a display.
     private func preferredCacheEntry(for displayID: DisplayID) -> (WindowIdentity, DisplaySnapshotCacheEntry)? {
         cachedSnapshotsByDisplayID[displayID]?.preferredEntry()
     }
@@ -1377,6 +1404,7 @@ final class OverlayController {
         }
     }
 
+    /// Drops expired display-scoped snapshots according to retention policy.
     private func pruneExpiredDisplaySnapshots(referenceDate: Date = Date()) {
         guard !cachedSnapshotsByDisplayID.isEmpty else { return }
         let cutoff = referenceDate.addingTimeInterval(-displaySnapshotRetentionInterval)
@@ -1401,6 +1429,7 @@ final class OverlayController {
         return intersection.width >= minDimension && intersection.height >= minDimension
     }
 
+    /// Returns whether a snapshot meaningfully overlaps an overlay window frame.
     private func snapshotMeaningfullyIntersectsWindow(_ snapshot: ActiveWindowSnapshot, windowFrame: NSRect) -> Bool {
         let intersection = snapshot.frame.intersection(windowFrame)
         guard !intersection.isNull else { return false }
@@ -1546,6 +1575,7 @@ final class OverlayController {
     }
     }
 
+    /// Removes stale per-display identities after mask application.
     private func pruneStaleEntries(_ staleEntries: [(DisplayID, WindowIdentity)]) {
         if staleEntries.isEmpty { return }
         for (displayID, identity) in staleEntries {
@@ -1742,6 +1772,7 @@ final class OverlayController {
         return true
     }
 
+    /// Determines whether a display should animate to the next mask set.
     private func shouldAnimateMaskTransition(for displayID: DisplayID) -> Bool {
         guard isMonitoringActive else { return false }
         guard fallbackMode == .fast else { return false }
@@ -1756,6 +1787,7 @@ final class OverlayController {
         return true
     }
 
+    /// Determines whether request simplification should be active for a display.
     private func shouldSimplifyMaskRequests(for displayID: DisplayID) -> Bool {
         if Date() < simplifiedMaskModeUntil {
             return true
@@ -1769,6 +1801,7 @@ final class OverlayController {
         return false
     }
 
+    /// Returns peripheral requests, optionally capped under simplification mode.
     private func limitedPeripheralRequests(for displayID: DisplayID) -> [MaskRequest]? {
         guard let requests = peripheralMaskRequestsByDisplayID[displayID], !requests.isEmpty else {
             return nil
@@ -1902,6 +1935,7 @@ final class OverlayController {
         return maskRegions
     }
 
+    /// Attempts a cached-transform fast path to build one mask region with minimal conversion work.
     private func resolveMaskRegionFastPath(
         request: MaskRequest,
         windowFrame: NSRect,
@@ -1996,6 +2030,7 @@ final class OverlayController {
         return region
     }
 
+    /// Slow-path mask region builder using AppKit coordinate conversion.
     private func buildMaskRegionSlowPath(
         request: MaskRequest,
         window: OverlayWindow,
@@ -2072,6 +2107,7 @@ final class OverlayController {
         return resolvedDelta
     }
 
+    /// Applies a uniform translation delta to existing regions for cheap incremental updates.
     private func translatedMaskRegions(
         _ regions: [OverlayWindow.MaskRegion],
         delta: CGVector,
@@ -2097,6 +2133,7 @@ final class OverlayController {
         }
     }
 
+    /// Produces a stable fingerprint for a set of mask requests within a window frame.
     private func maskRequestFingerprint(_ requests: [MaskRequest], in windowFrame: NSRect) -> Int {
         var hasher = Hasher()
         hasher.combine(requests.count)
@@ -2120,6 +2157,7 @@ final class OverlayController {
         return hasher.finalize()
     }
 
+    /// Encodes optional mask purpose into a compact integer fingerprint.
     private func maskPurposeFingerprint(_ purpose: ActiveWindowSnapshot.MaskRegion.Purpose?) -> Int {
         guard let purpose else { return -1 }
         switch purpose {
@@ -2132,6 +2170,7 @@ final class OverlayController {
         }
     }
 
+    /// Encodes optional peripheral kind into a compact integer fingerprint.
     private func peripheralKindFingerprint(_ kind: PeripheralInterfaceRegion.Kind?) -> Int {
         guard let kind else { return -1 }
         switch kind {
@@ -2142,6 +2181,7 @@ final class OverlayController {
         }
     }
 
+    /// Encodes peripheral edge into an integer component for hashing.
     private func peripheralEdgeFingerprint(_ edge: PeripheralEdge) -> Int {
         switch edge {
         case .leading:
@@ -2155,10 +2195,12 @@ final class OverlayController {
         }
     }
 
+    /// Quantizes floating values to stabilize hash inputs.
     private func quantized(_ value: CGFloat, scale: CGFloat) -> Int {
         Int((value * scale).rounded())
     }
 
+    /// Generates a quantized rectangle signature for cache keys.
     private func rectSignature(_ rect: NSRect, scale: CGFloat) -> Int {
         var hasher = Hasher()
         hasher.combine(quantized(rect.origin.x, scale: scale))
@@ -2168,6 +2210,7 @@ final class OverlayController {
         return hasher.finalize()
     }
 
+    /// Generates a deterministic ID for requests missing a native window ID.
     private func syntheticWindowIdentifier(for request: MaskRequest) -> Int {
         var hasher = Hasher()
         hasher.combine(request.ownerPID ?? 0)
@@ -2253,6 +2296,7 @@ final class OverlayController {
         return fresh
     }
 
+    /// Computes a hash signature for screen-transform cache compatibility checks.
     private func screenTransformSignature(_ transform: ScreenTransformCacheEntry) -> Int {
         var hasher = Hasher()
         hasher.combine(transform.displayID)
@@ -2269,6 +2313,7 @@ final class OverlayController {
         return hasher.finalize()
     }
 
+    /// Aligns rectangles to backing pixels to avoid shimmer artifacts.
     private func alignRectToBackingGrid(_ rect: NSRect, scale: CGFloat) -> NSRect {
         guard scale > 0 else { return rect }
         let minX = floor(rect.minX * scale)
@@ -2286,6 +2331,7 @@ final class OverlayController {
         )
     }
 
+    /// Validates whether cached translation inputs still match current window/content metrics.
     nonisolated static func translationCacheInputIsCompatible(
         cachedWindowFrame: NSRect,
         currentWindowFrame: NSRect,
@@ -2300,12 +2346,14 @@ final class OverlayController {
         cachedContentBounds.isApproximatelyEqual(to: currentContentBounds, tolerance: tolerance)
     }
 
+    /// Looks up app-specific corner-radius heuristics for application-window requests.
     private func appHeuristic(for request: MaskRequest) -> AppHeuristicEntry? {
         guard request.purpose == .applicationWindow else { return nil }
         guard let key = appHeuristicKey(for: request) else { return nil }
         return appHeuristicsCacheByKey[key]
     }
 
+    /// Computes cache key used for app heuristics from PID or window ID.
     private func appHeuristicKey(for request: MaskRequest) -> String? {
         if let pid = request.ownerPID {
             return "pid:\(pid)"
@@ -2314,6 +2362,7 @@ final class OverlayController {
         return "window:\(windowID)"
     }
 
+    /// Resolves corner radius using explicit request value or learned heuristic.
     private func resolveCornerRadius(for request: MaskRequest, heuristic: AppHeuristicEntry?) -> CGFloat {
         if request.cornerRadius > 0 {
             return request.cornerRadius
@@ -2322,6 +2371,7 @@ final class OverlayController {
         return max(0, heuristic.preferredCornerRadius)
     }
 
+    /// Updates learned app heuristics from finalized mask region geometry.
     private func recordAppHeuristic(request: MaskRequest, finalRegion: OverlayWindow.MaskRegion) {
         guard request.purpose == .applicationWindow else { return }
         guard let key = appHeuristicKey(for: request) else { return }
@@ -2340,6 +2390,7 @@ final class OverlayController {
         appHeuristicsCacheByKey[key] = entry
     }
 
+    /// Trims window-shape cache to configured max entry count.
     private func trimWindowShapeCacheIfNeeded() {
         guard windowShapeCache.count > maxWindowShapeCacheEntries else { return }
         let sorted = windowShapeCache.values.sorted { $0.timestamp > $1.timestamp }
@@ -2348,24 +2399,28 @@ final class OverlayController {
         )
     }
 
+    /// Drops stale window-shape cache entries.
     private func pruneWindowShapeCacheIfNeeded(referenceDate: Date = Date()) {
         guard !windowShapeCache.isEmpty else { return }
         let cutoff = referenceDate.addingTimeInterval(-windowShapeCacheLifetime)
         windowShapeCache = windowShapeCache.filter { $0.value.timestamp >= cutoff }
     }
 
+    /// Drops stale screen-transform cache entries.
     private func pruneScreenTransformCacheIfNeeded(referenceDate: Date = Date()) {
         guard !screenTransformCacheByDisplayID.isEmpty else { return }
         let cutoff = referenceDate.addingTimeInterval(-screenTransformCacheLifetime)
         screenTransformCacheByDisplayID = screenTransformCacheByDisplayID.filter { $0.value.timestamp >= cutoff }
     }
 
+    /// Drops stale app-heuristic entries.
     private func pruneAppHeuristicsCacheIfNeeded(referenceDate: Date = Date()) {
         guard !appHeuristicsCacheByKey.isEmpty else { return }
         let cutoff = referenceDate.addingTimeInterval(-appHeuristicsCacheLifetime)
         appHeuristicsCacheByKey = appHeuristicsCacheByKey.filter { $0.value.timestamp >= cutoff }
     }
 
+    /// Records mask-pipeline metrics and emits periodic performance summaries.
     private func updateMaskPipelineMetrics(usedSlowPath: Bool, duration: TimeInterval) {
         maskPipelineMetrics.buildCount &+= 1
         maskPipelineMetrics.totalBuildDuration += duration
@@ -2399,6 +2454,7 @@ final class OverlayController {
         maskPipelineMetrics.nextLogDate = now.addingTimeInterval(4)
     }
 
+    /// Expires stale mask-region build cache entries.
     private func pruneMaskRegionBuildCacheIfNeeded(referenceDate: Date = Date()) {
         guard !maskRegionBuildCacheByDisplayID.isEmpty else { return }
         let cutoff = referenceDate.addingTimeInterval(-maskRegionBuildCacheLifetime)
@@ -2423,6 +2479,7 @@ final class OverlayController {
         return true
     }
 
+    /// Merges frozen and supplemental mask regions without duplicates.
     private func mergedMaskRegions(
         _ frozenMask: [OverlayWindow.MaskRegion]?,
         _ supplementalMask: [OverlayWindow.MaskRegion]
@@ -2436,6 +2493,7 @@ final class OverlayController {
         return combined
     }
 
+    /// Returns best-known mask regions for a display from frozen or cached state.
     private func lastKnownMaskRegions(
         for displayID: DisplayID,
         cachedEntry: DisplaySnapshotCacheEntry?,
@@ -2582,11 +2640,13 @@ final class OverlayController {
         publishDebugHUDSnapshot()
     }
 
+    /// Enters safe fallback mode and schedules eventual recovery to fast mode.
     private func transitionToSafeMode(reason: FallbackReason, cooldown: TimeInterval? = nil) {
         setFallbackMode(.safe, reason: reason)
         scheduleFastModeRecovery(after: cooldown ?? fallbackPolicy.safeRecoveryDelay)
     }
 
+    /// Tracks watchdog strikes per event kind within the configured strike window.
     private func registerWatchdogStrike(_ event: UpdateCoordinator.WatchdogEvent) -> Int {
         let now = Date()
         if let previous = lastWatchdogTimestampByKind[event.kind],
@@ -2599,15 +2659,18 @@ final class OverlayController {
         return updated
     }
 
+    /// Clears accumulated watchdog strike counters.
     private func resetWatchdogStrikes() {
         watchdogStrikesByKind.removeAll()
         lastWatchdogTimestampByKind.removeAll()
     }
 
+    /// Returns whether a watchdog event exceeds severe escalation multiplier.
     private func isSevereWatchdogEvent(_ event: UpdateCoordinator.WatchdogEvent) -> Bool {
         event.measuredValue >= (event.threshold * fallbackPolicy.severeWatchdogMultiplier)
     }
 
+    /// Logs a structured fallback trigger event with measured and threshold values.
     private func logFallbackTrigger(
         reason: FallbackReason,
         measuredValue: Double?,
@@ -2621,6 +2684,7 @@ final class OverlayController {
         )
     }
 
+    /// Switches to emergency-off mode for a short cooldown and then transitions to safe mode.
     private func enterEmergencyOff(reason: FallbackReason, duration: TimeInterval = 0.35) {
         let clampedDuration = max(duration, fallbackPolicy.minimumEmergencyModeDwell)
         logFallbackTrigger(reason: reason, measuredValue: nil, thresholdValue: nil, cooldown: clampedDuration)
@@ -2639,6 +2703,7 @@ final class OverlayController {
         }
     }
 
+    /// Schedules promotion from safe fallback back to fast mode when stable.
     private func scheduleFastModeRecovery(after delay: TimeInterval) {
         fallbackRecoveryTask?.cancel()
         fallbackRecoveryTask = Task { [weak self] in
@@ -2655,6 +2720,7 @@ final class OverlayController {
         }
     }
 
+    /// Applies fallback mode transitions, side effects, and diagnostics publication.
     private func setFallbackMode(_ mode: OverlayFallbackMode, reason: FallbackReason) {
         let now = Date()
         if mode == .fast,
@@ -2685,12 +2751,14 @@ final class OverlayController {
         runtimeDiagnostics.maybeEmitSummary()
     }
 
+    /// Determines whether recent behavior is stable enough to recover from fallback.
     private func isStableForFallbackRecovery(referenceDate: Date = Date()) -> Bool {
         if !recentFlickerTimestamps.isEmpty { return false }
         guard lastFallbackTriggerAt != .distantPast else { return true }
         return referenceDate.timeIntervalSince(lastFallbackTriggerAt) >= fallbackPolicy.stabilityWindowForRecovery
     }
 
+    /// Applies current fallback quality/emergency visibility to all overlay windows.
     private func applyFallbackModeToOverlays() {
         let shouldEmergencyHide = fallbackMode == .emergencyOff
         // Keep blur active in safe mode by default; dim-only is now an explicit opt-in.
@@ -2703,6 +2771,7 @@ final class OverlayController {
         }
     }
 
+    /// Records mask mutations to detect repeated flicker patterns.
     private func recordMaskMutation(displayID: DisplayID, regions: [OverlayWindow.MaskRegion]) {
         let fingerprint = maskFingerprint(regions)
         if lastMaskFingerprintByDisplayID[displayID] == fingerprint {
@@ -2724,6 +2793,7 @@ final class OverlayController {
         }
     }
 
+    /// Builds a stable hash for mask geometry so repeated mutations can be rate-limited.
     private func maskFingerprint(_ regions: [OverlayWindow.MaskRegion]) -> Int {
         var hasher = Hasher()
         hasher.combine(regions.count)
@@ -2738,6 +2808,7 @@ final class OverlayController {
         return hasher.finalize()
     }
 
+    /// Publishes a single diagnostics snapshot consumed by the debug HUD observer.
     private func publishDebugHUDSnapshot(referenceDate: Date = Date()) {
         let snapshot = runtimeDiagnostics.hudSnapshot(reference: referenceDate)
         let totalShapeLookups = maskPipelineMetrics.windowShapeCacheHits + maskPipelineMetrics.windowShapeCacheMisses
@@ -2774,8 +2845,8 @@ final class OverlayController {
         )
     }
 
-    /// Resolves the active window snapshot and updates overlays when it changes.
     @discardableResult
+    /// Resolves the active snapshot and applies masks only when focus state changed.
     private func refreshActiveWindowSnapshot(generation: Int? = nil) -> Bool {
         let operationToken = PerformanceDiagnostics.begin()
         PerformanceDiagnostics.increment("scheduler.snapshot_poll_tick")
@@ -2837,6 +2908,7 @@ final class OverlayController {
         storeBackgroundSnapshots(snapshots, timestamp: now)
     }
 
+    /// Merges newly sampled background windows into the per-window cache and refreshes timestamps.
     private func storeBackgroundSnapshots(_ snapshots: [ActiveWindowSnapshot], timestamp: Date) {
         var merged: [Int: BackgroundWindowSnapshot] = Dictionary(
             uniqueKeysWithValues: backgroundSnapshotEntries.map { ($0.windowNumber, $0) }
@@ -2854,6 +2926,7 @@ final class OverlayController {
         pruneBackgroundSnapshotCache()
     }
 
+    /// Prunes expired background snapshots and enforces the configured entry cap.
     private func pruneBackgroundSnapshotCache() {
         let cutoff = Date().addingTimeInterval(-backgroundSnapshotLifetime)
         backgroundSnapshotEntries.removeAll { $0.timestamp < cutoff }
@@ -2863,6 +2936,7 @@ final class OverlayController {
         }
     }
 
+    /// Returns the freshest cached background snapshot for the app that is about to become active.
     private func cachedBackgroundSnapshot(forPID pid: pid_t) -> ActiveWindowSnapshot? {
         pruneBackgroundSnapshotCache()
         return backgroundSnapshotEntries
@@ -2871,6 +2945,7 @@ final class OverlayController {
             .snapshot
     }
 
+    /// Pre-seeds overlay masks from cached background data to avoid a visible first-frame pop-in.
     private func primeOverlayFromBackgroundCache(forPID pid: pid_t?) {
         guard let pid, isMonitoringActive else { return }
         guard let snapshot = cachedBackgroundSnapshot(forPID: pid) else { return }
@@ -3169,6 +3244,7 @@ final class OverlayController {
         powerObservers.removeAll()
     }
 
+    /// Preserves snapshot/cache state before sleep for quick post-wake restoration.
     private func handleWillSleep() {
         enterEmergencyOff(reason: .riskyTransition, duration: fallbackPolicy.riskyTransitionEmergencyDuration + 0.08)
         sleepPreservationState = SleepPreservationState(
@@ -3179,6 +3255,7 @@ final class OverlayController {
         )
     }
 
+    /// Restores preserved state after wake and requests immediate refresh.
     private func handleDidWake() {
         restorePreservedSnapshotStateIfNeeded()
         enterEmergencyOff(reason: .riskyTransition, duration: fallbackPolicy.riskyTransitionEmergencyDuration + 0.08)
@@ -3370,6 +3447,7 @@ final class OverlayController {
         return mergedRequests
     }
 
+    /// Builds Stage Manager mask requests from shelf card geometry and optional icon cutouts.
     private func stageManagerMaskRequests(
         for region: PeripheralInterfaceRegion,
         sanitizedKind: PeripheralInterfaceRegion.Kind,
@@ -3418,6 +3496,7 @@ final class OverlayController {
         return maskRequests
     }
 
+    /// Splits Stage Manager cards into trapezoid-like sub-rects for better visual matching.
     private func trapezoidalCardRects(for cardFrame: NSRect, shelfEdge edge: PeripheralEdge) -> [NSRect] {
         let proposedTopHeight = max(cardFrame.height * 0.42, 48)
         let clampedTopHeight = min(proposedTopHeight, cardFrame.height * 0.8)
@@ -3448,11 +3527,13 @@ final class OverlayController {
         return [bottomRect, topRect]
     }
 
+    /// Estimates Stage Manager card corner radius from card size.
     private func stageManagerCardCornerRadius(for frame: NSRect) -> CGFloat {
         let minDimension = max(1, min(frame.width, frame.height))
         return min(minDimension * 0.18, 34)
     }
 
+    /// Estimates icon cutout rect within a Stage Manager card for pointer-reveal handling.
     private func stageManagerIconRect(for frame: NSRect, shelfEdge edge: PeripheralEdge) -> NSRect? {
         let iconSize = min(frame.width, frame.height) * 0.28
         guard iconSize >= 12 else { return nil }
@@ -3965,10 +4046,12 @@ final class OverlayController {
 
 #if DEBUG
 extension OverlayController {
+    /// Test-only accessor for frozen mask regions on a display.
     func testingFrozenMaskRegions(for displayID: DisplayID) -> [OverlayWindow.MaskRegion]? {
         frozenMaskRegionsByDisplayID[displayID]
     }
 
+    /// Test helper exposing merge behavior for frozen and supplemental masks.
     func testingMergedMaskRegions(
         frozen: [OverlayWindow.MaskRegion]?,
         supplemental: [OverlayWindow.MaskRegion]
@@ -3976,6 +4059,7 @@ extension OverlayController {
         mergedMaskRegions(frozen, supplemental)
     }
 
+    /// Test helper exposing last-known mask fallback selection logic.
     func testingLastKnownMaskRegions(
         for displayID: DisplayID,
         frozenMask: [OverlayWindow.MaskRegion]?,
@@ -4077,6 +4161,7 @@ private extension PeripheralInterfaceRegion.Kind {
         return nil
     }
 
+    /// Checks whether pointer location is touching the Dock edge within tolerance.
     func pointerTouchesDockEdge(for location: NSPoint, frame: NSRect, tolerance: CGFloat) -> Bool {
         guard let edge = dockEdge else { return false }
         switch edge {

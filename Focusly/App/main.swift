@@ -15,8 +15,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var debugHUDWindow: NSWindow?
     private var debugHUDLabel: NSTextField?
     private var debugHUDObserver: NSObjectProtocol?
-    /// Performs initial setup, prompts for accessibility, and starts the coordinator.
     @MainActor
+    /// Performs initial setup, prompts for accessibility, and starts the coordinator.
     func applicationDidFinishLaunching(_ notification: Notification) {
         configureMainMenu()
 
@@ -45,8 +45,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             }
     }
 
-    /// Stops services before the process exits.
     @MainActor
+    /// Stops services before the process exits.
     func applicationWillTerminate(_ notification: Notification) {
         appCoordinator?.stop()
         dismissDebugWindow()
@@ -60,8 +60,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     // MARK: - Coordinator
 
-    /// Lazily creates the app coordinator and starts overlay management.
     @MainActor
+    /// Lazily creates the app coordinator and starts overlay management.
     private func startAppCoordinator() {
         guard appCoordinator == nil else { return }
         let environment = FocuslyEnvironment.default
@@ -85,8 +85,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         UserDefaults.standard.bool(forKey: "FocuslyDebugHUD")
     }
 
-    /// Builds and presents the debug overlay window used during development.
     @MainActor
+    /// Builds and presents the debug overlay window used during development.
     private func displayDebugWindow() {
         guard debugTrackingWindow == nil else { return }
 
@@ -134,8 +134,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         accessibilityWindowTracker.start()
     }
 
-    /// Tears down debug tracking and closes the debug window.
     @MainActor
+    /// Tears down debug tracking and closes the debug window.
     private func dismissDebugWindow() {
         accessibilityWindowTracker.stop()
         accessibilityWindowTracker.isCollectingAllWindows = false
@@ -147,6 +147,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         debugTrackingWindow = nil
     }
 
+    /// Builds and presents the floating debug HUD that streams overlay diagnostics.
     @MainActor
     private func displayDebugHUD() {
         guard debugHUDWindow == nil else { return }
@@ -198,6 +199,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
     }
 
+    /// Dismisses the debug HUD and unregisters its notification observer.
     @MainActor
     private func dismissDebugHUD() {
         if let debugHUDObserver {
@@ -209,8 +211,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         debugHUDLabel = nil
     }
 
-    /// Updates the debug window title with the latest focused window geometry.
     @MainActor
+    /// Updates the debug window title with the latest focused window geometry.
     private func renderDebugSnapshot(_ snapshot: WindowTracker.Snapshot) {
         guard let window = debugTrackingWindow else { return }
         if let frame = snapshot.activeFrame {
@@ -220,8 +222,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
     }
 
-    /// Clears debug resources if the debug window is manually closed.
     @MainActor
+    /// Clears debug resources if the debug window is manually closed.
     func windowWillClose(_ notification: Notification) {
         guard let closedWindow = notification.object as? NSWindow else { return }
         if closedWindow === debugTrackingWindow {
@@ -234,8 +236,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     // MARK: - Menu
 
-    /// Rebuilds the app-level menu with localized titles and actions.
     @MainActor
+    /// Rebuilds the app-level menu with localized titles and actions.
     private func configureMainMenu() {
         let localizationService = LocalizationService.shared
         let applicationMenu = NSMenu()

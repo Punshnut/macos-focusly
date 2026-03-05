@@ -5,6 +5,7 @@ private actor UpdateCounter {
     private(set) var updates = 0
     private(set) var timestamps: [Date] = []
 
+    /// Increments update count and captures a timestamp for cadence assertions.
     func increment() {
         updates += 1
         timestamps.append(Date())
@@ -12,6 +13,7 @@ private actor UpdateCounter {
 }
 
 final class UpdateCoordinatorTests: XCTestCase {
+    /// The first update in a burst should dispatch on the leading edge.
     func testLeadingEdgeDispatchesImmediately() async throws {
         let counter = UpdateCounter()
         let firstEventAt = Date()
@@ -38,6 +40,7 @@ final class UpdateCoordinatorTests: XCTestCase {
         XCTAssertLessThan(delay, 0.03)
     }
 
+    /// Interaction bursts should stay throttled while still producing a trailing update.
     func testInteractionBurstsAreThrottledAndTrailingUpdateFires() async throws {
         let counter = UpdateCounter()
 
@@ -71,7 +74,7 @@ final class UpdateCoordinatorTests: XCTestCase {
 
         let updateCount = await counter.updates
         print("interaction burst updates=\(updateCount)")
-        XCTAssertGreaterThanOrEqual(updateCount, 8)   // ~30 Hz over 0.5s plus leading/trailing
-        XCTAssertLessThanOrEqual(updateCount, 24)     // should remain capped, not per-event
+        XCTAssertGreaterThanOrEqual(updateCount, 8)   // Roughly 30 Hz over 0.5s, plus leading/trailing.
+        XCTAssertLessThanOrEqual(updateCount, 24)     // Must stay bounded instead of firing per event.
     }
 }

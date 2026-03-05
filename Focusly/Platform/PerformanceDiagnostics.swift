@@ -18,6 +18,7 @@ enum PerformanceDiagnostics {
     private static let summaryInterval: TimeInterval = 8
     private static let storage = Storage()
 
+    /// Returns true when diagnostics are enabled by environment or user defaults.
     static var isEnabled: Bool {
         if ProcessInfo.processInfo.environment[envToggleKey] == "1" {
             return true
@@ -25,11 +26,13 @@ enum PerformanceDiagnostics {
         return UserDefaults.standard.bool(forKey: defaultsToggleKey)
     }
 
+    /// Starts timing an operation and returns a token to pass to `end`.
     static func begin() -> UInt64? {
         guard isEnabled else { return nil }
         return DispatchTime.now().uptimeNanoseconds
     }
 
+    /// Finishes a timed operation and records aggregate duration metrics.
     static func end(_ startToken: UInt64?, operation: String) {
         guard let startToken, isEnabled else { return }
         let end = DispatchTime.now().uptimeNanoseconds
@@ -38,6 +41,7 @@ enum PerformanceDiagnostics {
         maybeEmitSummary()
     }
 
+    /// Increments a named counter used in periodic performance summaries.
     static func increment(_ key: String, by amount: Int = 1) {
         guard isEnabled else { return }
         storage.lock.lock()
@@ -46,10 +50,12 @@ enum PerformanceDiagnostics {
         maybeEmitSummary()
     }
 
+    /// Records a cache hit/miss pair under a shared metric key.
     static func recordCache(key: String, hit: Bool) {
         increment(hit ? "\(key).hit" : "\(key).miss")
     }
 
+    /// Stores operation duration totals/counts and logs unusually slow individual samples.
     private static func recordDuration(operation: String, nanoseconds: UInt64) {
         storage.lock.lock()
         storage.durationTotalsNs[operation, default: 0] &+= nanoseconds
@@ -62,6 +68,7 @@ enum PerformanceDiagnostics {
         }
     }
 
+    /// Emits periodic rolled-up metrics to the unified logger.
     private static func maybeEmitSummary() {
         guard isEnabled else { return }
         let now = Date()

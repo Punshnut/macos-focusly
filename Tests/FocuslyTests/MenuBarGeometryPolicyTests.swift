@@ -4,9 +4,10 @@ import XCTest
 
 @MainActor
 final class MenuBarGeometryPolicyTests: XCTestCase {
+    /// Verifies the main overlay trims only the menu bar strip, not Dock-occupied edges.
     func testMainOverlayExcludesOnlyTopMenuBarBandWhenMenuBarExcluded() {
         let screenFrame = NSRect(x: 0, y: 0, width: 1728, height: 1117)
-        // Simulate Dock occupying left + bottom while menu bar remains at top.
+        // Dock occupies left and bottom; menu bar remains anchored at the top.
         let visibleFrame = NSRect(x: 96, y: 80, width: 1632, height: 999)
 
         let resolved = OverlayWindow.resolvedMainOverlayFrame(

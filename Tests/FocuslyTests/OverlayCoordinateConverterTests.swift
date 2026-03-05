@@ -2,6 +2,7 @@ import XCTest
 @testable import Focusly
 
 final class OverlayCoordinateConverterTests: XCTestCase {
+    /// Confirms converted rectangles remain aligned to the destination pixel grid.
     func testGlobalToOverlayContentConversionIsPixelAlignedOnMixedScale() {
         let overlayFrame = NSRect(x: 1920, y: 0, width: 2560, height: 1440)
         let contentBounds = NSRect(x: 0, y: 0, width: 2560, height: 1440)
@@ -22,6 +23,7 @@ final class OverlayCoordinateConverterTests: XCTestCase {
         XCTAssertEqual((converted.maxY * 2).rounded(), converted.maxY * 2, accuracy: 0.0001)
     }
 
+    /// Keeps both displays active during a cross-screen handoff window.
     func testIntersectingDisplaysPreservesHandoffWithoutGap() {
         let screens = [
             OverlayCoordinateConverter.ScreenDescriptor(
@@ -49,6 +51,7 @@ final class OverlayCoordinateConverterTests: XCTestCase {
         XCTAssertEqual(resolved, Set([1, 2]))
     }
 
+    /// Drops the previous display once the window fully transitions to the new screen.
     func testIntersectingDisplaysDropsOldDisplayAfterCrossingCompletes() {
         let screens = [
             OverlayCoordinateConverter.ScreenDescriptor(

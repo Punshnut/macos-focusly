@@ -68,6 +68,7 @@ final class OverlayRuntimeDiagnostics {
         #endif
     }
 
+    /// Records incoming trigger events and tracks the latest source timestamp.
     func recordEventReceived(reason: UpdateCoordinator.Reason, at timestamp: Date = Date()) {
         eventTimestamps.append(timestamp)
         lastUpdateRequest = (timestamp, reason.rawValue)
@@ -75,6 +76,7 @@ final class OverlayRuntimeDiagnostics {
         trimSamples(reference: timestamp)
     }
 
+    /// Records the start of a coalesced update and captures event-to-update latency.
     func recordUpdateStarted(_ work: UpdateCoordinator.Work, at timestamp: Date = Date()) {
         updateStartTimestamps.append(timestamp)
         lastUpdateStartedAt = timestamp
@@ -84,23 +86,27 @@ final class OverlayRuntimeDiagnostics {
         trimSamples(reference: timestamp)
     }
 
+    /// Records update completion duration for rolling averages and percentiles.
     func recordUpdateFinished(duration: TimeInterval, at timestamp: Date = Date()) {
         updateDurations.append(TimedValue(timestamp: timestamp, value: max(0, duration)))
         lastUpdateFinishedAt = timestamp
         trimSamples(reference: timestamp)
     }
 
+    /// Records mask-build and layer-apply timings from the rendering pipeline.
     func recordMaskTimings(buildDuration: TimeInterval, layerApplyDuration: TimeInterval, at timestamp: Date = Date()) {
         maskBuildDurations.append(TimedValue(timestamp: timestamp, value: max(0, buildDuration)))
         layerApplyDurations.append(TimedValue(timestamp: timestamp, value: max(0, layerApplyDuration)))
         trimSamples(reference: timestamp)
     }
 
+    /// Updates fallback mode metadata exposed in the debug HUD snapshot.
     func updateFallbackState(mode: String, reason: String) {
         currentMode = mode
         lastFallbackReason = reason
     }
 
+    /// Produces a one-second rolling diagnostic snapshot for UI and logging.
     func hudSnapshot(reference: Date = Date()) -> HUDSnapshot {
         trimSamples(reference: reference)
         let eventsPerSecond = Double(eventTimestamps.count)
@@ -130,6 +136,7 @@ final class OverlayRuntimeDiagnostics {
         )
     }
 
+    /// Emits a throttled console summary when HUD logging is enabled.
     func maybeEmitSummary(reference: Date = Date()) {
         guard consoleSummaryEnabled else { return }
         if nextSummaryDeadline == .distantPast {
@@ -144,6 +151,7 @@ final class OverlayRuntimeDiagnostics {
         nextSummaryDeadline = reference.addingTimeInterval(1)
     }
 
+    /// Maps low-level update reasons into coarse event source buckets.
     private func eventSource(for reason: UpdateCoordinator.Reason) -> EventSource {
         switch reason {
         case .activeApplicationChanged:
@@ -161,6 +169,7 @@ final class OverlayRuntimeDiagnostics {
         }
     }
 
+    /// Infers a high-level diagnosis from current event and update characteristics.
     private func diagnosis(from eventsPerSecond: Double, updatesPerSecond: Double, averageUpdateDuration: TimeInterval) -> Diagnosis? {
         if currentMode != "fast", lastFallbackReason != "none" {
             return .fallbackModeCadence
@@ -174,6 +183,7 @@ final class OverlayRuntimeDiagnostics {
         return nil
     }
 
+    /// Keeps only the most recent one-second sample window for all tracked metrics.
     private func trimSamples(reference: Date) {
         let cutoff = reference.addingTimeInterval(-1)
         eventTimestamps.removeAll { $0 < cutoff }
@@ -185,6 +195,7 @@ final class OverlayRuntimeDiagnostics {
         layerApplyDurations.removeAll { $0.timestamp < cutoff }
     }
 
+    /// Computes the arithmetic mean for a timed sample stream.
     private func average(of samples: [TimedValue]) -> TimeInterval {
         guard !samples.isEmpty else { return 0 }
         let total = samples.reduce(0.0) { partial, sample in
@@ -193,6 +204,7 @@ final class OverlayRuntimeDiagnostics {
         return total / Double(samples.count)
     }
 
+    /// Returns a clamped percentile value from the provided timed sample stream.
     private func percentile(of samples: [TimedValue], percentile: Double) -> TimeInterval {
         guard !samples.isEmpty else { return 0 }
         let sorted = samples.map(\.value).sorted()

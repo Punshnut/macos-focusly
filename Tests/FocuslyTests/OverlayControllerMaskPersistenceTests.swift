@@ -4,6 +4,7 @@ import XCTest
 
 @MainActor
 final class OverlayControllerMaskPersistenceTests: XCTestCase {
+    /// Ensures frozen mask regions survive supplemental mask merges.
     func testMergedMaskPreservesFrozenRegions() {
         let controller = OverlayController(activeWindowSnapshotResolver: { _, _ in nil })
         let frozenRegion = OverlayWindow.MaskRegion(
@@ -24,6 +25,7 @@ final class OverlayControllerMaskPersistenceTests: XCTestCase {
         XCTAssertTrue(merged.contains(menuRegion))
     }
 
+    /// Validates frozen regions are preferred over cached snapshots when available.
     func testLastKnownMaskPrefersFrozenRegions() {
         let controller = OverlayController(activeWindowSnapshotResolver: { _, _ in nil })
         let displayID: DisplayID = 42
@@ -49,6 +51,7 @@ final class OverlayControllerMaskPersistenceTests: XCTestCase {
         XCTAssertEqual(fallback, cached)
     }
 
+    /// Falls back to the preferred cache entry when no active or cached mask exists.
     func testLastKnownMaskFallsBackToPreferredCacheEntry() {
         let controller = OverlayController(activeWindowSnapshotResolver: { _, _ in nil })
         let displayID: DisplayID = 7
@@ -68,6 +71,7 @@ final class OverlayControllerMaskPersistenceTests: XCTestCase {
         XCTAssertEqual(resolved, preferredMask)
     }
 
+    /// Ignores empty cached masks and uses the next valid fallback entry.
     func testLastKnownMaskSkipsEmptyCachedEntry() {
         let controller = OverlayController(activeWindowSnapshotResolver: { _, _ in nil })
         let displayID: DisplayID = 9

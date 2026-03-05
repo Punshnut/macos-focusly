@@ -9,10 +9,12 @@ private actor OverlayDiagnosticMetrics {
     private(set) var eventToUpdateDelays: [TimeInterval] = []
     private(set) var updateStartTimestamps: [Date] = []
 
+    /// Tracks emitted coordinator events in the diagnostic run.
     func recordEvent() {
         eventCount += 1
     }
 
+    /// Records update start timing and coalescing metadata.
     func recordUpdateStart(work: UpdateCoordinator.Work, startedAt: Date) {
         updateCount += 1
         totalCoalescedEvents += work.coalescedEventCount
@@ -20,12 +22,14 @@ private actor OverlayDiagnosticMetrics {
         updateStartTimestamps.append(startedAt)
     }
 
+    /// Stores sanitized update duration values for later percentile calculations.
     func recordUpdateDuration(_ duration: TimeInterval) {
         updateDurations.append(max(0, duration))
     }
 }
 
 final class OverlayDiagnosticsProtocolTests: XCTestCase {
+    /// Exercises burst and interaction phases, then validates cadence and latency bounds.
     func testDiagnosticProtocolRestoresLiveCadenceDuringInteractionBurst() async throws {
         let metrics = OverlayDiagnosticMetrics()
 
@@ -103,6 +107,7 @@ final class OverlayDiagnosticsProtocolTests: XCTestCase {
         XCTAssertLessThan(avgDelay * 1000, 120)
     }
 
+    /// Emits updates at a fixed interval for a bounded phase window.
     private func runEventPhase(
         reason: UpdateCoordinator.Reason,
         interval: TimeInterval,
@@ -121,6 +126,7 @@ final class OverlayDiagnosticsProtocolTests: XCTestCase {
         try await Task.sleep(nanoseconds: 250_000_000)
     }
 
+    /// Sends a compact event burst, then waits for trailing coalesced work.
     private func runBurst(
         reason: UpdateCoordinator.Reason,
         repetitions: Int,
@@ -137,12 +143,14 @@ final class OverlayDiagnosticsProtocolTests: XCTestCase {
         try await Task.sleep(nanoseconds: 120_000_000)
     }
 
+    /// Returns the arithmetic mean for a timing sample set.
     private func average(_ values: [TimeInterval]) -> TimeInterval {
         guard !values.isEmpty else { return 0 }
         let total = values.reduce(0, +)
         return total / Double(values.count)
     }
 
+    /// Returns the nearest-index p95 value for a sorted timing sample set.
     private func percentile95(_ values: [TimeInterval]) -> TimeInterval {
         guard !values.isEmpty else { return 0 }
         let sorted = values.sorted()

@@ -133,11 +133,13 @@ final class OverlayWindow: NSPanel {
         static let minMaskFade: TimeInterval = 0.08
         static let maxMaskFade: TimeInterval = 0.14
 
+        /// Clamps fade duration to a bounded range tuned for overlay responsiveness.
         static func clamp(_ duration: TimeInterval) -> TimeInterval {
             guard duration > 0 else { return 0 }
             return min(max(duration, minFade), maxFade)
         }
 
+        /// Computes mask fade duration based on style duration and mask region complexity.
         static func maskFadeDuration(styleDuration: TimeInterval?, maskRegionCount: Int) -> TimeInterval {
             if maskRegionCount >= 6 {
                 return 0
@@ -164,6 +166,7 @@ final class OverlayWindow: NSPanel {
             maxValue: 20
         )
 
+        /// Reads a region cap from defaults and constrains it to safe min/max bounds.
         private static func resolvedRegionCap(
             key: String,
             defaultValue: Int,
@@ -199,6 +202,7 @@ final class OverlayWindow: NSPanel {
 
     /// Exposes aggregate mask rendering stats so controllers can detect fallback hot-spots.
     @MainActor
+    /// Returns aggregate render-mode diagnostics from the shared mask layer tracker.
     static func maskRenderingDiagnostics() -> OverlayMaskRenderingDiagnostics {
         OverlayMaskLayer.diagnosticsSnapshot()
     }
@@ -544,6 +548,7 @@ final class OverlayWindow: NSPanel {
         configureDebugGeometryOverlayIfNeeded()
     }
 
+    /// Sets up optional debug geometry layers for screen/visible/mask visualization.
     private func configureDebugGeometryOverlayIfNeeded() {
         guard Self.showsMenuBarDebugOverlay, let rootLayer = contentView?.layer else { return }
         let layers: [(CAShapeLayer, NSColor)] = [
@@ -726,6 +731,7 @@ final class OverlayWindow: NSPanel {
         return OverlayCoordinateConverter.alignRectToBackingGrid(resolved, scale: scale)
     }
 
+    /// Logs resolved overlay geometry for screen-policy diagnostics.
     private func logResolvedGeometry(screen: NSScreen, targetFrame: NSRect) {
         let screenFrame = screen.frame
         let visibleFrame = screen.visibleFrame
@@ -875,6 +881,7 @@ final class OverlayWindow: NSPanel {
         return max(1.0 / max(scale, 1), 0.25)
     }
 
+    /// Emits periodic refresh stats for mask rebuild strategy diagnostics.
     private func maybeLogMaskPipelineRefreshStats(referenceDate: Date = Date()) {
         if nextMaskPipelineLogDate == .distantPast {
             nextMaskPipelineLogDate = referenceDate.addingTimeInterval(4)
@@ -887,6 +894,7 @@ final class OverlayWindow: NSPanel {
         nextMaskPipelineLogDate = referenceDate.addingTimeInterval(4)
     }
 
+    /// Rebuilds debug overlay paths for screen, visible frame, and active mask regions.
     private func refreshDebugGeometryOverlay() {
         guard Self.showsMenuBarDebugOverlay else { return }
         guard let contentView, let targetScreen = boundScreen ?? screen else { return }
@@ -921,6 +929,7 @@ final class OverlayWindow: NSPanel {
         debugMaskRegionLayer.path = combinedMasks
     }
 
+    /// Switches effect quality mode and reapplies current target opacity.
     func setEffectQualityMode(_ mode: EffectQualityMode) {
         guard effectQualityMode != mode else { return }
         effectQualityMode = mode
@@ -928,6 +937,7 @@ final class OverlayWindow: NSPanel {
         applyEffectQualityMode(targetOpacity: targetOpacity)
     }
 
+    /// Temporarily hides the overlay when emergency fallback is engaged.
     func setEmergencyHidden(_ hidden: Bool) {
         guard isEmergencyHidden != hidden else { return }
         isEmergencyHidden = hidden
@@ -939,6 +949,7 @@ final class OverlayWindow: NSPanel {
         refreshMaskLayers()
     }
 
+    /// Applies blur/tint visibility rules for the active effect quality mode.
     private func applyEffectQualityMode(targetOpacity: CGFloat) {
         switch effectQualityMode {
         case .full:
@@ -966,6 +977,7 @@ final class OverlayWindow: NSPanel {
         }
     }
 
+    /// Stops all in-flight layer/view animations before switching fallback or visibility states.
     private func cancelActiveOverlayAnimations() {
         animatiorReset(view: blurBackend.view)
         animatiorReset(view: tintView)
@@ -976,6 +988,7 @@ final class OverlayWindow: NSPanel {
         contentView?.layer?.removeAllAnimations()
     }
 
+    /// Synchronizes the animator proxy with the model value to avoid stale implicit animations.
     private func animatiorReset(view: NSView) {
         view.animator().alphaValue = view.alphaValue
     }
@@ -983,6 +996,7 @@ final class OverlayWindow: NSPanel {
 
 @available(macOS 12.0, *)
 private extension OverlayWindow {
+    /// Applies the preferred frame-rate hint to all composited overlay layers.
     func applyFrameRateRange(_ range: CAFrameRateRange) {
         contentView?.layer?.setValue(range, forKey: "preferredFrameRateRange")
         blurBackend.layer?.setValue(range, forKey: "preferredFrameRateRange")
@@ -1002,14 +1016,17 @@ private final class OverlayMaskLayer: CALayer {
         private var vectorFrames: UInt64 = 0
         private var bitmapFrames: UInt64 = 0
 
+        /// Records one frame rendered via vector masking.
         func recordVectorFrame() {
             vectorFrames &+= 1
         }
 
+        /// Records one frame rendered via bitmap fallback masking.
         func recordBitmapFrame() {
             bitmapFrames &+= 1
         }
 
+        /// Returns the current render-mode counters for diagnostics consumers.
         func snapshot() -> OverlayWindow.OverlayMaskRenderingDiagnostics {
             OverlayWindow.OverlayMaskRenderingDiagnostics(
                 vectorFrames: vectorFrames,
@@ -1395,6 +1412,7 @@ private final class OverlayMaskLayer: CALayer {
         return createdPath
     }
 
+    /// Removes redundant contained holes before executing the slow bitmap path.
     private func compactHolesForSlowPath(_ holes: [HoleRegion], scale: CGFloat) -> [HoleRegion] {
         guard holes.count > 1 else { return holes }
         var compacted: [HoleRegion] = []
@@ -1416,6 +1434,7 @@ private final class OverlayMaskLayer: CALayer {
         return compacted
     }
 
+    /// Counts intersecting hole pairs to estimate overlap complexity.
     private func overlapPairCount(in holes: [HoleRegion]) -> Int {
         guard holes.count > 1 else { return 0 }
         var overlapCount = 0
@@ -1432,6 +1451,7 @@ private final class OverlayMaskLayer: CALayer {
         return overlapCount
     }
 
+    /// Produces a stable hash for bounds/holes to detect reusable geometry state.
     private func geometryFingerprint(bounds: CGRect, scale: CGFloat, holes: [HoleRegion]) -> Int {
         var hasher = Hasher()
         hasher.combine(rectSignature(bounds, scale: 1000))
@@ -1446,6 +1466,7 @@ private final class OverlayMaskLayer: CALayer {
         return hasher.finalize()
     }
 
+    /// Generates a synthetic deterministic ID for holes without a real window identifier.
     private func syntheticWindowIdentifier(for hole: HoleRegion, scale: CGFloat) -> Int {
         var hasher = Hasher()
         hasher.combine(rectSignature(hole.rect, scale: 1000))
@@ -1456,6 +1477,7 @@ private final class OverlayMaskLayer: CALayer {
         return hasher.finalize()
     }
 
+    /// Produces a quantized rectangle signature for hashing and cache keys.
     private func rectSignature(_ rect: CGRect, scale: CGFloat) -> Int {
         var hasher = Hasher()
         hasher.combine(quantized(rect.origin.x, scale: scale))
@@ -1465,15 +1487,18 @@ private final class OverlayMaskLayer: CALayer {
         return hasher.finalize()
     }
 
+    /// Quantizes floating-point values to stabilize cache signatures.
     private func quantized(_ value: CGFloat, scale: CGFloat) -> Int {
         Int((value * scale).rounded())
     }
 
+    /// Removes stale window-shape cache entries that exceeded their lifetime.
     private func pruneWindowShapeCacheIfNeeded(referenceDate: Date = Date()) {
         let cutoff = referenceDate.addingTimeInterval(-windowShapeCacheLifetime)
         windowShapeCache = windowShapeCache.filter { $0.value.timestamp >= cutoff }
     }
 
+    /// Periodically logs mask-layer pipeline statistics and cache hit rates.
     private func maybeLogPipelineStats(referenceDate: Date = Date()) {
         if stats.nextLogDate == .distantPast {
             stats.nextLogDate = referenceDate.addingTimeInterval(4)

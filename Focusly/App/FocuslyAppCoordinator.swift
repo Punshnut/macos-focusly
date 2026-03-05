@@ -220,7 +220,7 @@ final class FocuslyAppCoordinator: NSObject {
 
     // MARK: - Overlay Configuration
 
-    /// Convenience toggle invoked from the menu bar and hotkey handlers.
+    /// Toggles overlay activation from menu bar and hotkey actions.
     private func toggleOverlayActivation() {
         setOverlayActivation(!overlayFiltersEnabled)
     }
@@ -252,6 +252,7 @@ final class FocuslyAppCoordinator: NSObject {
 
     // MARK: - Masking Preferences
 
+    /// Restores persisted per-display masking modes from user defaults.
     private static func loadMaskingModes(from defaults: UserDefaults) -> [DisplayID: ApplicationMaskingMode] {
         guard let stored = defaults.dictionary(forKey: UserDefaultsKey.maskingModes) as? [String: String] else {
             return [:]
@@ -270,6 +271,7 @@ final class FocuslyAppCoordinator: NSObject {
         return decoded
     }
 
+    /// Persists per-display masking overrides back to user defaults.
     private func persistMaskingModes() {
         let payload = displayMaskingModes.reduce(into: [String: String]()) { partialResult, entry in
             partialResult[String(entry.key)] = entry.value.rawValue
@@ -277,6 +279,7 @@ final class FocuslyAppCoordinator: NSObject {
         environment.userDefaults.set(payload, forKey: UserDefaultsKey.maskingModes)
     }
 
+    /// Cycles masking mode for a display and immediately applies it to the overlay controller.
     private func toggleMaskingMode(for displayID: DisplayID) {
         let current = displayMaskingModes[displayID] ?? defaultApplicationMaskingMode
         let updated = current.toggled
@@ -289,6 +292,7 @@ final class FocuslyAppCoordinator: NSObject {
         overlayCoordinator.setApplicationMaskingMode(updated, for: displayID)
     }
 
+    /// Toggles masking mode for whichever display is currently considered active.
     private func toggleMaskingModeForActiveDisplay() {
         let fallbackDisplay = displayIdentifier(for: NSScreen.main) ?? displayIdentifier(for: NSScreen.screens.first)
         let resolvedDisplayID = overlayCoordinator.activeDisplayIdentifier() ?? fallbackDisplay
@@ -299,6 +303,7 @@ final class FocuslyAppCoordinator: NSObject {
         toggleMaskingMode(for: displayID)
     }
 
+    /// Converts an `NSScreen` into the stable display identifier used across the app.
     private func displayIdentifier(for screen: NSScreen?) -> DisplayID? {
         guard
             let screen,
@@ -578,6 +583,7 @@ final class FocuslyAppCoordinator: NSObject {
         controller.present()
     }
 
+    /// Chooses how preferences window resizing is anchored based on onboarding context.
     private func synchronizePreferencesWindowAnchor() {
         let anchor: PreferencesWindowController.ResizeAnchor = didPresentPreferencesDuringOnboarding ? .topLeading : .topCenter
         preferencesWindow?.setResizeAnchor(anchor)
@@ -602,6 +608,7 @@ final class FocuslyAppCoordinator: NSObject {
         ]
     }
 
+    /// Returns the currently configured shortcut for the requested hotkey action.
     private func shortcut(for action: HotkeyAction) -> HotkeyShortcut? {
         switch action {
         case .overlayToggle:
@@ -611,6 +618,7 @@ final class FocuslyAppCoordinator: NSObject {
         }
     }
 
+    /// Returns whether a given hotkey action is currently enabled.
     private func hotkeyToggleValue(for action: HotkeyAction) -> Bool {
         switch action {
         case .overlayToggle:
@@ -827,6 +835,7 @@ final class FocuslyAppCoordinator: NSObject {
         position(preferencesWindow, beside: anchorWindow)
     }
 
+    /// Positions preferences beside onboarding while clamping both windows to visible screen bounds.
     private func position(_ window: NSWindow, beside anchor: NSWindow) {
         let spacing: CGFloat = 24
         var anchorFrame = anchor.frame

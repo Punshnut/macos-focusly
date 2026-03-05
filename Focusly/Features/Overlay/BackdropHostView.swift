@@ -41,11 +41,13 @@ final class BackdropHostView: NSView {
         backdropLayer?.isHidden = !enabled
     }
 
+    /// Keeps the private backdrop layer sized to the host view bounds.
     override func layout() {
         super.layout()
         backdropLayer?.frame = bounds
     }
 
+    /// Instantiates and configures `CABackdropLayer` when present on the current OS.
     private func configureBackdropLayer() {
         guard let backdropType = Self.backdropLayerClass else { return }
         let layer = backdropType.init()

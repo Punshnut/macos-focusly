@@ -3,6 +3,7 @@ import XCTest
 
 @MainActor
 final class ProfileStoreTests: XCTestCase {
+    /// Selecting a preset should discard per-display overrides and restore preset style values.
     func testSelectPresetClearsOverrides() {
         let userDefaults = UserDefaults(suiteName: "FocuslyTests.ProfileStore")!
         userDefaults.removePersistentDomain(forName: "FocuslyTests.ProfileStore")
@@ -18,6 +19,7 @@ final class ProfileStoreTests: XCTestCase {
         XCTAssertEqual(store.style(forDisplayID: displayID).opacity, preset.style.opacity, accuracy: 0.001)
     }
 
+    /// Verifies display overrides survive store recreation through UserDefaults persistence.
     func testOverridesPersistBetweenInstances() {
         let userDefaults = UserDefaults(suiteName: "FocuslyTests.ProfileStorePersistence")!
         userDefaults.removePersistentDomain(forName: "FocuslyTests.ProfileStorePersistence")
@@ -43,6 +45,7 @@ final class ProfileStoreTests: XCTestCase {
         XCTAssertEqual(newStore.style(forDisplayID: displayID).blurMaterial, .menu)
     }
 
+    /// Verifies display exclusion flags persist across store lifecycles.
     func testDisplayExclusionPersistsBetweenInstances() {
         let suite = "FocuslyTests.ProfileStoreExclusion"
         let userDefaults = UserDefaults(suiteName: suite)!
@@ -59,6 +62,7 @@ final class ProfileStoreTests: XCTestCase {
         XCTAssertTrue(restoredStore.isDisplayExcluded(displayID))
     }
 
+    /// Invalid-display cleanup should also remove persisted exclusion flags.
     func testRemovingInvalidDisplaysClearsExclusions() {
         let suite = "FocuslyTests.ProfileStoreExclusionCleanup"
         let userDefaults = UserDefaults(suiteName: suite)!

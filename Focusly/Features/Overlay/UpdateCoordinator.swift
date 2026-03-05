@@ -81,6 +81,7 @@ final class UpdateCoordinator {
         self.performUpdate = performUpdate
     }
 
+    /// Enqueues an update reason and schedules leading/trailing dispatch work as needed.
     func requestUpdate(reason: Reason) {
         latestGeneration &+= 1
         let eventTimestamp = Date()
@@ -109,10 +110,12 @@ final class UpdateCoordinator {
         triggerLeadingOrThrottledDispatch(referenceTime: eventTimestamp)
     }
 
+    /// Guards async work so stale generations can be discarded by callers.
     func isGenerationCurrent(_ generation: Int) -> Bool {
         generation == latestGeneration
     }
 
+    /// Chooses immediate dispatch or a throttled delayed dispatch based on recent cadence.
     private func triggerLeadingOrThrottledDispatch(referenceTime: Date) {
         let throttle = activeThrottleInterval()
         let elapsed = referenceTime.timeIntervalSince(lastUpdateStartedAt)
@@ -134,6 +137,7 @@ final class UpdateCoordinator {
         scheduleThrottleDispatch(at: dueDate)
     }
 
+    /// Returns the current throttle interval, switching to the interaction cadence during drags.
     private func activeThrottleInterval() -> TimeInterval {
         let interval = isInteractionActive
             ? configuration.interactionThrottleInterval
@@ -141,6 +145,7 @@ final class UpdateCoordinator {
         return max(1.0 / 120.0, interval)
     }
 
+    /// Schedules the next throttled dispatch and invalidates older throttle tasks.
     private func scheduleThrottleDispatch(at dueDate: Date) {
         throttleScheduleToken &+= 1
         let token = throttleScheduleToken
@@ -157,12 +162,14 @@ final class UpdateCoordinator {
         }
     }
 
+    /// Runs the throttled dispatch only if its token is still current.
     private func dispatchThrottledIfCurrent(token: Int) async {
         guard token == throttleScheduleToken else { return }
         scheduledThrottleTask = nil
         await dispatchPendingUpdate()
     }
 
+    /// Schedules a trailing refresh so short bursts still produce a final stable frame.
     private func scheduleTrailingDispatch(lastEventAt: Date) {
         trailingFallbackTimestamp = lastEventAt
         trailingScheduleToken &+= 1
@@ -177,6 +184,7 @@ final class UpdateCoordinator {
         }
     }
 
+    /// Executes trailing dispatch and synthesizes a manual refresh when no reasons remain.
     private func dispatchTrailingIfCurrent(token: Int) async {
         guard token == trailingScheduleToken else { return }
         scheduledTrailingTask = nil
@@ -191,6 +199,7 @@ final class UpdateCoordinator {
         await dispatchPendingUpdate()
     }
 
+    /// Drains pending reasons into one coalesced work item and executes the update closure.
     private func dispatchPendingUpdate() async {
         if state == .updating {
             return
@@ -244,6 +253,7 @@ final class UpdateCoordinator {
         }
     }
 
+    /// Emits a periodic coalescing summary for diagnostic visibility during event bursts.
     private func maybeLogBurstSummary() {
         let now = Date()
         guard burstDeadline != .distantPast else { return }
@@ -258,6 +268,7 @@ final class UpdateCoordinator {
         burstDeadline = .distantPast
     }
 
+    /// Triggers watchdog callbacks when update duration or update rate exceed configured thresholds.
     private func evaluateWatchdog(duration: TimeInterval, reasons: Set<Reason>) {
         let now = Date()
         if duration > configuration.updateDurationWatchdogThreshold {

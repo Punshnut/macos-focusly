@@ -79,6 +79,7 @@ final class OnboardingViewModel: ObservableObject {
         }
     }
 
+    /// Notifies listeners when the active onboarding step changes.
     private func notifyStepChange() {
         guard steps.indices.contains(currentIndex) else { return }
         stepChangeHandler?(steps[currentIndex])

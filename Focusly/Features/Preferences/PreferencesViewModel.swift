@@ -387,6 +387,7 @@ final class PreferencesViewModel: ObservableObject {
         return components.joined(separator: " ")
     }
 
+    /// Ensures each known hotkey action has a default row state for the UI.
     private static func normalizeHotkeyStates(_ states: [HotkeyAction: HotkeyState]) -> [HotkeyAction: HotkeyState] {
         var normalized = states
         for action in HotkeyAction.allCases where normalized[action] == nil {
@@ -395,6 +396,7 @@ final class PreferencesViewModel: ObservableObject {
         return normalized
     }
 
+    /// Inserts or replaces an app exception row and optionally persists it to settings.
     private func upsertApplicationException(_ exception: ApplicationException, persistPreference: Bool) {
         if let index = applicationExceptions.firstIndex(where: { $0.id == exception.id }) {
             applicationExceptions[index] = exception
@@ -411,6 +413,7 @@ final class PreferencesViewModel: ObservableObject {
         ))
     }
 
+    /// Builds a deduplicated, sorted list of app exception rows from user and suggested entries.
     private static func makeApplicationExceptions(
         userEntries: [ApplicationMaskingIgnoreList.Entry],
         suggestedEntries: [ApplicationMaskingIgnoreList.Entry]
@@ -420,6 +423,7 @@ final class PreferencesViewModel: ObservableObject {
         var results: [ApplicationException] = []
         var seen: Set<String> = []
 
+        /// Normalizes one entry into a display model and skips duplicates.
         func append(entry: ApplicationMaskingIgnoreList.Entry, isUserDefined: Bool) {
             let normalized = entry.bundleIdentifier.focuslyNormalizedToken() ?? entry.bundleIdentifier.lowercased()
             guard !normalized.isEmpty else { return }
@@ -455,6 +459,7 @@ final class PreferencesViewModel: ObservableObject {
         }
     }
 
+    /// Resolves an app icon by bundle identifier when the app exists on disk.
     private static func icon(forBundleIdentifier identifier: String, workspace: NSWorkspace) -> NSImage? {
         guard let url = workspace.urlForApplication(withBundleIdentifier: identifier) else {
             return nil
@@ -462,6 +467,7 @@ final class PreferencesViewModel: ObservableObject {
         return icon(forApplicationAt: url)
     }
 
+    /// Loads and standardizes an app icon for display in the exceptions list.
     private static func icon(forApplicationAt url: URL) -> NSImage? {
         let icon = NSWorkspace.shared.icon(forFile: url.path)
         icon.size = NSSize(width: 28, height: 28)
@@ -482,6 +488,7 @@ final class PreferencesViewModel: ObservableObject {
 }
 
 private extension PreferencesViewModel {
+    /// Applies an in-place mutation to one hotkey row and republishes the full state dictionary.
     func mutateHotkeyState(for action: HotkeyAction, mutation: (inout HotkeyState) -> Void) {
         var updated = hotkeyStates
         var state = updated[action] ?? HotkeyState(shortcut: nil, isEnabled: true)

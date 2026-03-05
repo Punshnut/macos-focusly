@@ -29,8 +29,8 @@ final class DisplayLinkDriver {
         applyPreferredDisplayID(to: link)
     }
 
-    /// Starts the display link if it is not already active.
     @discardableResult
+    /// Starts the display link and routes frame timing callbacks to the main actor.
     func start() -> Bool {
         guard !isRunning else { return true }
 

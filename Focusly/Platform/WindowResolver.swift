@@ -54,6 +54,7 @@ private struct StageShelfRegion {
     var cardFrames: [CGRect]
 }
 
+/// Enables verbose mask diagnostics via env var or user defaults.
 private func maskDiagnosticsEnabled() -> Bool {
     if ProcessInfo.processInfo.environment["FOCUSLY_MASK_DIAGNOSTICS"] == "1" {
         return true
@@ -61,10 +62,12 @@ private func maskDiagnosticsEnabled() -> Bool {
     return UserDefaults.standard.bool(forKey: "Focusly.MaskDiagnosticsEnabled")
 }
 
+/// Formats a rectangle into compact one-line coordinates for logs.
 private func describeRect(_ rect: CGRect) -> String {
     String(format: "x:%.1f y:%.1f w:%.1f h:%.1f", rect.origin.x, rect.origin.y, rect.width, rect.height)
 }
 
+/// Emits a debug record when a supplementary window is accepted and classified.
 private func logSupplementaryMaskClassification(
     ownerName: String?,
     windowName: String?,
@@ -85,6 +88,7 @@ private func logSupplementaryMaskClassification(
     )
 }
 
+/// Emits a debug record when a supplementary candidate is intentionally skipped.
 private func logSupplementaryMaskSkip(
     ownerName: String?,
     windowName: String?,
@@ -113,6 +117,7 @@ struct DockConfiguration: Equatable {
 }
 
 @MainActor
+/// Reads Dock orientation/autohide preferences used for peripheral mask synthesis.
 func systemDockConfiguration() -> DockConfiguration {
     let dockDefaults = UserDefaults(suiteName: "com.apple.dock")
     let autohide = dockDefaults?.object(forKey: "autohide") as? Bool ?? false
@@ -132,9 +137,7 @@ func systemDockConfiguration() -> DockConfiguration {
     )
 }
 
-/// Resolves the currently focused window snapshot using the most permissive APIs available.
-/// Falls back to accessibility lookups when Core Graphics metadata is not available
-/// (e.g. when an app has no on-screen windows).
+/// Resolves the active window snapshot using CG first, then AX fallback when necessary.
 @MainActor
 func resolveActiveWindowSnapshot(
     excluding windowNumbers: Set<Int> = [],
@@ -201,9 +204,7 @@ func resolveActiveWindowSnapshot(
     return axSnapshot
 }
 
-/// Resolves the currently focused window frame using the most permissive APIs available.
-/// Falls back to accessibility lookups when Core Graphics metadata is not available
-/// (e.g. when an app has no on-screen windows).
+/// Resolves only the active window frame with the same CG-first lookup policy.
 @MainActor
 func resolveActiveWindowFrame(
     excluding windowNumbers: Set<Int> = [],
@@ -216,7 +217,7 @@ func resolveActiveWindowFrame(
     return axActiveWindowSnapshot(preferredPID: resolvedPreferredPID)?.frame
 }
 
-/// CoreGraphics-only variant to avoid touching the Accessibility APIs.
+/// CoreGraphics-only focused frame lookup used by fast refresh paths.
 @MainActor
 func resolveActiveWindowFrameUsingCoreGraphics(
     excluding windowNumbers: Set<Int> = [],
@@ -226,7 +227,7 @@ func resolveActiveWindowFrameUsingCoreGraphics(
     return cgFrontWindow(excluding: windowNumbers, preferredPID: resolvedPreferredPID)?.frame
 }
 
-/// Captures a best-effort list of recent on-screen windows so overlays can prime snapshots ahead of focus changes.
+/// Captures a recent set of likely focus-candidate windows for quick prewarming.
 @MainActor
 func resolveRecentWindowSnapshots(
     excluding windowNumbers: Set<Int> = [],
@@ -331,7 +332,7 @@ private struct CGFrontWindowSnapshot {
     let supplementaryMasks: [ActiveWindowSnapshot.MaskRegion]
 }
 
-/// Uses CoreGraphics to locate the foremost visible window while skipping overlay windows.
+/// Finds the best front window candidate from the CoreGraphics window stack.
 @MainActor
 private func cgFrontWindow(
     excluding windowNumbers: Set<Int>,
@@ -437,8 +438,7 @@ private func cgFrontWindow(
     )
 }
 
-/// Reuses fresh per-app supplementary masks for a short window to avoid rescanning the full
-/// CoreGraphics list on every poll when the focused window hasn't changed meaningfully.
+/// Resolves supplementary masks for the current front window with short-lived scan-state caching.
 @MainActor
 private func resolveSupplementaryMasksForFrontWindow(
     frontWindow: CGFrontWindowSnapshot,
@@ -499,6 +499,7 @@ private func resolveSupplementaryMasksForFrontWindow(
 }
 
 @MainActor
+/// Decides whether supplementary masks need a fresh scan for the current front-window state.
 private func shouldRescanSupplementaryMasks(
     forPID pid: pid_t,
     frontWindowNumber: Int,
@@ -531,6 +532,7 @@ private func shouldRescanSupplementaryMasks(
 }
 
 @MainActor
+/// Removes stale scan-state entries so rescans are based on recent foreground activity only.
 private func pruneSupplementaryMaskScanState(referenceDate: Date) {
     supplementaryMaskScanStateByProcessID = supplementaryMaskScanStateByProcessID.filter {
         referenceDate.timeIntervalSince($0.value.lastScanDate) <= supplementaryMaskScanStateLifetime
@@ -582,7 +584,7 @@ private func supplementarySurfaceSignal(
     return hasher.finalize()
 }
 
-/// Walks window dictionaries looking for the topmost candidate the overlay should carve out.
+/// Scans window dictionaries for the first viable foreground window to mask around.
 @MainActor
 private func findFrontWindow(
     in windowDictionaries: [[String: Any]],
@@ -677,8 +679,7 @@ private func findFrontWindow(
     return fallbackSnapshot
 }
 
-/// Scans the CoreGraphics window list for secondary surfaces tied to the front application
-/// (e.g. menus, context menus, or popovers) so the overlay can carve them out.
+/// Classifies and collects supplementary mask regions tied to the active app/system surfaces.
 @MainActor
 private func collectSupplementaryMasks(
     in windowDictionaries: [[String: Any]],
@@ -1018,7 +1019,7 @@ private func isStageManagerReplicaWindow(
         return normalizedCoverage >= 0.15
     }
 
-/// Resolves a close-match corner radius for a supplementary window by caching AX window snapshots.
+/// Resolves a window corner radius via AX snapshots, cache hits, or heuristic fallback.
 @MainActor
 private func resolveCornerRadiusForWindow(
     pid: pid_t,
@@ -1041,6 +1042,7 @@ private func resolveCornerRadiusForWindow(
 }
 
 @MainActor
+/// Memoizes AX corner snapshots per process to avoid repeated AX traversal within a pass.
 private func windowCornerSnapshots(
     for pid: pid_t,
     cache: inout [pid_t: [AXWindowCornerSnapshot]]
@@ -1053,7 +1055,7 @@ private func windowCornerSnapshots(
     return fetchedSnapshots
 }
 
-/// Standalone helper used by the AX fallback path to still find menus for the front app.
+/// Fallback supplementary-mask resolution used when AX supplies the primary frame.
 @MainActor
 private func resolveSupplementaryMasks(
     primaryPID: pid_t?,
@@ -1093,8 +1095,8 @@ private func mergePeripheralRegion(_ rect: CGRect, into existing: CGRect?) -> CG
     return expanded
 }
 
-/// Builds a placeholder Dock region when the system hides it until hovered.
 @MainActor
+/// Synthesizes a Dock peripheral region when autohide hides the real Dock window.
 private func syntheticDockRegion(using configuration: DockConfiguration) -> PeripheralInterfaceRegion? {
     guard configuration.autohide else { return nil }
     guard let screen = NSScreen.main,
@@ -1111,6 +1113,7 @@ private func syntheticDockRegion(using configuration: DockConfiguration) -> Peri
     )
 }
 
+/// Approximates the hidden Dock frame from screen geometry and Dock preferences.
 private func estimatedDockFrame(on screen: NSScreen, orientation: PeripheralEdge, tileSize: CGFloat) -> CGRect {
     let screenFrame = screen.frame
     let menuBarHeight = max(0, screenFrame.maxY - screen.visibleFrame.maxY)
@@ -1167,6 +1170,7 @@ private func makePeripheralRegion(
     )
 }
 
+/// Computes hover expansion and rounded-corner tuning for each peripheral surface type.
 private func hoverInsetsAndCornerRadius(for frame: NSRect, kind: PeripheralInterfaceRegion.Kind) -> (CGFloat, CGFloat, CGFloat) {
     let minDimension = max(1, min(frame.width, frame.height))
     switch kind {
@@ -1242,7 +1246,7 @@ private func classifyPeripheralWindow(
     return nil
 }
 
-/// Resolves Dock and Stage Manager shelf surfaces so overlays can selectively carve them out.
+/// Resolves Dock and Stage Manager peripheral regions for edge-reveal masking behavior.
 @MainActor
 func resolvePeripheralInterfaceRegions(
     excluding windowNumbers: Set<Int> = []
@@ -1787,8 +1791,8 @@ private func fallbackCornerRadius(for frame: NSRect) -> CGFloat {
     return min(12, minDimension / 2)
 }
 
-/// Determines which process identifier should be preferred when locating the front window.
 @MainActor
+/// Determines which PID should be prioritized for focused-window resolution.
 private func resolvedPreferredProcessIdentifier(_ preferredPID: pid_t?) -> pid_t? {
     if let preferredPID {
         return shouldIgnoreProcessIdentifier(preferredPID) ? nil : preferredPID
@@ -1796,8 +1800,8 @@ private func resolvedPreferredProcessIdentifier(_ preferredPID: pid_t?) -> pid_t
     return frontmostApplicationProcessIdentifierForMasking()
 }
 
-/// Returns the current frontmost app's PID when it is safe to use for masking.
 @MainActor
+/// Returns the frontmost app PID when it is safe and not excluded from masking.
 private func frontmostApplicationProcessIdentifierForMasking() -> pid_t? {
     guard let frontmostApp = NSWorkspace.shared.frontmostApplication else { return nil }
     if frontmostApp.processIdentifier == ProcessInfo.processInfo.processIdentifier {
@@ -1812,8 +1816,8 @@ private func frontmostApplicationProcessIdentifierForMasking() -> pid_t? {
     return frontmostApp.processIdentifier
 }
 
-/// Checks whether the frontmost app is currently part of the ignore list.
 @MainActor
+/// Checks whether the current frontmost app is ignored by masking rules.
 private func isFrontmostApplicationIgnoredForMasking() -> Bool {
     guard let frontmostApp = NSWorkspace.shared.frontmostApplication else { return false }
     return ApplicationMaskingIgnoreList.shared.shouldIgnore(
@@ -1822,8 +1826,8 @@ private func isFrontmostApplicationIgnoredForMasking() -> Bool {
     )
 }
 
-/// Determines whether a process identifier should be ignored entirely.
 @MainActor
+/// Evaluates process-level ignore rules for a PID using app metadata.
 private func shouldIgnoreProcessIdentifier(_ processID: pid_t) -> Bool {
     guard let application = NSRunningApplication(processIdentifier: processID) else {
         return false
@@ -1834,8 +1838,8 @@ private func shouldIgnoreProcessIdentifier(_ processID: pid_t) -> Bool {
     )
 }
 
-/// Resolves whether a specific window should be skipped because its owning application is ignored.
 @MainActor
+/// Evaluates whether a specific window should be skipped by ignore-list policy.
 private func shouldIgnoreWindowForMasking(
     pid: pid_t?,
     ownerName: String?,
@@ -1865,6 +1869,7 @@ private func shouldIgnoreWindowForMasking(
 }
 
 @MainActor
+/// Prefers AX-matched window titles and falls back to the CoreGraphics-provided title.
 private func resolveWindowName(
     providedName: String?,
     pid: pid_t?,
@@ -1889,8 +1894,8 @@ private func resolveWindowName(
     return nil
 }
 
-/// Caches bundle identifiers for running processes to avoid repeated lookups.
 @MainActor
+/// Resolves and memoizes normalized bundle identifiers for repeated PID lookups.
 private func cachedBundleIdentifier(for pid: pid_t, cache: inout [pid_t: String?]) -> String? {
     if let cached = cache[pid] {
         return cached

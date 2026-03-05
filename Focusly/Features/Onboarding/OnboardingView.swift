@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-/// Modernized onboarding surface that mirrors the frosted preferences chrome.
+/// Onboarding surface styled to match the preferences window.
 struct OnboardingView: View {
     @ObservedObject var viewModel: OnboardingViewModel
     @EnvironmentObject private var localization: LocalizationService
@@ -81,6 +81,7 @@ struct OnboardingView: View {
         }
     }
 
+    /// Renders the optional SF Symbol badge used in each onboarding step header.
     private func stepIcon(systemName: String) -> some View {
         ZStack {
             RoundedRectangle(cornerRadius: 18, style: .continuous)
@@ -191,7 +192,7 @@ struct OnboardingView: View {
         .padding(.leading, 28)
     }
 
-    /// Convenience wrapper so the view can access the localization service.
+    /// Localized string helper for onboarding text.
     private func localized(_ key: String) -> String {
         localization.localized(key, fallback: key)
     }
@@ -216,6 +217,7 @@ private struct GlassyBackgroundView: NSViewRepresentable {
     let material: NSVisualEffectView.Material
     let cornerRadius: CGFloat
 
+    /// Creates the frosted AppKit background view backing the onboarding card.
     func makeNSView(context: Context) -> NSVisualEffectView {
         let view = NSVisualEffectView()
         view.material = material
@@ -228,6 +230,7 @@ private struct GlassyBackgroundView: NSViewRepresentable {
         return view
     }
 
+    /// Keeps material and corner radius synchronized with SwiftUI state updates.
     func updateNSView(_ nsView: NSVisualEffectView, context: Context) {
         nsView.material = material
         nsView.state = .active

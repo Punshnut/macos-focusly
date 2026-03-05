@@ -197,6 +197,7 @@ final class ApplicationMaskingIgnoreList {
         return false
     }
 
+    /// Persists user-defined entries and explicit preferences to user defaults.
     private func persistUserEntries() {
         let entries = Array(persistedEntries.values)
         if entries.isEmpty {
@@ -212,12 +213,14 @@ final class ApplicationMaskingIgnoreList {
         userDefaults.set(normalizedIdentifiers, forKey: defaultsKey)
     }
 
+    /// Heuristic that detects settings/preferences windows by title fragments.
     private static func isLikelySettingsWindow(_ windowName: String) -> Bool {
         let normalized = windowName.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard !normalized.isEmpty else { return false }
         return settingsKeywordFragments.contains { normalized.contains($0) }
     }
 
+    /// Normalizes entries by bundle identifier and keeps the last value per key.
     private static func normalizeEntries(_ entries: [Entry]) -> [String: Entry] {
         var normalizedEntries: [String: Entry] = [:]
         for entry in entries {
@@ -227,6 +230,7 @@ final class ApplicationMaskingIgnoreList {
         return normalizedEntries
     }
 
+    /// Normalizes stored preferences to canonical bundle-identifier keys.
     private static func normalizePreferences(_ preferences: [String: Preference]) -> [String: Preference] {
         var normalized: [String: Preference] = [:]
         for (identifier, preference) in preferences {
@@ -238,6 +242,7 @@ final class ApplicationMaskingIgnoreList {
 }
 
 private extension ApplicationMaskingIgnoreList {
+    /// Resolves preference behavior for a specific window title when available.
     func shouldIgnore(preference: Preference, windowName: String?) -> Bool {
         switch preference {
         case .excludeCompletely:
@@ -255,6 +260,7 @@ private extension ApplicationMaskingIgnoreList {
 }
 
 extension String {
+    /// Lowercases and trims bundle identifiers for consistent map lookups.
     func focuslyNormalizedToken() -> String? {
         let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
@@ -263,6 +269,7 @@ extension String {
 }
 
 extension Set where Element == String {
+    /// Applies normalization to each string and returns a deduplicated set.
     func focuslyNormalizedSet() -> Set<String> {
         Set(compactMap { $0.focuslyNormalizedToken() })
     }

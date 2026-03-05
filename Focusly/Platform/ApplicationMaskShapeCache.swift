@@ -118,6 +118,7 @@ final class ApplicationMaskShapeCache {
         return nil
     }
 
+    /// Removes stale cache buckets whose entries exceeded the short lifetime window.
     private func pruneExpiredEntries() {
         let cutoff = Date().addingTimeInterval(-entryLifetime)
         entries = entries
@@ -127,11 +128,13 @@ final class ApplicationMaskShapeCache {
             .filter { !$0.value.isEmpty }
     }
 
+    /// Expires PID-to-bundle mappings so renamed/relaunched apps are refreshed.
     private func pruneExpiredProcessDescriptors() {
         let cutoff = Date().addingTimeInterval(-processDescriptorLifetime)
         processDescriptors = processDescriptors.filter { $0.value.timestamp >= cutoff }
     }
 
+    /// Enforces a global cache size cap by keeping the most recent entries.
     private func dropOldestEntries() {
         var flat: [(key: CacheKey, entry: Entry)] = []
         for (key, bucket) in entries {
@@ -155,6 +158,7 @@ final class ApplicationMaskShapeCache {
         entries = rebuilt
     }
 
+    /// Returns per-key bucket limits for process-scoped vs app-scoped caches.
     private func maximumEntriesPerKey(for key: CacheKey) -> Int {
         switch key {
         case .process:
@@ -164,6 +168,7 @@ final class ApplicationMaskShapeCache {
         }
     }
 
+    /// Builds lookup keys for a PID, including bundle-level fallback when known.
     private func cacheKeys(for pid: pid_t) -> [CacheKey] {
         var keys: [CacheKey] = [.process(pid)]
         if let bundleIdentifier = bundleIdentifier(for: pid) {
@@ -172,6 +177,7 @@ final class ApplicationMaskShapeCache {
         return keys
     }
 
+    /// Resolves and memoizes the normalized bundle identifier for a process.
     private func bundleIdentifier(for pid: pid_t) -> String? {
         if let cached = processDescriptors[pid] {
             return cached.bundleIdentifier
@@ -181,6 +187,7 @@ final class ApplicationMaskShapeCache {
         return identifier
     }
 
+    /// Chooses the best cached frame match using exact, fuzzy, and area-ratio fallbacks.
     private func bestMatch(in bucket: [Entry], for frame: NSRect) -> Entry? {
         let signature = Self.signature(for: frame)
         let tightTolerance = max(
@@ -208,6 +215,7 @@ final class ApplicationMaskShapeCache {
         return nil
     }
 
+    /// Produces a stable integer signature for approximate frame identity checks.
     private static func signature(for frame: NSRect) -> Int {
         let scale: CGFloat = 100
         let components = [

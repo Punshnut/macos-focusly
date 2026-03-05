@@ -36,6 +36,7 @@ final class InvestigationLogger: @unchecked Sendable {
         }
     }
 
+    /// Appends a categorized line to the investigation log when logging is enabled.
     func log(category: String, _ message: String) {
         guard enabled else { return }
         let timestamp = dateFormatter.string(from: Date())
@@ -44,14 +45,17 @@ final class InvestigationLogger: @unchecked Sendable {
         appendLine(composed, allowWhenDisabled: false)
     }
 
+    /// Blocks until all queued writes complete so callers can safely read the file.
     func flush() {
         loggingQueue.sync { }
     }
 
+    /// Returns the canonical on-disk location used for investigation logs.
     static func logsFileLocation() -> URL {
         resolveLogsDirectory().appendingPathComponent("InvestigationLog.txt")
     }
 
+    /// Toggles logging from the status item action and reports the resulting state.
     func toggleLoggingFromStatusItem() -> (enabled: Bool, location: URL, didChange: Bool) {
         let location = InvestigationLogger.logsFileLocation()
         guard !environmentOverrideActive else {
@@ -63,6 +67,7 @@ final class InvestigationLogger: @unchecked Sendable {
         return (enabled, location, previous != enabled)
     }
 
+    /// Applies a new logging state and optionally persists the corresponding unlock code.
     private func setLoggingEnabled(_ newState: Bool, persistPreference: Bool) {
         guard newState != enabled else { return }
         if persistPreference {
@@ -88,6 +93,7 @@ final class InvestigationLogger: @unchecked Sendable {
         }
     }
 
+    /// Queues a single line append operation, creating the file lazily if needed.
     private func appendLine(_ line: String, allowWhenDisabled: Bool) {
         guard (allowWhenDisabled || enabled), let url = preparedFileURL() else { return }
         loggingQueue.async { [weak self] in
@@ -108,6 +114,7 @@ final class InvestigationLogger: @unchecked Sendable {
         }
     }
 
+    /// Ensures a writable file URL exists before writes are attempted.
     private func preparedFileURL() -> URL? {
         if let url = fileURL {
             return url
@@ -116,6 +123,7 @@ final class InvestigationLogger: @unchecked Sendable {
         return fileURL
     }
 
+    /// Creates the log directory/file and optionally rewrites the file header.
     private func prepareLogFileIfNeeded(resetHeader: Bool) {
         let logsDirectory = InvestigationLogger.resolveLogsDirectory()
         try? FileManager.default.createDirectory(at: logsDirectory, withIntermediateDirectories: true)
@@ -126,6 +134,7 @@ final class InvestigationLogger: @unchecked Sendable {
         }
     }
 
+    /// Writes the standard investigation header with enable/disable instructions.
     private func writeHeader(to url: URL) {
         let directory = url.deletingLastPathComponent()
         let header = """
@@ -140,6 +149,7 @@ final class InvestigationLogger: @unchecked Sendable {
         }
     }
 
+    /// Clears deduplication caches so repeated snapshots can be logged again.
     private func resetDeduplicationState() {
         loggingQueue.sync {
             lastSnapshotSignatureBySource.removeAll(keepingCapacity: false)
@@ -148,6 +158,7 @@ final class InvestigationLogger: @unchecked Sendable {
         }
     }
 
+    /// Resolves initial logging state from environment overrides and persisted defaults.
     private static func initialState() -> (Bool, Bool) {
         let environment = ProcessInfo.processInfo.environment
         if let envCode = environment["FOCUSLY_INVESTIGATION_CODE"] {
@@ -168,6 +179,7 @@ final class InvestigationLogger: @unchecked Sendable {
         return (false, false)
     }
 
+    /// Computes the app-specific log directory under the user's Library/Logs folder.
     private static func resolveLogsDirectory() -> URL {
         let base = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask).first
         return (base ?? URL(fileURLWithPath: NSHomeDirectory()))
@@ -176,6 +188,7 @@ final class InvestigationLogger: @unchecked Sendable {
 }
 
 extension InvestigationLogger {
+    /// Logs a focused-window snapshot while deduplicating unchanged entries per source.
     func logSnapshot(source: String, frame: NSRect, cornerRadius: CGFloat, supplementaryCount: Int) {
         guard shouldLogSnapshot(source: source, frame: frame, cornerRadius: cornerRadius, supplementaryCount: supplementaryCount) else {
             return
@@ -190,6 +203,7 @@ extension InvestigationLogger {
         )
     }
 
+    /// Logs ignore-list decisions for windows excluded from masking.
     func logIgnoredWindow(ownerName: String?, windowName: String?, reason: String) {
         guard !shouldSuppressLog(ownerName: ownerName, windowName: windowName) else { return }
         log(
@@ -198,6 +212,7 @@ extension InvestigationLogger {
         )
     }
 
+    /// Logs why a supplementary candidate was skipped during classification.
     func logSupplementarySkip(ownerName: String?, windowName: String?, layerIndex: Int, bounds: CGRect, reason: String) {
         guard !shouldSuppressLog(ownerName: ownerName, windowName: windowName) else { return }
         let rectDescription = String(
@@ -210,6 +225,7 @@ extension InvestigationLogger {
         )
     }
 
+    /// Logs the resolved classification for a supplementary mask region.
     func logSupplementaryClassification(
         ownerName: String?,
         windowName: String?,
@@ -243,6 +259,7 @@ extension InvestigationLogger {
         )
     }
 
+    /// Logs a raw supplementary candidate before classification is finalized.
     func logSupplementaryCandidate(
         ownerName: String?,
         windowName: String?,
@@ -261,6 +278,7 @@ extension InvestigationLogger {
         )
     }
 
+    /// Logs discovery of a supplementary window dictionary from CoreGraphics.
     func logSupplementaryDiscovery(
         ownerName: String?,
         windowName: String?,
@@ -313,6 +331,7 @@ private extension InvestigationLogger {
             self.purposeKey = SupplementaryLogSignature.purposeKey(for: purpose)
         }
 
+        /// Maps supplementary mask purpose values to compact deduplication keys.
         private static func purposeKey(for purpose: ActiveWindowSnapshot.MaskRegion.Purpose) -> Int {
             switch purpose {
             case .applicationWindow: return 0
@@ -336,6 +355,7 @@ private extension InvestigationLogger {
         }
     }
 
+    /// Deduplicates repeated snapshot entries per source so logs remain readable.
     func shouldLogSnapshot(source: String, frame: NSRect, cornerRadius: CGFloat, supplementaryCount: Int) -> Bool {
         let signature = SnapshotLogSignature(frame: frame, cornerRadius: cornerRadius, supplementaryCount: supplementaryCount)
         if let previous = lastSnapshotSignatureBySource[source], previous == signature {
@@ -345,6 +365,7 @@ private extension InvestigationLogger {
         return true
     }
 
+    /// Suppresses noisy log entries matching known low-signal owner/title fragments.
     func shouldSuppressLog(ownerName: String?, windowName: String?) -> Bool {
         let owner = ownerName?.lowercased() ?? ""
         let window = windowName?.lowercased() ?? ""
@@ -356,6 +377,7 @@ private extension InvestigationLogger {
         }
     }
 
+    /// Checks whether a supplementary classification event is new enough to emit.
     func shouldLogSupplementaryClassification(
         ownerName: String?,
         windowName: String?,
@@ -376,6 +398,7 @@ private extension InvestigationLogger {
         return registerSupplementarySignature(signature)
     }
 
+    /// Maintains a bounded history set for emitted supplementary signatures.
     func registerSupplementarySignature(_ signature: SupplementaryLogSignature) -> Bool {
         if supplementarySignatureSet.contains(signature) {
             return false
@@ -390,6 +413,7 @@ private extension InvestigationLogger {
     }
 }
 
+/// Quantizes geometry values to one decimal place for stable deduplication keys.
 private func investigationQuantize(_ value: CGFloat) -> Int {
     Int((value * 10).rounded())
 }

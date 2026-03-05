@@ -21,7 +21,7 @@ final class LocalizationService: ObservableObject {
         }
     }
 
-    /// Shared singleton used by most of the app.
+    /// Shared localization service instance.
     static let shared = LocalizationService()
 
     @Published private(set) var languageOptions: [LanguageOption] = []

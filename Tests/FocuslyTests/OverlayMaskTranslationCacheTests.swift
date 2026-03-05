@@ -3,6 +3,7 @@ import XCTest
 @testable import Focusly
 
 final class OverlayMaskTranslationCacheTests: XCTestCase {
+    /// Rejects cache reuse when only the overlay origin has shifted.
     func testTranslationCacheRejectsWindowFrameOriginChanges() {
         let cachedWindowFrame = NSRect(x: 0, y: 0, width: 1728, height: 1117)
         let currentWindowFrame = NSRect(x: 96, y: 94, width: 1728, height: 1117)
@@ -22,6 +23,7 @@ final class OverlayMaskTranslationCacheTests: XCTestCase {
         XCTAssertFalse(compatible)
     }
 
+    /// Allows cache reuse when frame, bounds, and scale all remain stable.
     func testTranslationCacheAcceptsStableFrameBoundsAndScale() {
         let windowFrame = NSRect(x: 0, y: 0, width: 1728, height: 1117)
         let contentBounds = NSRect(x: 0, y: 0, width: 1728, height: 1117)
@@ -39,6 +41,7 @@ final class OverlayMaskTranslationCacheTests: XCTestCase {
         XCTAssertTrue(compatible)
     }
 
+    /// Rejects cache reuse when backing scale changes between samples.
     func testTranslationCacheRejectsBackingScaleChanges() {
         let windowFrame = NSRect(x: 0, y: 0, width: 1728, height: 1117)
         let contentBounds = NSRect(x: 0, y: 0, width: 1728, height: 1117)

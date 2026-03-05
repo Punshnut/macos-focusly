@@ -108,6 +108,7 @@ final class WindowMotionPredictor {
         return (now - lastTimestamp) <= interval
     }
 
+    /// Applies exponential smoothing to translational velocity samples.
     private func filteredVelocity(_ current: CGVector, previous: CGVector) -> CGVector {
         let alpha = velocitySmoothingFactor
         let beta = 1 - alpha
@@ -117,6 +118,7 @@ final class WindowMotionPredictor {
         )
     }
 
+    /// Applies exponential smoothing to width/height velocity samples.
     private func filteredSizeVelocity(_ current: CGSize, previous: CGSize) -> CGSize {
         let alpha = velocitySmoothingFactor
         let beta = 1 - alpha
@@ -126,6 +128,7 @@ final class WindowMotionPredictor {
         )
     }
 
+    /// Clamps a scalar value to symmetric +/- magnitude bounds.
     private func clamped(value: CGFloat, magnitude: CGFloat) -> CGFloat {
         guard magnitude > 0 else { return value }
         return min(max(value, -magnitude), magnitude)

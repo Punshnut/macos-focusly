@@ -32,6 +32,7 @@ final class PointerHoverMonitor {
         lastEmittedLocation = nil
     }
 
+    /// Filters tiny mouse jitter and forwards meaningful pointer moves to listeners.
     private func handle(event: NSEvent) {
         let location = event.locationInWindow
         if let last = lastEmittedLocation {
