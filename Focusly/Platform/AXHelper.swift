@@ -16,7 +16,10 @@ func requestAccessibilityIfNeeded(prompt: Bool = true) -> Bool {
 /// Fast trust check used by polling paths before touching AX APIs.
 @MainActor
 func isAccessibilityAccessGranted() -> Bool {
-    AXIsProcessTrusted()
+    let accessibilityOptions: CFDictionary = [
+        axTrustedCheckPromptKey: false
+    ] as CFDictionary
+    return AXIsProcessTrustedWithOptions(accessibilityOptions)
 }
 
 /// Typed window info we expose to the app.

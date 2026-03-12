@@ -145,6 +145,9 @@ func resolveActiveWindowSnapshot(
     includeAllApplicationWindows: Bool = true
 ) -> ActiveWindowSnapshot? {
     let resolvedPreferredPID = resolvedPreferredProcessIdentifier(preferredPID)
+    if resolvedPreferredPID == nil, isFrontmostApplicationIgnoredForMasking() {
+        return nil
+    }
 
     if let frontWindow = cgFrontWindow(
         excluding: windowNumbers,
@@ -174,10 +177,6 @@ func resolveActiveWindowSnapshot(
     }
 
     guard let snapshot = axActiveWindowSnapshot(preferredPID: resolvedPreferredPID) else {
-        return nil
-    }
-
-    if resolvedPreferredPID == nil, isFrontmostApplicationIgnoredForMasking() {
         return nil
     }
 
@@ -394,6 +393,11 @@ private func cgFrontWindow(
             cornerRadius: resolvedCornerRadius,
             supplementaryMasks: supplementaryRegions
         )
+    }
+    if resolvedPreferredPID != nil {
+        // Do not silently pivot to unrelated windows when frontmost-PID matching fails.
+        // This preserves focus correctness when CG metadata is partial/transient.
+        return nil
     }
 
     let candidateFrontWindow = findFrontWindow(

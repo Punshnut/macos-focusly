@@ -90,4 +90,46 @@ final class OverlayControllerMaskPersistenceTests: XCTestCase {
         )
         XCTAssertEqual(resolved, fallbackMask)
     }
+
+    /// Non-active displays should avoid dynamic updates when idle.
+    func testDynamicPipelineSkipsUnrelatedDisplayWhenIdle() {
+        let shouldRun = OverlayController.testingShouldRunDynamicMaskPipeline(
+            targetDisplayID: 3,
+            activeDisplayID: 1,
+            pointerDisplayIDHint: 1,
+            displayIsActiveForSnapshot: false,
+            activeSnapshotIntersected: false,
+            interactionActive: false
+        )
+
+        XCTAssertFalse(shouldRun)
+    }
+
+    /// Active display should always stay on the dynamic update path.
+    func testDynamicPipelineIncludesActiveDisplay() {
+        let shouldRun = OverlayController.testingShouldRunDynamicMaskPipeline(
+            targetDisplayID: 2,
+            activeDisplayID: 2,
+            pointerDisplayIDHint: nil,
+            displayIsActiveForSnapshot: false,
+            activeSnapshotIntersected: false,
+            interactionActive: false
+        )
+
+        XCTAssertTrue(shouldRun)
+    }
+
+    /// Pointer-directed handoffs should allow dynamic updates while interaction is active.
+    func testDynamicPipelineIncludesPointerDisplayDuringInteraction() {
+        let shouldRun = OverlayController.testingShouldRunDynamicMaskPipeline(
+            targetDisplayID: 5,
+            activeDisplayID: 1,
+            pointerDisplayIDHint: 5,
+            displayIsActiveForSnapshot: false,
+            activeSnapshotIntersected: false,
+            interactionActive: true
+        )
+
+        XCTAssertTrue(shouldRun)
+    }
 }

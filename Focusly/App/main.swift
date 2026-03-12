@@ -24,8 +24,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             NSApp.applicationIconImage = appIconImage
         }
 
-        // Prompt for accessibility once so overlays can function after relaunch.
-        _ = requestAccessibilityIfNeeded(prompt: true)
+        // Do not re-prompt on every launch when users already handled (or dismissed) the dialog.
+        maybePromptForAccessibilityPermission()
 
         startAppCoordinator()
 
@@ -70,6 +70,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let coordinator = FocuslyAppCoordinator(environment: environment, overlayCoordinator: overlayController)
         self.appCoordinator = coordinator
         coordinator.start()
+    }
+
+    /// Requests Accessibility only when not granted and the last prompt is stale.
+    private func maybePromptForAccessibilityPermission() {
+        let defaults = UserDefaults.standard
+        guard defaults.bool(forKey: "Focusly.AutoPromptPermissions") else { return }
+        guard !isAccessibilityAccessGranted() else { return }
+        let now = Date()
+        let cooldown: TimeInterval = 7 * 24 * 60 * 60
+        let key = "Focusly.LastAccessibilityPromptAt"
+        let lastPrompt = defaults.object(forKey: key) as? Date ?? .distantPast
+        guard now.timeIntervalSince(lastPrompt) >= cooldown else { return }
+        defaults.set(now, forKey: key)
+        _ = requestAccessibilityIfNeeded(prompt: true)
     }
 
     // MARK: - Debug Window

@@ -142,7 +142,7 @@ final class UpdateCoordinator {
         let interval = isInteractionActive
             ? configuration.interactionThrottleInterval
             : configuration.throttleInterval
-        return max(1.0 / 120.0, interval)
+        return max(1.0 / 240.0, interval)
     }
 
     /// Schedules the next throttled dispatch and invalidates older throttle tasks.

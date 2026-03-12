@@ -41,6 +41,7 @@ final class FocuslyAppCoordinator: NSObject {
     private var displayConfigurationObserver: NSObjectProtocol?
     private var spaceSwitchObserver: NSObjectProtocol?
     private var applicationActivationObserver: NSObjectProtocol?
+    private var fallbackStateObserver: NSObjectProtocol?
     private var lastKnownExternalPID: pid_t?
 
     private var overlayFiltersEnabled: Bool {
@@ -167,6 +168,16 @@ final class FocuslyAppCoordinator: NSObject {
                 guard let self else { return }
                 self.persistMenuBarCoveragePreference(isEnabled)
             }
+
+        fallbackStateObserver = NotificationCenter.default.addObserver(
+            forName: OverlayController.fallbackStateDidChange,
+            object: overlayCoordinator,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.synchronizeStatusBar()
+            }
+        }
     }
 
     // MARK: - Lifecycle
@@ -191,6 +202,10 @@ final class FocuslyAppCoordinator: NSObject {
         if let applicationActivationObserver {
             environment.workspace.notificationCenter.removeObserver(applicationActivationObserver)
             self.applicationActivationObserver = nil
+        }
+        if let fallbackStateObserver {
+            NotificationCenter.default.removeObserver(fallbackStateObserver)
+            self.fallbackStateObserver = nil
         }
     }
 
@@ -407,6 +422,8 @@ final class FocuslyAppCoordinator: NSObject {
 
     /// Pushes the latest overlay and shortcut state into the menu bar UI.
     private func synchronizeStatusBar() {
+        let fallbackSnapshot = overlayCoordinator.fallbackStateSnapshot()
+        let fallbackActive = overlayFiltersEnabled && fallbackSnapshot.isFallbackActive
         let state = StatusBarState(
             overlayFiltersEnabled: overlayFiltersEnabled,
             hotkeysEnabled: hotkeysEnabled && activationHotkey != nil,
@@ -416,11 +433,21 @@ final class FocuslyAppCoordinator: NSObject {
             launchAtLoginStatusMessage: environment.launchAtLogin.unavailableReason,
             activePresetIdentifier: overlayProfileStore.currentPreset().id,
             presetOptions: PresetLibrary.presets,
-            iconStyle: statusItemIconStyle
+            iconStyle: statusItemIconStyle,
+            isFallbackModeActive: fallbackActive,
+            fallbackStatusMessage: fallbackActive ? fallbackStatusMessage(from: fallbackSnapshot) : nil
         )
         statusBarController.update(state: state)
         preferencesScreenModel?.presetOptions = state.presetOptions
         preferencesScreenModel?.selectedPresetIdentifier = state.activePresetIdentifier
+    }
+
+    /// Builds a concise menu-bar label for the active fallback condition.
+    private func fallbackStatusMessage(from snapshot: OverlayController.FallbackStateSnapshot) -> String {
+        if snapshot.reason == "none" {
+            return "Fallback: \(snapshot.modeLabel)"
+        }
+        return "Fallback: \(snapshot.modeLabel) (\(snapshot.reasonLabel))"
     }
 
     // MARK: - Preferences Flow

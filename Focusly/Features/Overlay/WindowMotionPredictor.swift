@@ -12,11 +12,11 @@ final class WindowMotionPredictor {
     private let velocitySmoothingFactor: CGFloat = 0.32
     private let maxTranslationLead: CGFloat = 48
     private let maxSizeLead: CGFloat = 32
-    private let significantTranslationThreshold: CGFloat = 0.65
-    private let significantSizeThreshold: CGFloat = 0.65
-    private let significantVelocityThreshold: CGFloat = 48
-    private let significantSizeVelocityThreshold: CGFloat = 22
-    private let pointerDeltaAttenuation: CGFloat = 0.9
+    private let significantTranslationThreshold: CGFloat = 0.35
+    private let significantSizeThreshold: CGFloat = 0.4
+    private let significantVelocityThreshold: CGFloat = 30
+    private let significantSizeVelocityThreshold: CGFloat = 16
+    private let pointerDeltaAttenuation: CGFloat = 0.95
     private let pointerDeltaMagnitudeCeiling: CGFloat = 64
     private var lastObservation: Observation?
     private var positionVelocity = CGVector(dx: 0, dy: 0)

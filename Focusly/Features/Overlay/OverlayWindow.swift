@@ -35,6 +35,13 @@ final class OverlayWindow: NSPanel {
         let enabled = UserDefaults.standard.bool(forKey: "Focusly.EnableBackdropBlur")
         return enabled && BackdropHostView.isSupported
     }()
+    private static var shouldUseCompositorPipeline: Bool = {
+        let defaults = UserDefaults.standard
+        if defaults.object(forKey: "Focusly.EnableCompositorPipeline") == nil {
+            return true
+        }
+        return defaults.bool(forKey: "Focusly.EnableCompositorPipeline")
+    }()
 
     private let blurBackend: BlurBackend = {
         if OverlayWindow.shouldUseBackdrop {
@@ -119,6 +126,9 @@ final class OverlayWindow: NSPanel {
     private var areFiltersActive = true
     private var pendingMaskTranslationDelta: CGVector?
     private var lastAppliedRefreshProfile: DisplayRefreshProfile?
+    private var compositorPipeline: CompositorOverlayPipeline?
+    private weak var compositorView: NSView?
+    private var compositorFocusedFrameGlobal: NSRect?
     @available(macOS 12.0, *)
     private static let defaultFrameRateRange = CAFrameRateRange(minimum: 60, maximum: 240, preferred: 120)
     private static let showsMenuBarDebugOverlay: Bool = {
@@ -128,10 +138,10 @@ final class OverlayWindow: NSPanel {
     private let debugVisibleFrameLayer = CAShapeLayer()
     private let debugMaskRegionLayer = CAShapeLayer()
     private enum AnimationTuning {
-        static let minFade: TimeInterval = 0.08
-        static let maxFade: TimeInterval = 0.14
-        static let minMaskFade: TimeInterval = 0.08
-        static let maxMaskFade: TimeInterval = 0.14
+        static let minFade: TimeInterval = 0.05
+        static let maxFade: TimeInterval = 0.11
+        static let minMaskFade: TimeInterval = 0.04
+        static let maxMaskFade: TimeInterval = 0.09
 
         /// Clamps fade duration to a bounded range tuned for overlay responsiveness.
         static func clamp(_ duration: TimeInterval) -> TimeInterval {
@@ -141,13 +151,13 @@ final class OverlayWindow: NSPanel {
 
         /// Computes mask fade duration based on style duration and mask region complexity.
         static func maskFadeDuration(styleDuration: TimeInterval?, maskRegionCount: Int) -> TimeInterval {
-            if maskRegionCount >= 6 {
+            if maskRegionCount >= 7 {
                 return 0
             }
             let styleDuration = clamp(styleDuration ?? 0.14)
-            var resolved = min(max(styleDuration * 0.45, minMaskFade), maxMaskFade)
-            if maskRegionCount >= 8 {
-                resolved *= 0.78
+            var resolved = min(max(styleDuration * 0.42, minMaskFade), maxMaskFade)
+            if maskRegionCount >= 5 {
+                resolved *= 0.72
             }
             return min(max(resolved, minMaskFade), maxMaskFade)
         }
@@ -195,6 +205,19 @@ final class OverlayWindow: NSPanel {
         hidesOnDeactivate = false
         worksWhenModal = true
         boundScreen = screen
+        if Self.shouldUseCompositorPipeline {
+            compositorPipeline = CompositorOverlayPipeline(displayID: displayID)
+            compositorPipeline?.onAvailabilityChanged = { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    self?.handleCompositorAvailabilityChange()
+                }
+            }
+            compositorPipeline?.onPresentationStateChanged = { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    self?.handleCompositorAvailabilityChange()
+                }
+            }
+        }
         configureWindow()
         configureContent()
         updateToScreenFrame()
@@ -220,6 +243,28 @@ final class OverlayWindow: NSPanel {
 
     override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
+
+    /// Indicates whether this overlay currently uses the GPU compositor pipeline.
+    var isUsingCompositorPipeline: Bool {
+        guard let compositorPipeline else { return false }
+        return compositorPipeline.isPresentationReady
+    }
+
+    /// Reacts to runtime compositor availability changes by activating the appropriate rendering backend.
+    private func handleCompositorAvailabilityChange() {
+        updateRenderingBackendVisibility()
+        if isUsingCompositorPipeline {
+            compositorPipeline?.apply(style: currentStyle ?? .blurFocus)
+            compositorPipeline?.setOverlayFrame(frame)
+            compositorPipeline?.setFocusedWindowFrame(compositorFocusedFrameGlobal)
+            if areFiltersActive {
+                compositorPipeline?.startCaptureIfNeeded()
+            }
+            return
+        }
+        apply(style: currentStyle ?? .blurFocus, animated: false)
+        refreshMaskLayers()
+    }
 
     /// Enables or disables pass-through mouse handling so the overlay does not consume events.
     func setClickThrough(_ enabled: Bool) {
@@ -247,7 +292,16 @@ final class OverlayWindow: NSPanel {
         guard isMenuBarExclusionEnabled != isEnabled else { return }
         isMenuBarExclusionEnabled = isEnabled
         updateToScreenFrame()
+        if isUsingCompositorPipeline {
+            return
+        }
         refreshMaskLayers()
+    }
+
+    /// Updates the focused window target used by compositor mode (global coordinates).
+    func setCompositorFocusedWindowFrame(_ frame: NSRect?) {
+        compositorFocusedFrameGlobal = frame
+        compositorPipeline?.setFocusedWindowFrame(frame)
     }
 
     /// Toggles whether blur/tint effects should be active, optionally animating the transition.
@@ -255,6 +309,17 @@ final class OverlayWindow: NSPanel {
         guard areFiltersActive != enabled else { return }
         areFiltersActive = enabled
         cancelActiveOverlayAnimations()
+        compositorPipeline?.setFiltersEnabled(enabled)
+        if enabled {
+            compositorPipeline?.startCaptureIfNeeded()
+        } else {
+            compositorPipeline?.stopCapture()
+        }
+        updateRenderingBackendVisibility()
+
+        if isUsingCompositorPipeline {
+            return
+        }
 
         let targetOpacity = CGFloat(max(0, min(currentStyle?.opacity ?? 1, 1)))
         let duration = animated ? AnimationTuning.clamp(currentStyle?.animationDuration ?? 0.22) : 0
@@ -328,6 +393,28 @@ final class OverlayWindow: NSPanel {
 
     /// Applies multiple carved-out regions so windows, menus, and other UI remain visible.
     func applyMask(regions: [MaskRegion], animated: Bool = false) {
+        if compositorPipeline != nil {
+            let resolvedFocus = regions.max { lhs, rhs in
+                (lhs.rect.width * lhs.rect.height) < (rhs.rect.width * rhs.rect.height)
+            }
+            if let resolvedFocus {
+                let globalFocusRect = NSRect(
+                    x: frame.minX + resolvedFocus.rect.minX,
+                    y: frame.minY + resolvedFocus.rect.minY,
+                    width: resolvedFocus.rect.width,
+                    height: resolvedFocus.rect.height
+                )
+                setCompositorFocusedWindowFrame(globalFocusRect)
+            } else {
+                setCompositorFocusedWindowFrame(nil)
+            }
+        }
+
+        if isUsingCompositorPipeline {
+            currentMaskRegions = regions
+            return
+        }
+
         guard let contentView else { return }
 
         let bounds = contentView.bounds
@@ -479,11 +566,23 @@ final class OverlayWindow: NSPanel {
         displayID
     }
 
+    /// Returns the currently excluded menu-bar band in global coordinates, when enabled.
+    func excludedMenuBarFrame() -> NSRect? {
+        guard isMenuBarExclusionEnabled else { return nil }
+        guard let targetScreen = boundScreen ?? screen else { return nil }
+        return MenuBarBackdropWindow.menuBarFrame(
+            screenFrame: targetScreen.frame,
+            visibleFrame: targetScreen.visibleFrame,
+            backingScale: targetScreen.backingScaleFactor
+        )
+    }
+
     /// Applies refresh rate hints tailored to the host display.
     func setRefreshProfile(_ profile: DisplayRefreshProfile?) {
         guard #available(macOS 12.0, *) else { return }
         guard lastAppliedRefreshProfile != profile else { return }
         lastAppliedRefreshProfile = profile
+        compositorPipeline?.setRefreshProfile(profile)
         let range = profile?.preferredFrameRateRange ?? Self.defaultFrameRateRange
         applyFrameRateRange(range)
     }
@@ -530,6 +629,20 @@ final class OverlayWindow: NSPanel {
             applyFrameRateRange(Self.defaultFrameRateRange)
         }
 
+        if let compositorPipeline {
+            let compositorView = compositorPipeline.view
+            self.compositorView = compositorView
+            compositorView.translatesAutoresizingMaskIntoConstraints = false
+            contentView.addSubview(compositorView)
+
+            NSLayoutConstraint.activate([
+                compositorView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+                compositorView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+                compositorView.topAnchor.constraint(equalTo: contentView.topAnchor),
+                compositorView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor)
+            ])
+        }
+
         blurBackend.view.translatesAutoresizingMaskIntoConstraints = false
         contentView.addSubview(blurBackend.view)
         contentView.addSubview(tintView)
@@ -545,7 +658,36 @@ final class OverlayWindow: NSPanel {
             tintView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor)
         ])
 
+        if let compositorView {
+            // Keep compositor above legacy layers when active; legacy remains ready for runtime fallback.
+            contentView.addSubview(compositorView, positioned: .above, relativeTo: tintView)
+        }
+
+        compositorPipeline?.apply(style: currentStyle ?? .blurFocus)
+        compositorPipeline?.setOverlayFrame(frame)
+        compositorPipeline?.setFocusedWindowFrame(compositorFocusedFrameGlobal)
+        compositorPipeline?.setFiltersEnabled(areFiltersActive)
+        updateRenderingBackendVisibility()
         configureDebugGeometryOverlayIfNeeded()
+    }
+
+    /// Ensures compositor and legacy views are shown/hidden according to active pipeline availability.
+    private func updateRenderingBackendVisibility() {
+        let compositorActive = isUsingCompositorPipeline
+        compositorView?.isHidden = !compositorActive
+        if compositorActive {
+            blurBackend.view.isHidden = true
+            tintView.isHidden = true
+            return
+        }
+        if areFiltersActive {
+            applyEffectQualityMode(targetOpacity: CGFloat(max(0, min(currentStyle?.opacity ?? 1, 1))))
+        } else {
+            blurBackend.view.alphaValue = 0
+            tintView.alphaValue = 0
+            blurBackend.view.isHidden = true
+            tintView.isHidden = true
+        }
     }
 
     /// Sets up optional debug geometry layers for screen/visible/mask visualization.
@@ -581,6 +723,14 @@ final class OverlayWindow: NSPanel {
     /// Resets transient state before showing the overlay.
     func prepareForPresentation() {
         alphaValue = 0
+        compositorPipeline?.setOverlayFrame(frame)
+        compositorPipeline?.setFocusedWindowFrame(compositorFocusedFrameGlobal)
+        if areFiltersActive {
+            compositorPipeline?.startCaptureIfNeeded()
+        }
+        if isUsingCompositorPipeline {
+            return
+        }
         tintView.layer?.removeAllAnimations()
         if case .visualEffect(let blurView) = blurBackend {
             blurView.prepareForReuse()
@@ -636,6 +786,23 @@ final class OverlayWindow: NSPanel {
         PerformanceDiagnostics.increment("animation.overlay.style_apply")
         currentStyle = style
         cancelActiveOverlayAnimations()
+        compositorPipeline?.apply(style: style)
+        if areFiltersActive {
+            compositorPipeline?.startCaptureIfNeeded()
+        }
+        if isUsingCompositorPipeline {
+            if !animated {
+                alphaValue = 1
+                return
+            }
+            let duration = AnimationTuning.clamp(style.animationDuration)
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = duration
+                context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                self.animator().alphaValue = 1
+            }
+            return
+        }
         let duration = AnimationTuning.clamp(style.animationDuration)
         let targetOpacity = CGFloat(max(0, min(style.opacity, 1)))
         let targetColor = style.tint.makeColor()
@@ -688,6 +855,11 @@ final class OverlayWindow: NSPanel {
     /// Keeps static exclusions in sync whenever the window's frame changes.
     override func setFrame(_ frameRect: NSRect, display flag: Bool) {
         super.setFrame(frameRect, display: flag)
+        compositorPipeline?.setOverlayFrame(frameRect)
+        compositorPipeline?.setFocusedWindowFrame(compositorFocusedFrameGlobal)
+        if isUsingCompositorPipeline {
+            return
+        }
         refreshMaskLayers()
     }
 
@@ -721,7 +893,7 @@ final class OverlayWindow: NSPanel {
         }
         let scale = max(backingScale, 1)
         // Keep a slight overlap with the menu-bar backdrop to avoid a seam.
-        let overlap = 1.0 / scale
+        let overlap = 0.8 / scale
         let resolved = NSRect(
             x: screenFrame.minX,
             y: screenFrame.minY,
@@ -743,6 +915,7 @@ final class OverlayWindow: NSPanel {
 
     /// Updates CALayer masks to reflect the latest static and dynamic carve-outs.
     private func refreshMaskLayers(animated: Bool = false) {
+        guard !isUsingCompositorPipeline else { return }
         let operationToken = PerformanceDiagnostics.begin()
         guard let contentView else {
             PerformanceDiagnostics.end(operationToken, operation: "layer.refresh_masks")
@@ -862,6 +1035,7 @@ final class OverlayWindow: NSPanel {
 
     /// Releases blur/mask state so the overlay can sit idle with negligible resource usage.
     private func prepareForDormancy() {
+        compositorPipeline?.stopCapture()
         setFiltersEnabled(false, animated: false)
         resetMaskLayers()
     }
@@ -931,6 +1105,7 @@ final class OverlayWindow: NSPanel {
 
     /// Switches effect quality mode and reapplies current target opacity.
     func setEffectQualityMode(_ mode: EffectQualityMode) {
+        guard !isUsingCompositorPipeline else { return }
         guard effectQualityMode != mode else { return }
         effectQualityMode = mode
         let targetOpacity = CGFloat(max(0, min(currentStyle?.opacity ?? 1, 1)))
@@ -942,10 +1117,15 @@ final class OverlayWindow: NSPanel {
         guard isEmergencyHidden != hidden else { return }
         isEmergencyHidden = hidden
         if hidden {
+            compositorPipeline?.stopCapture()
             orderOut(nil)
             return
         }
         orderFrontRegardless()
+        if isUsingCompositorPipeline, areFiltersActive {
+            compositorPipeline?.startCaptureIfNeeded()
+            return
+        }
         refreshMaskLayers()
     }
 
@@ -1057,6 +1237,21 @@ private final class OverlayMaskLayer: CALayer {
         let timestamp: Date
     }
 
+    private struct AppShapeTemplateCacheKey: Hashable {
+        let appSignature: Int
+        let widthSignature: Int
+        let heightSignature: Int
+        let cornerRadiusSignature: Int
+        let titlebarStyle: Int
+        let scaleSignature: Int
+    }
+
+    private struct AppShapeTemplateCacheEntry {
+        let origin: CGPoint
+        let path: CGPath
+        let timestamp: Date
+    }
+
     private struct MaskPipelineStats {
         var rebuildCount: UInt64 = 0
         var fastPathCount: UInt64 = 0
@@ -1085,8 +1280,11 @@ private final class OverlayMaskLayer: CALayer {
     private static let diagnosticsTracker = DiagnosticsTracker()
     private let logger = Logger(subsystem: "com.focusly.app", category: "OverlayMaskLayer")
     private var windowShapeCache: [WindowShapeCacheKey: WindowShapeCacheEntry] = [:]
+    private var appShapeTemplateCache: [AppShapeTemplateCacheKey: AppShapeTemplateCacheEntry] = [:]
     private let windowShapeCacheLifetime: TimeInterval = 12
+    private let appShapeTemplateCacheLifetime: TimeInterval = 18
     private let maximumWindowShapeCacheEntries = 320
+    private let maximumAppShapeTemplateCacheEntries = 256
     private var lastGeometryFingerprint: Int?
     private var accumulatedTranslation: CGVector = .zero
     private var translationBaseBounds: CGRect = .zero
@@ -1374,6 +1572,7 @@ private final class OverlayMaskLayer: CALayer {
     /// Reuses per-window hole shape geometry when frame/radius/scale are unchanged.
     private func cachedWindowShapePath(for hole: HoleRegion, alignedRect: CGRect, scale: CGFloat) -> CGPath {
         pruneWindowShapeCacheIfNeeded()
+        pruneAppShapeTemplateCacheIfNeeded()
         let resolvedWindowID = hole.windowID ?? syntheticWindowIdentifier(for: hole, scale: scale)
         let key = WindowShapeCacheKey(
             windowID: resolvedWindowID,
@@ -1390,6 +1589,29 @@ private final class OverlayMaskLayer: CALayer {
 
         stats.shapeCacheMisses &+= 1
         PerformanceDiagnostics.recordCache(key: "window_shape_cache", hit: false)
+        let templateKey = appShapeTemplateCacheKey(for: hole, alignedRect: alignedRect, scale: scale)
+        if let templateKey,
+           let template = appShapeTemplateCache[templateKey] {
+            var translation = CGAffineTransform(
+                translationX: alignedRect.origin.x - template.origin.x,
+                y: alignedRect.origin.y - template.origin.y
+            )
+            if let translated = template.path.copy(using: &translation) {
+                PerformanceDiagnostics.recordCache(key: "app_shape_template_cache", hit: true)
+                let now = Date()
+                windowShapeCache[key] = WindowShapeCacheEntry(path: translated, timestamp: now)
+                appShapeTemplateCache[templateKey] = AppShapeTemplateCacheEntry(
+                    origin: template.origin,
+                    path: template.path,
+                    timestamp: now
+                )
+                trimWindowShapeCacheIfNeeded()
+                trimAppShapeTemplateCacheIfNeeded()
+                return translated
+            }
+        }
+
+        PerformanceDiagnostics.recordCache(key: "app_shape_template_cache", hit: false)
         let radius = min(max(hole.cornerRadius, 0), min(alignedRect.width, alignedRect.height) / 2)
         let createdPath: CGPath
         if radius > 0 {
@@ -1402,14 +1624,55 @@ private final class OverlayMaskLayer: CALayer {
         } else {
             createdPath = CGPath(rect: alignedRect, transform: nil)
         }
-        windowShapeCache[key] = WindowShapeCacheEntry(path: createdPath, timestamp: Date())
+        let now = Date()
+        windowShapeCache[key] = WindowShapeCacheEntry(path: createdPath, timestamp: now)
+        if let templateKey {
+            appShapeTemplateCache[templateKey] = AppShapeTemplateCacheEntry(
+                origin: alignedRect.origin,
+                path: createdPath,
+                timestamp: now
+            )
+        }
+        trimWindowShapeCacheIfNeeded()
+        trimAppShapeTemplateCacheIfNeeded()
+        return createdPath
+    }
+
+    /// Trims window-shape cache to the configured entry cap.
+    private func trimWindowShapeCacheIfNeeded() {
         if windowShapeCache.count > maximumWindowShapeCacheEntries {
             let sorted = windowShapeCache.sorted { $0.value.timestamp > $1.value.timestamp }
             windowShapeCache = Dictionary(
                 uniqueKeysWithValues: sorted.prefix(maximumWindowShapeCacheEntries).map { ($0.key, $0.value) }
             )
         }
-        return createdPath
+    }
+
+    /// Trims app-template cache to the configured entry cap.
+    private func trimAppShapeTemplateCacheIfNeeded() {
+        if appShapeTemplateCache.count > maximumAppShapeTemplateCacheEntries {
+            let sorted = appShapeTemplateCache.sorted { $0.value.timestamp > $1.value.timestamp }
+            appShapeTemplateCache = Dictionary(
+                uniqueKeysWithValues: sorted.prefix(maximumAppShapeTemplateCacheEntries).map { ($0.key, $0.value) }
+            )
+        }
+    }
+
+    /// Builds an application-shape template key so same-app windows can reuse rounded-path geometry.
+    private func appShapeTemplateCacheKey(
+        for hole: HoleRegion,
+        alignedRect: CGRect,
+        scale: CGFloat
+    ) -> AppShapeTemplateCacheKey? {
+        guard let ownerPID = hole.ownerPID else { return nil }
+        return AppShapeTemplateCacheKey(
+            appSignature: Int(ownerPID),
+            widthSignature: quantized(alignedRect.width, scale: 1000),
+            heightSignature: quantized(alignedRect.height, scale: 1000),
+            cornerRadiusSignature: quantized(hole.cornerRadius, scale: 1000),
+            titlebarStyle: hole.titlebarStyle.rawValue,
+            scaleSignature: quantized(scale, scale: 1000)
+        )
     }
 
     /// Removes redundant contained holes before executing the slow bitmap path.
@@ -1496,6 +1759,12 @@ private final class OverlayMaskLayer: CALayer {
     private func pruneWindowShapeCacheIfNeeded(referenceDate: Date = Date()) {
         let cutoff = referenceDate.addingTimeInterval(-windowShapeCacheLifetime)
         windowShapeCache = windowShapeCache.filter { $0.value.timestamp >= cutoff }
+    }
+
+    /// Removes stale application-template cache entries that exceeded their lifetime.
+    private func pruneAppShapeTemplateCacheIfNeeded(referenceDate: Date = Date()) {
+        let cutoff = referenceDate.addingTimeInterval(-appShapeTemplateCacheLifetime)
+        appShapeTemplateCache = appShapeTemplateCache.filter { $0.value.timestamp >= cutoff }
     }
 
     /// Periodically logs mask-layer pipeline statistics and cache hit rates.

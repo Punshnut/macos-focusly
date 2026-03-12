@@ -44,6 +44,8 @@ struct StatusBarState {
     var activePresetIdentifier: String
     var presetOptions: [FocusPreset]
     var iconStyle: StatusBarIconStyle
+    var isFallbackModeActive: Bool
+    var fallbackStatusMessage: String?
 }
 
 /// Receives events triggered from the Focusly status bar menus.
@@ -87,7 +89,9 @@ final class StatusBarController: NSObject {
         launchAtLoginStatusMessage: nil,
         activePresetIdentifier: PresetLibrary.presets.first?.id ?? "focus",
         presetOptions: PresetLibrary.presets,
-        iconStyle: .dot
+        iconStyle: .dot,
+        isFallbackModeActive: false,
+        fallbackStatusMessage: nil
     )
 
     // MARK: - Initialization
@@ -162,7 +166,7 @@ final class StatusBarController: NSObject {
         statusButton.sendAction(on: [.leftMouseUp, .rightMouseUp])
         statusButton.imagePosition = .imageOnly
         statusButton.imageScaling = .scaleProportionallyDown
-        statusButton.toolTip = localized("Focusly")
+        statusButton.toolTip = statusTooltipText()
         updateMenuTitles()
         rebuildMenus()
     }
@@ -170,7 +174,7 @@ final class StatusBarController: NSObject {
     /// Recreates the primary status bar menu, reflecting the latest state and localization.
     private func rebuildMenus(applyAlphaImmediately: Bool = true) {
         updateMenuTitles()
-        statusItem.button?.toolTip = localized("Focusly")
+        statusItem.button?.toolTip = statusTooltipText()
         let statusIconTone = resolvedStatusBarIconTone()
         updateStatusItemIcon(tone: statusIconTone, applyAlpha: applyAlphaImmediately)
 
@@ -183,6 +187,9 @@ final class StatusBarController: NSObject {
         overlayToggleItem.target = self
         overlayToggleItem.state = state.overlayFiltersEnabled ? .on : .off
         mainMenu.addItem(overlayToggleItem)
+        if let fallbackStatusItem = makeFallbackStatusMenuItem() {
+            mainMenu.addItem(fallbackStatusItem)
+        }
 
         mainMenu.addItem(.separator())
 
@@ -277,6 +284,9 @@ final class StatusBarController: NSObject {
         toggleItem.target = self
         toggleItem.state = state.overlayFiltersEnabled ? .on : .off
         quickMenu.addItem(toggleItem)
+        if let fallbackStatusItem = makeFallbackStatusMenuItem(compact: true) {
+            quickMenu.addItem(fallbackStatusItem)
+        }
 
         quickMenu.addItem(.separator())
 
@@ -480,6 +490,29 @@ final class StatusBarController: NSObject {
     /// Localized string helper for status bar UI.
     private func localized(_ key: String) -> String {
         localization.localized(key, fallback: key)
+    }
+
+    /// Produces a concise tooltip and appends fallback state while degraded mode is active.
+    private func statusTooltipText() -> String {
+        let base = localized("Focusly")
+        guard state.isFallbackModeActive, let fallback = state.fallbackStatusMessage else {
+            return base
+        }
+        return "\(base) - \(fallback)"
+    }
+
+    /// Returns a disabled status item describing the currently active fallback state.
+    private func makeFallbackStatusMenuItem(compact: Bool = false) -> NSMenuItem? {
+        guard state.isFallbackModeActive, let message = state.fallbackStatusMessage else {
+            return nil
+        }
+        let renderedMessage = compact ? abbreviatedFiveWords(message) : message
+        let item = NSMenuItem(title: renderedMessage, action: nil, keyEquivalent: "")
+        item.isEnabled = false
+        if compact {
+            item.attributedTitle = compactAttributedTitle(renderedMessage)
+        }
+        return item
     }
 
     /// Checks for the Option-click gesture that toggles investigation logging.
