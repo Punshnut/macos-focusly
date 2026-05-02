@@ -65,11 +65,11 @@ enum WindowTrackingProfile: String, CaseIterable, Identifiable {
     var titleLocalizationKey: String {
         switch self {
         case .energySaving:
-            return "WindowTrackingProfile.EnergySaving.Title"
+            return "TrackingProfileEnergySavingLabel"
         case .standard:
-            return "WindowTrackingProfile.Standard.Title"
+            return "TrackingProfileStandardLabel"
         case .highPerformance:
-            return "WindowTrackingProfile.HighPerformance.Title"
+            return "TrackingProfileHighPerformanceLabel"
         }
     }
 
@@ -89,11 +89,11 @@ enum WindowTrackingProfile: String, CaseIterable, Identifiable {
     var descriptionLocalizationKey: String {
         switch self {
         case .energySaving:
-            return "WindowTrackingProfile.EnergySaving.Description"
+            return "TrackingProfileEnergySavingDescription"
         case .standard:
-            return "WindowTrackingProfile.Standard.Description"
+            return "TrackingProfileStandardDescription"
         case .highPerformance:
-            return "WindowTrackingProfile.HighPerformance.Description"
+            return "TrackingProfileHighPerformanceDescription"
         }
     }
 

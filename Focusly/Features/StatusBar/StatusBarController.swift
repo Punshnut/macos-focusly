@@ -16,18 +16,18 @@ enum StatusBarIconStyle: String, CaseIterable, Codable, Equatable, Hashable {
         switch self {
         case .dot:
             return localization.localized(
-                "Standard Icon",
-                fallback: "Standard Icon"
+                "StatusBarIconStandardLabel",
+                fallback: "StatusBarIconStandardLabel"
             )
         case .halo:
             return localization.localized(
-                "Halo",
-                fallback: "Halo"
+                "StatusBarIconHaloLabel",
+                fallback: "StatusBarIconHaloLabel"
             )
         case .pulse:
             return localization.localized(
-                "Equalizer",
-                fallback: "Equalizer"
+                "StatusBarIconEqualizerLabel",
+                fallback: "StatusBarIconEqualizerLabel"
             )
         }
     }
@@ -101,8 +101,8 @@ final class StatusBarController: NSObject {
         let localization = localization ?? LocalizationService.shared
         self.localization = localization
         self.statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        self.mainMenu = NSMenu(title: localization.localized("Focusly", fallback: "Focusly"))
-        self.quickMenu = NSMenu(title: localization.localized("Quick Actions", fallback: "Quick Actions"))
+        self.mainMenu = NSMenu(title: localization.localized("AppName", fallback: "AppName"))
+        self.quickMenu = NSMenu(title: localization.localized("StatusBarQuickActionsMenuTitle", fallback: "StatusBarQuickActionsMenuTitle"))
         self.delegate = delegate
         super.init()
         NotificationCenter.default.addObserver(
@@ -182,7 +182,7 @@ final class StatusBarController: NSObject {
         mainMenu.addItem(makeVersionMenuItem())
         mainMenu.addItem(.separator())
 
-        let overlayToggleTitle = localized(state.overlayFiltersEnabled ? "Disable Overlays" : "Enable Overlays")
+        let overlayToggleTitle = localized(state.overlayFiltersEnabled ? "OverlayDisableMenuItem" : "OverlayEnableMenuItem")
         let overlayToggleItem = NSMenuItem(title: overlayToggleTitle, action: #selector(toggleOverlay), keyEquivalent: "")
         overlayToggleItem.target = self
         overlayToggleItem.state = state.overlayFiltersEnabled ? .on : .off
@@ -193,7 +193,7 @@ final class StatusBarController: NSObject {
 
         mainMenu.addItem(.separator())
 
-        let presetsTitle = localized("Presets")
+        let presetsTitle = localized("PresetsSectionLabel")
         let presetsItem = NSMenuItem(title: presetsTitle, action: nil, keyEquivalent: "")
         let presetsSubmenu = NSMenu(title: presetsTitle)
         for preset in state.presetOptions {
@@ -201,7 +201,7 @@ final class StatusBarController: NSObject {
         }
         presetsSubmenu.addItem(.separator())
 
-        let preferencesTitle = localized("Preferences…")
+        let preferencesTitle = localized("StatusBarPreferencesMenuItem")
         let preferencesMenuItem = NSMenuItem(title: preferencesTitle, action: #selector(openPreferences), keyEquivalent: "")
         preferencesMenuItem.target = self
         presetsSubmenu.addItem(preferencesMenuItem)
@@ -210,7 +210,7 @@ final class StatusBarController: NSObject {
 
         mainMenu.addItem(.separator())
 
-        let hotkeyToggleTitle = localized(state.hotkeysEnabled ? "Disable Shortcut" : "Enable Shortcut")
+        let hotkeyToggleTitle = localized(state.hotkeysEnabled ? "HotkeyDisableMenuItem" : "HotkeyEnableMenuItem")
         let hotkeyToggleMenuItem = NSMenuItem(title: hotkeyToggleTitle, action: #selector(toggleHotkeys), keyEquivalent: "")
         hotkeyToggleMenuItem.target = self
         hotkeyToggleMenuItem.state = state.hotkeysEnabled ? .on : .off
@@ -218,7 +218,7 @@ final class StatusBarController: NSObject {
         mainMenu.addItem(hotkeyToggleMenuItem)
 
         if state.isLaunchAtLoginAvailable {
-            let launchAtLoginTitle = localized("Launch at Login")
+            let launchAtLoginTitle = localized("PrefsLaunchAtLoginLabel")
             let launchAtLoginItem = NSMenuItem(title: launchAtLoginTitle, action: #selector(toggleLaunchAtLogin), keyEquivalent: "")
             launchAtLoginItem.target = self
             launchAtLoginItem.state = state.isLaunchAtLoginEnabled ? .on : .off
@@ -229,7 +229,7 @@ final class StatusBarController: NSObject {
             mainMenu.addItem(launchAtLoginStatusItem)
         }
 
-        let iconMenuTitle = localized("Status Bar Icon")
+        let iconMenuTitle = localized("PrefsMenuBarIconPickerLabel")
         let iconMenuItem = NSMenuItem(title: iconMenuTitle, action: nil, keyEquivalent: "")
         let iconMenu = NSMenu(title: iconMenuTitle)
         for style in StatusBarIconStyle.allCases {
@@ -257,14 +257,14 @@ final class StatusBarController: NSObject {
         prefsItem.keyEquivalentModifierMask = [.command] // Standard macOS shortcut for preferences.
         mainMenu.addItem(prefsItem)
 
-        let onboardingTitle = localized("Show Introduction…")
+        let onboardingTitle = localized("StatusBarShowIntroductionMenuItem")
         let onboardingItem = NSMenuItem(title: onboardingTitle, action: #selector(showOnboarding), keyEquivalent: "")
         onboardingItem.target = self
         mainMenu.addItem(onboardingItem)
 
         mainMenu.addItem(.separator())
 
-        let quitTitle = localized("Quit Focusly")
+        let quitTitle = localized("AppQuitMenuItem")
         let quitItem = NSMenuItem(title: quitTitle, action: #selector(quitApp), keyEquivalent: "q")
         quitItem.target = self
         mainMenu.addItem(quitItem)
@@ -279,7 +279,7 @@ final class StatusBarController: NSObject {
         quickMenu.addItem(makeVersionMenuItem(compact: true))
         quickMenu.addItem(.separator())
 
-        let toggleTitle = localized(state.overlayFiltersEnabled ? "Disable Overlays" : "Enable Overlays")
+        let toggleTitle = localized(state.overlayFiltersEnabled ? "OverlayDisableMenuItem" : "OverlayEnableMenuItem")
         let toggleItem = NSMenuItem(title: toggleTitle, action: #selector(toggleOverlay), keyEquivalent: "")
         toggleItem.target = self
         toggleItem.state = state.overlayFiltersEnabled ? .on : .off
@@ -290,7 +290,7 @@ final class StatusBarController: NSObject {
 
         quickMenu.addItem(.separator())
 
-        let presetsTitle = localization.localized("Preset", fallback: "Preset")
+        let presetsTitle = localization.localized("PresetMenuLabel", fallback: "PresetMenuLabel")
         let presetsHeader = NSMenuItem(title: presetsTitle, action: nil, keyEquivalent: "")
         presetsHeader.isEnabled = false
         presetsHeader.attributedTitle = compactAttributedTitle(presetsTitle)
@@ -303,7 +303,7 @@ final class StatusBarController: NSObject {
         quickMenu.addItem(.separator())
 
         if state.isLaunchAtLoginAvailable {
-            let loginTitle = localized("Launch at Login")
+            let loginTitle = localized("PrefsLaunchAtLoginLabel")
             let loginItem = NSMenuItem(title: loginTitle, action: #selector(toggleLaunchAtLogin), keyEquivalent: "")
             loginItem.target = self
             loginItem.state = state.isLaunchAtLoginEnabled ? .on : .off
@@ -318,11 +318,11 @@ final class StatusBarController: NSObject {
 
         quickMenu.addItem(.separator())
 
-        let settingsItem = NSMenuItem(title: localized("Settings…"), action: #selector(openPreferences), keyEquivalent: "")
+        let settingsItem = NSMenuItem(title: localized("StatusBarSettingsMenuItem"), action: #selector(openPreferences), keyEquivalent: "")
         settingsItem.target = self
         quickMenu.addItem(settingsItem)
 
-        let onboardingTitle = localized("Show Introduction…")
+        let onboardingTitle = localized("StatusBarShowIntroductionMenuItem")
         let onboardingItem = NSMenuItem(title: onboardingTitle, action: #selector(showOnboarding), keyEquivalent: "")
         onboardingItem.target = self
         // Give users a frictionless way to relaunch onboarding after first run.
@@ -330,7 +330,7 @@ final class StatusBarController: NSObject {
 
         quickMenu.addItem(.separator())
 
-        let quitTitle = localized("Quit Focusly")
+        let quitTitle = localized("AppQuitMenuItem")
         let quitItem = NSMenuItem(title: quitTitle, action: #selector(quitApp), keyEquivalent: "")
         quitItem.target = self
         quickMenu.addItem(quitItem)
@@ -356,10 +356,10 @@ final class StatusBarController: NSObject {
     /// Compact variant of the version header for the quick menu.
     private func makeVersionMenuItem(compact: Bool) -> NSMenuItem {
         if compact {
-            let item = NSMenuItem(title: "Focusly", action: nil, keyEquivalent: "")
+            let item = NSMenuItem(title: "AppName", action: nil, keyEquivalent: "")
             item.isEnabled = false
             item.attributedTitle = compactVersionAttributedTitle(
-                name: "Focusly",
+                name: "AppName",
                 version: FocuslyBuildInfo.marketingVersion
             )
             return item
@@ -483,8 +483,8 @@ final class StatusBarController: NSObject {
 
     /// Applies localized titles to the primary and quick menus.
     private func updateMenuTitles() {
-        mainMenu.title = localized("Focusly")
-        quickMenu.title = localized("Quick Actions")
+        mainMenu.title = localized("AppName")
+        quickMenu.title = localized("StatusBarQuickActionsMenuTitle")
     }
 
     /// Localized string helper for status bar UI.
@@ -494,7 +494,7 @@ final class StatusBarController: NSObject {
 
     /// Produces a concise tooltip and appends fallback state while degraded mode is active.
     private func statusTooltipText() -> String {
-        let base = localized("Focusly")
+        let base = localized("AppName")
         guard state.isFallbackModeActive, let fallback = state.fallbackStatusMessage else {
             return base
         }

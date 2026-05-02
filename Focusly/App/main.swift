@@ -261,8 +261,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let appName = Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String ?? "Focusly"
 
         let quitMenuTemplate = localizationService.localized(
-            "Quit %@",
-            fallback: "Quit %@"
+            "AppQuitMenuItemFormat",
+            fallback: "AppQuitMenuItemFormat"
         )
         let quitMenuTitle = String(format: quitMenuTemplate, locale: localizationService.locale, appName)
         let quitMenuItem = NSMenuItem(title: quitMenuTitle, action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")

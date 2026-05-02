@@ -771,11 +771,11 @@ final class FocuslyAppCoordinator: NSObject {
             OnboardingViewModel.Step(
                 id: 0,
                 title: localization.localized(
-                    "Onboarding.Welcome.Step.Title",
+                    "OnboardingWelcomeStepTitle",
                     fallback: "Welcome to Focusly"
                 ),
                 message: localization.localized(
-                    "Onboarding.Welcome.Step.Message",
+                    "OnboardingWelcomeStepMessage",
                     fallback: "Focusly ships with two settings windows: the quick status bar menu for fast toggles and the glassy Preferences window for deep, per-display tweaks. When you move to the next card we'll pop Preferences beside this dialogue so you can explore both together."
                 ),
                 systemImageName: "sparkles.rectangle.stack"
@@ -783,11 +783,11 @@ final class FocuslyAppCoordinator: NSObject {
             OnboardingViewModel.Step(
                 id: 1,
                 title: localization.localized(
-                    "1. Switch overlays on",
+                    "OnboardingStep1Title",
                     fallback: "1. Switch overlays on"
                 ),
                 message: localization.localized(
-                    "Click the Focusly status bar icon and toggle overlays for the displays you want to soften.",
+                    "OnboardingStep1Message",
                     fallback: "Click the Focusly status bar icon and toggle overlays for the displays you want to soften."
                 ),
                 systemImageName: "moon.fill"
@@ -795,11 +795,11 @@ final class FocuslyAppCoordinator: NSObject {
             OnboardingViewModel.Step(
                 id: 2,
                 title: localization.localized(
-                    "2. Shift-click for focus",
+                    "OnboardingStep2Title",
                     fallback: "2. Shift-click for focus"
                 ),
                 message: localization.localized(
-                    "Shift-click the status bar icon to cycle between masking only the active window or every window from the foreground app. Each display remembers its own mode.",
+                    "OnboardingStep2Message",
                     fallback: "Shift-click the status bar icon to cycle between masking only the active window or every window from the foreground app. Each display remembers its own mode."
                 ),
                 systemImageName: "square.split.2x2"
@@ -807,11 +807,11 @@ final class FocuslyAppCoordinator: NSObject {
             OnboardingViewModel.Step(
                 id: 3,
                 title: localization.localized(
-                    "3. Pick a filter",
+                    "OnboardingStep3Title",
                     fallback: "3. Pick a filter"
                 ),
                 message: localization.localized(
-                    "Open Preferences to choose opacity, tint, and one of the Focus, Warm, Moss, Ocean, or Monochrome presets per display.",
+                    "OnboardingStep3Message",
                     fallback: "Open Preferences to choose opacity, tint, and one of the Focus, Warm, Moss, Ocean, or Monochrome presets per display."
                 ),
                 systemImageName: "paintpalette"
@@ -819,11 +819,11 @@ final class FocuslyAppCoordinator: NSObject {
             OnboardingViewModel.Step(
                 id: 4,
                 title: localization.localized(
-                    "4. Set your controls",
+                    "OnboardingStep4Title",
                     fallback: "4. Set your controls"
                 ),
                 message: localization.localized(
-                    "Assign a global shortcut and enable Launch at Login in Preferences so Focusly is ready whenever you are.",
+                    "OnboardingStep4Message",
                     fallback: "Assign a global shortcut and enable Launch at Login in Preferences so Focusly is ready whenever you are."
                 ),
                 systemImageName: "keyboard"

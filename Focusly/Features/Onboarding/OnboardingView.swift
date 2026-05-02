@@ -36,11 +36,11 @@ struct OnboardingView: View {
     private var header: some View {
         HStack(alignment: .top) {
             VStack(alignment: .leading, spacing: 4) {
-                Text(localized("Focusly Onboarding"))
+                Text(localized("OnboardingWindowSubtitle"))
                     .font(.system(size: 12, weight: .semibold))
                     .textCase(.uppercase)
                     .foregroundColor(.secondary)
-                Text(localized("Quick setup"))
+                Text(localized("OnboardingQuickSetupLabel"))
                     .font(.system(size: 22, weight: .semibold, design: .rounded))
                     .foregroundColor(.primary)
             }
@@ -48,7 +48,7 @@ struct OnboardingView: View {
             Button {
                 viewModel.cancel()
             } label: {
-                Text(localized("Close"))
+                Text(localized("OnboardingCloseButton"))
                     .font(.system(size: 13, weight: .semibold))
                     .padding(.vertical, 6)
                     .padding(.horizontal, 14)
@@ -125,7 +125,7 @@ struct OnboardingView: View {
             Button {
                 viewModel.retreat()
             } label: {
-                Text(localized("Back"))
+                Text(localized("OnboardingBackButton"))
                     .font(.system(size: 14, weight: .semibold))
                     .padding(.vertical, 10)
                     .padding(.horizontal, 22)
@@ -148,7 +148,7 @@ struct OnboardingView: View {
                 viewModel.advance()
             } label: {
                 HStack(spacing: 8) {
-                    Text(localized(viewModel.isLastStep ? "Get Started" : "Next"))
+                    Text(localized(viewModel.isLastStep ? "OnboardingGetStartedButton" : "OnboardingNextButton"))
                         .font(.system(size: 14, weight: .bold))
                     Image(systemName: "arrow.right")
                         .font(.system(size: 13, weight: .semibold))

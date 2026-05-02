@@ -22,8 +22,8 @@ final class OnboardingWindowController: NSWindowController {
             defer: false
         )
         window.title = localization.localized(
-            "Welcome to Focusly",
-            fallback: "Welcome to Focusly"
+            "OnboardingWelcomeTitle",
+            fallback: "OnboardingWelcomeTitle"
         )
         window.titlebarAppearsTransparent = true
         window.titleVisibility = .hidden
@@ -74,8 +74,8 @@ final class OnboardingWindowController: NSWindowController {
     private func updateWindowTitle() {
         guard let window else { return }
         window.title = localization.localized(
-            "Welcome to Focusly",
-            fallback: "Welcome to Focusly"
+            "OnboardingWelcomeTitle",
+            fallback: "OnboardingWelcomeTitle"
         )
     }
 }

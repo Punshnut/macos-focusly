@@ -21,10 +21,10 @@ enum PreferencesTab: Int, CaseIterable, Identifiable {
 
     var localizationKey: String {
         switch self {
-        case .general: return "Preferences.Tab.General"
-        case .screen: return "Preferences.Tab.Screen"
-        case .apps: return "Preferences.Tab.Apps"
-        case .about: return "Preferences.Tab.About"
+        case .general: return "PrefsTabGeneralLabel"
+        case .screen: return "PrefsTabScreenLabel"
+        case .apps: return "PrefsTabAppsLabel"
+        case .about: return "PrefsTabAboutLabel"
         }
     }
 
@@ -299,9 +299,9 @@ struct PreferencesView: View {
         VStack(spacing: 16) {
             settingsPanel(
                 icon: "power",
-                titleKey: "Preferences.General.Launch",
+                titleKey: "PrefsLaunchSectionTitle",
                 fallbackTitle: "Launch & Shortcuts",
-                subtitleKey: "Preferences.General.Launch.Description",
+                subtitleKey: "PrefsLaunchSectionDescription",
                 subtitleFallback: "Control startup behavior and your global shortcut."
             ) {
                 VStack(spacing: 18) {
@@ -313,9 +313,9 @@ struct PreferencesView: View {
 
             settingsPanel(
                 icon: "menubar.rectangle",
-                titleKey: "Preferences.General.MenuBar",
+                titleKey: "PrefsMenuBarSectionTitle",
                 fallbackTitle: "Menu Bar Presence",
-                subtitleKey: "Preferences.General.MenuBar.Description",
+                subtitleKey: "PrefsMenuBarSectionDescription",
                 subtitleFallback: "Pick which Focusly icon appears in the menu bar."
             ) {
                 statusIconControls
@@ -323,9 +323,9 @@ struct PreferencesView: View {
 
             settingsPanel(
                 icon: "paintpalette",
-                titleKey: "Preferences.General.Appearance",
+                titleKey: "PrefsAppearanceSectionTitle",
                 fallbackTitle: "Appearance",
-                subtitleKey: "Preferences.General.Appearance.Description",
+                subtitleKey: "PrefsAppearanceSectionDescription",
                 subtitleFallback: "Switch between minimal and classic window chrome."
             ) {
                 appearanceControls
@@ -333,9 +333,9 @@ struct PreferencesView: View {
 
             settingsPanel(
                 icon: "globe",
-                titleKey: "Preferences.General.Localized",
+                titleKey: "PrefsLanguageSectionTitle",
                 fallbackTitle: "Language & Guidance",
-                subtitleKey: "Preferences.General.Localized.Description",
+                subtitleKey: "PrefsLanguageSectionDescription",
                 subtitleFallback: "Switch languages instantly or revisit the intro walkthrough."
             ) {
                 languageControls
@@ -347,9 +347,9 @@ struct PreferencesView: View {
         VStack(spacing: 16) {
             settingsPanel(
                 icon: "square.grid.2x2",
-                titleKey: "Preferences.Interface.Presets",
+                titleKey: "PrefsPresetsSectionTitle",
                 fallbackTitle: "Focus Presets",
-                subtitleKey: "Preferences.Interface.Presets.Description",
+                subtitleKey: "PrefsPresetsSectionDescription",
                 subtitleFallback: "Quickly switch between saved looks."
             ) {
                 VStack(spacing: 18) {
@@ -368,9 +368,9 @@ struct PreferencesView: View {
     private var appsTab: some View {
         settingsPanel(
             icon: "app.badge.checkmark",
-            titleKey: "Preferences.Apps.Title",
+            titleKey: "PrefsAppsSectionTitle",
             fallbackTitle: "Applications",
-            subtitleKey: "Preferences.Apps.Description",
+            subtitleKey: "PrefsAppsSectionDescription",
             subtitleFallback: "Choose which apps Focusly should ignore or keep masking their settings."
         ) {
             VStack(spacing: 14) {
@@ -384,9 +384,9 @@ struct PreferencesView: View {
     private var aboutTab: some View {
         settingsPanel(
             icon: "info.circle.fill",
-            titleKey: "Preferences.About",
+            titleKey: "PrefsAboutSectionTitle",
             fallbackTitle: "About Focusly",
-            subtitleKey: "Preferences.About.Description",
+            subtitleKey: "PrefsAboutSectionDescription",
             subtitleFallback: "Version details, credits, and useful links."
         ) {
             VStack(spacing: 22) {
@@ -435,9 +435,9 @@ struct PreferencesView: View {
 
     private var appListHeader: some View {
         HStack {
-            Text(localized("Preferences.Apps.Table.Application", fallback: "Application"))
+            Text(localized("PrefsAppsTableAppColumn", fallback: "Application"))
             Spacer(minLength: 0)
-            Text(localized("Preferences.Apps.Table.Behavior", fallback: "Behavior"))
+            Text(localized("PrefsAppsTableBehaviorColumn", fallback: "Behavior"))
         }
         .font(.system(size: 11, weight: .semibold, design: .rounded))
         .textCase(.uppercase)
@@ -522,7 +522,7 @@ struct PreferencesView: View {
             Image(systemName: "app")
                 .font(.system(size: 30, weight: .medium))
                 .foregroundColor(.secondary)
-            Text(localized("Preferences.Apps.Empty", fallback: "No apps are excluded yet. Add one to stop Focusly from masking it."))
+            Text(localized("PrefsAppsEmptyStateText", fallback: "No apps are excluded yet. Add one to stop Focusly from masking it."))
                 .multilineTextAlignment(.center)
                 .font(.subheadline)
                 .foregroundColor(.secondary)
@@ -545,7 +545,7 @@ struct PreferencesView: View {
                 .buttonStyle(.plain)
                 .padding(6)
                 .background(toolbarButtonBackground)
-                .accessibilityLabel(Text(localized("Preferences.Apps.AddButton", fallback: "Add Application")))
+                .accessibilityLabel(Text(localized("PrefsAppsAddButton", fallback: "Add Application")))
 
                 Button {
                     removeSelectedApplications()
@@ -558,10 +558,10 @@ struct PreferencesView: View {
                 .background(toolbarButtonBackground)
                 .disabled(!canRemove)
                 .opacity(canRemove ? 1 : 0.4)
-                .accessibilityLabel(Text(localized("Preferences.Apps.RemoveButton", fallback: "Remove Application")))
+                .accessibilityLabel(Text(localized("PrefsAppsRemoveButton", fallback: "Remove Application")))
             }
 
-            Text(localized("Preferences.Apps.Footer", fallback: "Keep overlay helpers visible while still masking their Settings windows when you need to tweak them."))
+            Text(localized("PrefsAppsFooterText", fallback: "Keep overlay helpers visible while still masking their Settings windows when you need to tweak them."))
                 .font(.caption)
                 .foregroundColor(.secondary)
             Spacer()
@@ -589,7 +589,7 @@ struct PreferencesView: View {
                     .foregroundColor(.secondary)
             }
             if !exception.isUserDefined {
-                Text(localized("Preferences.Apps.DefaultBadge", fallback: "Default"))
+                Text(localized("PrefsAppsDefaultBadgeLabel", fallback: "Default"))
                     .font(.caption2)
                     .fontWeight(.semibold)
                     .foregroundColor(Color.white.opacity(0.85))
@@ -632,17 +632,17 @@ struct PreferencesView: View {
     /// Builds the masking-preference picker bound to one application exception.
     private func preferencePicker(for exception: PreferencesViewModel.ApplicationException) -> some View {
         Picker(
-            localized("Preferences.Apps.Preference.Label", fallback: "Masking Behavior"),
+            localized("PrefsAppsBehaviorPickerLabel", fallback: "Masking Behavior"),
             selection: Binding(
                 get: { exception.preference },
                 set: { viewModel.updateApplicationPreference(for: exception.bundleIdentifier, preference: $0) }
             )
         ) {
-            Text(localized("Preferences.Apps.Preference.Exclude", fallback: "Always blur entire app"))
+            Text(localized("PrefsAppsExcludeOption", fallback: "Always blur entire app"))
                 .tag(ApplicationMaskingIgnoreList.Preference.excludeCompletely)
-            Text(localized("Preferences.Apps.Preference.SettingsOnly", fallback: "Always blur app except Settings menu"))
+            Text(localized("PrefsAppsSettingsOnlyOption", fallback: "Always blur app except Settings menu"))
                 .tag(ApplicationMaskingIgnoreList.Preference.excludeExceptSettingsWindow)
-            Text(localized("Preferences.Apps.Preference.AlwaysMask", fallback: "Don't blur any window of this app"))
+            Text(localized("PrefsAppsAlwaysMaskOption", fallback: "Don't blur any window of this app"))
                 .tag(ApplicationMaskingIgnoreList.Preference.alwaysMask)
         }
         .labelsHidden()
@@ -680,8 +680,8 @@ struct PreferencesView: View {
         } else {
             panel.allowedFileTypes = ["app"]
         }
-        panel.prompt = localized("Preferences.Apps.AddPrompt", fallback: "Add")
-        panel.message = localized("Preferences.Apps.AddMessage", fallback: "Select an application to keep off the overlay.")
+        panel.prompt = localized("PrefsAppsAddConfirmButton", fallback: "Add")
+        panel.message = localized("PrefsAppsAddPanelMessage", fallback: "Select an application to keep off the overlay.")
 
         let completion: (NSApplication.ModalResponse) -> Void = { response in
             guard response == .OK, let url = panel.url else { return }
@@ -738,13 +738,13 @@ struct PreferencesView: View {
                     set: { viewModel.setPreferencesWindowGlassy($0) }
                 )
             ) {
-                Text(localized("Preferences.General.Appearance.Toggle", fallback: "Make the settings window minimal"))
+                Text(localized("PrefsAppearanceMinimalToggleLabel", fallback: "Make the settings window minimal"))
                     .font(.subheadline)
                     .fontWeight(.semibold)
             }
             .toggleStyle(.switch)
 
-            Text(localized("Preferences.General.Appearance.Toggle.Description", fallback: "Remove the border and extra chrome from the settings window."))
+            Text(localized("PrefsAppearanceMinimalToggleDescription", fallback: "Remove the border and extra chrome from the settings window."))
                 .font(.caption)
                 .foregroundColor(.secondary)
         }
@@ -753,11 +753,11 @@ struct PreferencesView: View {
 
     private var statusIconControls: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(localized("Status Bar Icon", fallback: "Status Bar Icon"))
+            Text(localized("PrefsMenuBarIconPickerLabel", fallback: "PrefsMenuBarIconPickerLabel"))
                 .font(.subheadline)
                 .fontWeight(.semibold)
             Picker(
-                localized("Status Bar Icon", fallback: "Status Bar Icon"),
+                localized("PrefsMenuBarIconPickerLabel", fallback: "PrefsMenuBarIconPickerLabel"),
                 selection: Binding(
                     get: { viewModel.statusIconStyle },
                     set: { viewModel.updateStatusIconStyle($0) }
@@ -773,7 +773,7 @@ struct PreferencesView: View {
             }
             .pickerStyle(.menu)
 
-            Text(localized("Choose how Focusly appears in the menu bar."))
+            Text(localized("PrefsMenuBarIconHelpText"))
                 .font(.caption)
                 .foregroundColor(.secondary)
         }
@@ -788,12 +788,12 @@ struct PreferencesView: View {
 
     private var presetControls: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(localized("Focus Preset"))
+            Text(localized("PresetsPickerLabel"))
                 .font(.subheadline)
                 .fontWeight(.semibold)
 
             Picker(
-                localized("Focus Preset"),
+                localized("PresetsPickerLabel"),
                 selection: Binding(
                     get: { viewModel.selectedPresetIdentifier },
                     set: { viewModel.selectPreset(id: $0) }
@@ -805,7 +805,7 @@ struct PreferencesView: View {
             }
             .pickerStyle(.segmented)
 
-            Text(localized("Switch between saved overlay looks instantly."))
+            Text(localized("PresetsPickerHelpText"))
                 .font(.caption)
                 .foregroundColor(.secondary)
         }
@@ -813,12 +813,12 @@ struct PreferencesView: View {
 
     private var trackingControls: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(localized("Window Tracking Performance"))
+            Text(localized("TrackingPerformanceSectionLabel"))
                 .font(.subheadline)
                 .fontWeight(.semibold)
 
             Picker(
-                localized("Window Tracking Performance"),
+                localized("TrackingPerformanceSectionLabel"),
                 selection: Binding(
                     get: { viewModel.trackingProfile },
                     set: { viewModel.updateTrackingProfile($0) }
@@ -830,7 +830,7 @@ struct PreferencesView: View {
             }
             .pickerStyle(.segmented)
 
-            Text(localized("WindowTrackingProfile.Description.General", fallback: "Adjust how quickly Focusly tracks windows while you move or resize them."))
+            Text(localized("TrackingPerformanceGeneralDescription", fallback: "Adjust how quickly Focusly tracks windows while you move or resize them."))
                 .font(.caption)
                 .foregroundColor(.secondary)
 
@@ -843,9 +843,9 @@ struct PreferencesView: View {
     private var displayManagementPanel: some View {
         settingsPanel(
             icon: "rectangle.3.group",
-            titleKey: "Preferences.Interface.Displays",
+            titleKey: "PrefsDisplaysSectionTitle",
             fallbackTitle: "Displays",
-            subtitleKey: "Preferences.Interface.Displays.Description",
+            subtitleKey: "PrefsDisplaysSectionDescription",
             subtitleFallback: "Fine-tune Focusly per monitor or sync styles instantly."
         ) {
             if viewModel.displaySettings.isEmpty {
@@ -879,7 +879,7 @@ struct PreferencesView: View {
 
                     VStack(alignment: .leading, spacing: 6) {
                         HStack {
-                            Text(localized("Shortcut"))
+                            Text(localized("PrefsShortcutSectionLabel"))
                                 .foregroundColor(.secondary)
                             Text(viewModel.shortcutSummary(for: action))
                                 .font(.body)
@@ -887,19 +887,19 @@ struct PreferencesView: View {
                             Button {
                                 viewModel.beginShortcutCapture(for: action)
                             } label: {
-                                Text(localized("Record"))
+                                Text(localized("PrefsShortcutRecordButton"))
                             }
                             .disabled(viewModel.capturingHotkey == action)
                             Button {
                                 viewModel.clearShortcut(for: action)
                             } label: {
-                                Text(localized("Clear"))
+                                Text(localized("PrefsShortcutClearButton"))
                             }
                             .disabled(!viewModel.hasShortcut(for: action))
                         }
 
                         if viewModel.capturingHotkey == action {
-                            Text(localized("Press a key combination…"))
+                            Text(localized("PrefsShortcutPlaceholderText"))
                                 .font(.caption)
                                 .foregroundColor(.accentColor)
                         }
@@ -915,7 +915,7 @@ struct PreferencesView: View {
                 get: { viewModel.isLaunchAtLoginEnabled },
                 set: { viewModel.setLaunchAtLoginEnabled($0) }
             )) {
-                Text(localized("Launch Focusly at login"))
+                Text(localized("PrefsLaunchAtLoginToggleLabel"))
             }
             .toggleStyle(.switch)
             .disabled(!viewModel.isLaunchAtLoginAvailable)
@@ -930,11 +930,11 @@ struct PreferencesView: View {
 
     private var languageSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text(localized("App Language"))
+            Text(localized("PrefsLanguagePickerLabel"))
                 .font(.headline)
 
             Picker(
-                localized("App Language"),
+                localized("PrefsLanguagePickerLabel"),
                 selection: Binding(
                     get: { localization.selectedLanguageID },
                     set: { viewModel.setLanguage(id: $0) }
@@ -946,7 +946,7 @@ struct PreferencesView: View {
             }
             .pickerStyle(.menu)
 
-            Text(localized("Choose which language Focusly uses. Switch instantly to test translations."))
+            Text(localized("PrefsLanguagePickerHelpText"))
                 .font(.caption)
                 .foregroundColor(.secondary)
         }
@@ -955,9 +955,9 @@ struct PreferencesView: View {
     private var experimentalPanel: some View {
         settingsPanel(
             icon: "wand.and.stars",
-            titleKey: "Preferences.Interface.DockReveal",
+            titleKey: "PrefsDockRevealSectionTitle",
             fallbackTitle: "Dock & Stage Manager (Experimental)",
-            subtitleKey: "Preferences.Interface.DockReveal.Description",
+            subtitleKey: "PrefsDockRevealSectionDescription",
             subtitleFallback: "Early controls for how the Dock and Stage Manager clear the blur."
         ) {
             dockRevealControls
@@ -971,14 +971,14 @@ struct PreferencesView: View {
                 set: { viewModel.setDesktopPeripheralRevealEnabled($0) }
             )) {
                 Text(localized(
-                    "Preferences.Interface.DockReveal.Toggle",
+                    "PrefsDockRevealToggleLabel",
                     fallback: "Reveal Dock & Stage Manager when desktop is focused"
                 ))
             }
             .toggleStyle(.switch)
 
             Text(localized(
-                "Preferences.Interface.DockReveal.Detail",
+                "PrefsDockRevealToggleDescription",
                 fallback: "Automatically clear blur around the Dock and Stage Manager when every window is minimized or the desktop is active."
             ))
             .font(.caption)
@@ -988,7 +988,7 @@ struct PreferencesView: View {
 
     private var displayCollection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text(localized("Connected Displays", fallback: "Connected Displays"))
+            Text(localized("DisplayConnectedSectionLabel", fallback: "DisplayConnectedSectionLabel"))
                 .font(.caption)
                 .foregroundColor(.secondary)
 
@@ -1001,7 +1001,7 @@ struct PreferencesView: View {
                             display: display,
                             liveSettings: liveSettings(for: display.id),
                             isSelected: isSelected(displayID: display.id),
-                            overlayOffLabel: localized("Overlay Off", fallback: "Overlay Off")
+                            overlayOffLabel: localized("OverlayOffLabel", fallback: "OverlayOffLabel")
                         )
                     }
                     .buttonStyle(.plain)
@@ -1034,11 +1034,11 @@ struct PreferencesView: View {
                     .font(.title3)
                     .fontWeight(.semibold)
                 if viewModel.displaySettings.count > 1 {
-                    Text(localized("Pick a screen to fine-tune or copy its look to every monitor."))
+                    Text(localized("DisplayPickScreenHelpText"))
                         .font(.caption)
                         .foregroundColor(.secondary)
                 } else {
-                    Text(localized("Dial in how Focusly feels on this display."))
+                    Text(localized("DisplayTuneHelpText"))
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
@@ -1047,12 +1047,12 @@ struct PreferencesView: View {
             displayPreview(for: display)
 
             Toggle(isOn: exclusionBinding(for: display.id)) {
-                Label(localized("Exclude This Display"), systemImage: "eye.slash")
+                Label(localized("DisplayExcludeToggleLabel"), systemImage: "eye.slash")
             }
             .toggleStyle(.switch)
 
             if isDisplayExcluded(display.id) {
-                Text(localized("Focusly leaves this display untouched while other screens stay blurred."))
+                Text(localized("DisplayExcludedHelpText"))
                     .font(.caption)
                     .foregroundColor(.secondary)
             }
@@ -1092,7 +1092,7 @@ struct PreferencesView: View {
             )
             .overlay {
                 if settings.isExcluded {
-                    Text(localized("Excluded", fallback: "Excluded"))
+                    Text(localized("DisplayExcludedBadge", fallback: "DisplayExcludedBadge"))
                         .font(.caption)
                         .fontWeight(.medium)
                         .padding(.horizontal, 10)
@@ -1104,7 +1104,7 @@ struct PreferencesView: View {
                 }
             }
             .opacity(settings.isExcluded ? 0.35 : 1)
-            .accessibilityLabel(Text(localized("Overlay preview")))
+            .accessibilityLabel(Text(localized("OverlayPreviewAccessibilityLabel")))
     }
 
     /// Builds controls for selecting blur material and previewing the current choice.
@@ -1124,7 +1124,7 @@ struct PreferencesView: View {
         )
 
         return VStack(alignment: .leading, spacing: 14) {
-            Text(localized("Blur Style"))
+            Text(localized("BlurStylePickerLabel"))
                 .font(.caption)
                 .foregroundColor(.secondary)
 
@@ -1134,7 +1134,7 @@ struct PreferencesView: View {
                 step: 1
             )
             .frame(height: 22)
-            .accessibilityLabel(Text(localized("Blur Style")))
+            .accessibilityLabel(Text(localized("BlurStylePickerLabel")))
             .accessibilityValue(Text(currentMaterial.accessibilityDescription))
 
             if materialOptions.count > 1 {
@@ -1150,7 +1150,7 @@ struct PreferencesView: View {
                 }
             }
 
-            Text(localized("Sample different macOS blur materials to match your space."))
+            Text(localized("BlurStyleHelpText"))
                 .font(.caption2)
                 .foregroundColor(.secondary)
         }
@@ -1182,7 +1182,7 @@ struct PreferencesView: View {
 
         return VStack(alignment: .leading, spacing: 16) {
             HStack {
-                Text(localized("Overlay Strength"))
+                Text(localized("OverlayStrengthLabel"))
                     .font(.caption)
                     .foregroundColor(.secondary)
                 Spacer()
@@ -1198,14 +1198,14 @@ struct PreferencesView: View {
                 step: 0.01
             )
             .frame(height: 22)
-            .accessibilityLabel(Text(localized("Overlay Strength")))
+            .accessibilityLabel(Text(localized("OverlayStrengthLabel")))
 
             VStack(alignment: .leading, spacing: 8) {
-                Text(localized("Tint"))
+                Text(localized("OverlayTintLabel"))
                     .font(.caption)
                     .foregroundColor(.secondary)
                 ColorPicker(
-                    localized("Overlay Tint"),
+                    localized("OverlayTintSliderLabel"),
                     selection: tintBinding,
                     supportsOpacity: true
                 )
@@ -1221,14 +1221,14 @@ struct PreferencesView: View {
                     .accessibilityHidden(true)
             }
 
-            Picker(localized("Color Treatment"), selection: colorTreatmentBinding) {
+            Picker(localized("ColorTreatmentPickerLabel"), selection: colorTreatmentBinding) {
                 ForEach(FocusOverlayColorTreatment.allCases, id: \.self) { treatment in
                     Text(localized(treatment.displayName)).tag(treatment)
                 }
             }
             .pickerStyle(.segmented)
 
-            Text(localized("Dial in the color overlay or switch to monochrome window content."))
+            Text(localized("ColorEffectsHelpText"))
                 .font(.caption2)
                 .foregroundColor(.secondary)
         }
@@ -1241,7 +1241,7 @@ struct PreferencesView: View {
                 Button {
                     viewModel.resetDisplay(display.id)
                 } label: {
-                    Label(localized("Reset to Preset"), systemImage: "arrow.counterclockwise")
+                    Label(localized("DisplayResetToPresetButton"), systemImage: "arrow.counterclockwise")
                 }
 
                 Spacer()
@@ -1251,7 +1251,7 @@ struct PreferencesView: View {
                         Button {
                             viewModel.syncDisplaySettings(from: display.id)
                         } label: {
-                            Label(localized("Apply to Other Displays"), systemImage: "square.on.square")
+                            Label(localized("MultiMonitorApplyButton"), systemImage: "square.on.square")
                         }
                         ForEach(viewModel.displaySettings.filter { $0.id != display.id }) { otherDisplay in
                             Button {
@@ -1259,7 +1259,7 @@ struct PreferencesView: View {
                             } label: {
                                 Label(
                                     String(
-                                        format: localized("Match %@", fallback: "Match %@"),
+                                        format: localized("MultiMonitorMatchFormat", fallback: "MultiMonitorMatchFormat"),
                                         otherDisplay.name
                                     ),
                                     systemImage: "rectangle.connected.to.line.below"
@@ -1267,12 +1267,12 @@ struct PreferencesView: View {
                             }
                         }
                     } label: {
-                        Label(localized("Multi-Monitor Actions"), systemImage: "point.3.connected.trianglepath.dotted")
+                        Label(localized("MultiMonitorActionsMenuLabel"), systemImage: "point.3.connected.trianglepath.dotted")
                     }
                 }
             }
 
-            Text(localized("Revert to the preset defaults or mirror these settings across every screen."))
+            Text(localized("DisplayRevertAndMirrorHelpText"))
                 .font(.caption2)
                 .foregroundColor(.secondary)
         }
@@ -1309,21 +1309,21 @@ struct PreferencesView: View {
         VStack(alignment: .leading, spacing: 12) {
             aboutLinkRow(
                 icon: "link",
-                titleKey: "Preferences.About.Website",
+                titleKey: "PrefsAboutWebsiteLinkLabel",
                 fallbackTitle: "Project Website",
                 urlString: "https://github.com/Punshnut/macos-focusly"
             )
 
             aboutLinkRow(
                 icon: "sparkle.magnifyingglass",
-                titleKey: "Preferences.About.Issues",
+                titleKey: "PrefsAboutIssuesLinkLabel",
                 fallbackTitle: "Report an Issue",
                 urlString: "https://github.com/Punshnut/macos-focusly/issues"
             )
 
             aboutLinkRow(
                 icon: "envelope",
-                titleKey: "Preferences.About.Support",
+                titleKey: "PrefsAboutSupportLinkLabel",
                 fallbackTitle: "Support Email",
                 urlString: "https://github.com/Punshnut/macos-focusly"
             )
@@ -1361,7 +1361,7 @@ struct PreferencesView: View {
             Button {
                 viewModel.showOnboarding()
             } label: {
-                Label(localized("Revisit Introduction…"), systemImage: "sparkles")
+                Label(localized("PrefsRevisitIntroductionButton"), systemImage: "sparkles")
             }
             .buttonStyle(.bordered)
 
@@ -1372,7 +1372,7 @@ struct PreferencesView: View {
                     NSWorkspace.shared.open(url)
                 }
             } label: {
-                Label(localized("View on GitHub", fallback: "View on GitHub"), systemImage: "chevron.right.circle")
+                Label(localized("AboutViewOnGitHubButton", fallback: "AboutViewOnGitHubButton"), systemImage: "chevron.right.circle")
             }
             .buttonStyle(.borderedProminent)
         }
@@ -1426,7 +1426,7 @@ struct PreferencesView: View {
             Image(systemName: "display.2")
                 .imageScale(.large)
                 .foregroundColor(.secondary)
-            Text(localized("No displays detected. Connect a monitor to adjust overlay styling."))
+            Text(localized("DisplayNoneDetectedText"))
                 .font(.subheadline)
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
@@ -1557,7 +1557,7 @@ struct PreferencesView: View {
 
     /// Produces a human-readable version string for the About tab.
     private func versionSummary() -> String {
-        let format = localized("Version %@", fallback: "Version %@")
+        let format = localized("AboutVersionFormat", fallback: "AboutVersionFormat")
         return String(format: format, FocuslyBuildInfo.marketingVersion)
     }
 
@@ -1810,11 +1810,11 @@ private enum WindowControlKind: CaseIterable, Identifiable {
     var accessibilityLocalizationKey: String {
         switch self {
         case .close:
-            return "WindowControls.Accessibility.Close"
+            return "WindowCloseButtonAccessibilityLabel"
         case .minimize:
-            return "WindowControls.Accessibility.Minimize"
+            return "WindowMinimizeButtonAccessibilityLabel"
         case .zoom:
-            return "WindowControls.Accessibility.Zoom"
+            return "WindowZoomButtonAccessibilityLabel"
         }
     }
 

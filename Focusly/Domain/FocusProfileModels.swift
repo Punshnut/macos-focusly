@@ -35,11 +35,11 @@ enum FocusOverlayColorTreatment: String, Codable, CaseIterable {
     var displayName: String {
         switch self {
         case .preserveColor:
-            return "Preserve Color"
+            return "ColorPreserveLabel"
         case .dark:
-            return "Dark"
+            return "PresetDarkLabel"
         case .whiteOverlay:
-            return "White"
+            return "PresetWhiteLabel"
         }
     }
 
@@ -100,37 +100,37 @@ enum FocusOverlayMaterial: String, Codable, CaseIterable, Equatable {
         switch self {
         case .hudWindow:
             return NSLocalizedString(
-                "HUD Window Blur",
+                "BlurModeHUDWindowLabel",
                 comment: "Accessibility description for the HUD window blur material option."
             )
         case .menu:
             return NSLocalizedString(
-                "Menu Blur",
+                "BlurModeMenuLabel",
                 comment: "Accessibility description for the menu blur material option."
             )
         case .popover:
             return NSLocalizedString(
-                "Popover Blur",
+                "BlurModePopoverLabel",
                 comment: "Accessibility description for the popover blur material option."
             )
         case .sidebar:
             return NSLocalizedString(
-                "Sidebar Blur",
+                "BlurModeSidebarLabel",
                 comment: "Accessibility description for the sidebar blur material option."
             )
         case .sheet:
             return NSLocalizedString(
-                "Sheet Blur",
+                "BlurModeSheetLabel",
                 comment: "Accessibility description for the sheet blur material option."
             )
         case .fullScreenUI:
             return NSLocalizedString(
-                "Full Screen Blur",
+                "BlurModeFullScreenLabel",
                 comment: "Accessibility description for the full-screen blur material option."
             )
         case .windowBackground:
             return NSLocalizedString(
-                "Window Background Blur",
+                "BlurModeWindowBackgroundLabel",
                 comment: "Accessibility description for the window background blur material option."
             )
         }

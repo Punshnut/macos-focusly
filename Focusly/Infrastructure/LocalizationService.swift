@@ -112,8 +112,8 @@ final class LocalizationService: ObservableObject {
         var options: [LanguageOption] = []
 
         let systemTitle = translator(
-            "Follow macOS Language (Default)",
-            "Follow macOS Language (Default)"
+            "PrefsLanguageSystemOptionLabel",
+            "PrefsLanguageSystemOptionLabel"
         )
         options.append(LanguageOption(
             id: LanguageOption.systemID,

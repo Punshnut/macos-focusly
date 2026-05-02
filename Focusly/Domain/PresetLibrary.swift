@@ -5,13 +5,13 @@ struct PresetLibrary {
     @MainActor static var presets: [FocusPreset] {
         let localization = LocalizationService.shared
         return [
-            FocusPreset(id: "focus", name: localization.localized("Smart Blur", fallback: "Smart Blur"), style: .blurFocus),
-            FocusPreset(id: "warm", name: localization.localized("Warm", fallback: "Warm"), style: .warm),
-            FocusPreset(id: "dark", name: localization.localized("Dark", fallback: "Dark"), style: .dark),
-            FocusPreset(id: "white", name: localization.localized("White", fallback: "White"), style: .whiteOverlay),
-            FocusPreset(id: "paper", name: localization.localized("Paper", fallback: "Paper"), style: .paper),
-            FocusPreset(id: "moss", name: localization.localized("Moss", fallback: "Moss"), style: .moss),
-            FocusPreset(id: "colorful", name: localization.localized("Ocean", fallback: "Ocean"), style: .colorful)
+            FocusPreset(id: "focus", name: localization.localized("PresetSmartBlurLabel", fallback: "PresetSmartBlurLabel"), style: .blurFocus),
+            FocusPreset(id: "warm", name: localization.localized("PresetWarmLabel", fallback: "PresetWarmLabel"), style: .warm),
+            FocusPreset(id: "dark", name: localization.localized("PresetDarkLabel", fallback: "PresetDarkLabel"), style: .dark),
+            FocusPreset(id: "white", name: localization.localized("PresetWhiteLabel", fallback: "PresetWhiteLabel"), style: .whiteOverlay),
+            FocusPreset(id: "paper", name: localization.localized("PresetPaperLabel", fallback: "PresetPaperLabel"), style: .paper),
+            FocusPreset(id: "moss", name: localization.localized("PresetMossLabel", fallback: "PresetMossLabel"), style: .moss),
+            FocusPreset(id: "colorful", name: localization.localized("PresetOceanLabel", fallback: "PresetOceanLabel"), style: .colorful)
         ]
     }
 

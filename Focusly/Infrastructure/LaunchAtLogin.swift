@@ -93,7 +93,7 @@ final class LaunchAtLoginManager: LaunchAtLoginManaging {
     /// Returns a localized explanation for why launch-at-login cannot be toggled.
     private func unavailableMessage() -> String {
         localization.localized(
-            "Launch at Login requires Focusly to run from a signed app bundle. Build and run the app bundle instead of the command-line target to enable this option.",
+            "PrefsLaunchAtLoginUnsignedBuildText",
             fallback: "Launch at Login requires Focusly to run from a signed app bundle. Build and run the app bundle instead of the command-line target to enable this option."
         )
     }

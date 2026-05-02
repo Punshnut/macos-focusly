@@ -512,7 +512,7 @@ private enum KeyTransformer {
         case 35: return "P"
         case 49:
             return NSLocalizedString(
-                "Space",
+                "ShortcutSpaceKeyLabel",
                 tableName: nil,
                 bundle: .module,
                 value: "Space",

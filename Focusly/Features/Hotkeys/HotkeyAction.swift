@@ -11,9 +11,9 @@ enum HotkeyAction: Int, CaseIterable, Identifiable {
     var preferenceTitleKey: String {
         switch self {
         case .overlayToggle:
-            return "Hotkeys.Overlay.Toggle.Title"
+            return "HotkeyOverlayToggleTitle"
         case .maskingModeToggle:
-            return "Hotkeys.Masking.Toggle.Title"
+            return "HotkeyMaskingToggleTitle"
         }
     }
 
@@ -31,9 +31,9 @@ enum HotkeyAction: Int, CaseIterable, Identifiable {
     var preferenceDescriptionKey: String {
         switch self {
         case .overlayToggle:
-            return "Hotkeys.Overlay.Toggle.Description"
+            return "HotkeyOverlayToggleDescription"
         case .maskingModeToggle:
-            return "Hotkeys.Masking.Toggle.Description"
+            return "HotkeyMaskingToggleDescription"
         }
     }
 

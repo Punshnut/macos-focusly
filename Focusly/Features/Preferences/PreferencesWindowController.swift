@@ -40,8 +40,8 @@ final class PreferencesWindowController: NSWindowController {
             defer: false
         )
         window.title = localization.localized(
-            "Focusly Preferences",
-            fallback: "Focusly Preferences"
+            "PreferencesWindowTitle",
+            fallback: "PreferencesWindowTitle"
         )
         window.titlebarAppearsTransparent = true
         window.titleVisibility = .hidden
@@ -189,8 +189,8 @@ final class PreferencesWindowController: NSWindowController {
     private func updateWindowTitle() {
         guard let window else { return }
         window.title = localization.localized(
-            "Focusly Preferences",
-            fallback: "Focusly Preferences"
+            "PreferencesWindowTitle",
+            fallback: "PreferencesWindowTitle"
         )
     }
 
